@@ -1,0 +1,33 @@
+# ==============================================================================
+# CHATBOX 2.0 — REQUIREMENTS
+# Danh sách thư viện bắt buộc để cài đặt và chạy ứng dụng trên máy mới
+# ==============================================================================
+
+# Giao diện người dùng Web (User Interfaces)
+streamlit>=1.30.0
+gradio>=4.0.0
+
+# Cơ sở dữ liệu Vector & Tìm kiếm Lexical
+chromadb>=0.4.22
+rank-bm25>=0.2.2
+
+# Xử lý ngôn ngữ tự nhiên & Mô hình Embedding (NLP & Transformers)
+torch>=2.0.0
+transformers>=4.36.0
+sentence-transformers>=2.2.0
+
+# Tích hợp LLM & Điều phối RAG Pipeline
+langchain-core>=0.1.0
+langchain-ollama>=0.0.1
+requests>=2.28.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Trích xuất và nạp tài liệu đa định dạng (Batch Multi-File Ingestion)
+pymupdf>=1.23.0
+pypdf>=3.17.0
+openpyxl>=3.1.0
+
+# Xử lý dữ liệu & Tiện ích tính toán
+numpy>=1.24.0
+tqdm>=4.66.0

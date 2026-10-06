@@ -1,0 +1,33 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "1. Khởi chạy Web App (Streamlit)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit",
+            "args": [
+                "run",
+                "${workspaceFolder}/src/ui/app.py"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "2. Khởi chạy Terminal CLI",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/ui/cli.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "3. Chạy Unit Tests (Kiểm thử)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/test_all_unittest.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

@@ -1,0 +1,52 @@
+# ==============================================================================
+# CHATBOX 2.0 — .GITIGNORE
+# Loại trừ các file môi trường ảo, file tạm, cache và dữ liệu riêng biệt của máy
+# ==============================================================================
+
+# 1. Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# 2. Virtual Environments (Môi trường ảo Python - Nhiều GB, máy mới tự tạo)
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 3. Thư mục Scratch & Dữ liệu cache thử nghiệm
+scratch/
+temp_test_batch/
+cached_embs.pkl
+*.log
+
+# 4. Kiểm thử & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 5. Dữ liệu nhị phân cũ / tệp upload tạm
+data/processed/embeddings.npy
+data/raw/upload_*
+data/raw/tonghop.xlsx
+
+# 6. Cơ sở dữ liệu Vector cục bộ (Tự động tạo trên máy mới từ qa_records.jsonl)
+chroma_db/
+
+# 7. Thư mục repo tham khảo cũ (Đã tích hợp trọn vẹn vào src/)
+rag-chatbot-main/
+
+# 8. Cấu hình cục bộ IDE & Hệ điều hành
+.vscode/settings.json
+.vscode/*.log
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
