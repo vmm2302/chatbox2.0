@@ -14,6 +14,7 @@ import time
 from typing import Generator, List, Optional, Tuple
 
 from config.settings import settings
+from src.chat.exception_handler import ExceptionHandler
 from src.chat.topic_tracker import TopicTracker
 from src.core.models import ChatResponse, QARecord, ResponseMode, RetrievalCandidate
 from src.data.loader import QALoader
@@ -39,7 +40,11 @@ class ChatEngine:
         intent_classifier: Optional[PhoBERTIntentClassifier] = None,
         llm_client: Optional[OllamaClient] = None,
         tracker: Optional[TopicTracker] = None,
+        exception_handler: Optional[ExceptionHandler] = None,
     ):
+        # 0. Bộ xử lý ngoại lệ và chào hỏi xã giao
+        self.exception_handler = exception_handler or ExceptionHandler()
+
         # 1. Nạp tri thức Q&A
         if records is None:
             loader = QALoader()
@@ -91,7 +96,27 @@ class ChatEngine:
 
         self.warm_up()
 
-        # Bước 1: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
+        # Bước 1: Kiểm tra Ý định Ngoại lệ & Giao tiếp xã giao (Exception & Chitchat Gate)
+        exc_match = self.exception_handler.match(clean_query)
+        if exc_match:
+            intent_name, resp_text = exc_match
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            self.tracker.add_turn(
+                user_query=clean_query,
+                resolved_query=clean_query,
+                intent=intent_name.upper(),
+                active_word=self.tracker.active_word,
+                answer=resp_text,
+                mode="EXCEPTION_MATCH"
+            )
+            return ChatResponse(
+                answer=resp_text,
+                mode="EXCEPTION_MATCH",
+                intent=intent_name.upper(),
+                latency_ms=round(elapsed_ms, 2)
+            )
+
+        # Bước 2: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
         resolved_query, target_word, is_follow_up, is_ambiguous = self.tracker.resolve_query(clean_query)
 
         # Bước 2: Xử lý trạng thái MƠ HỒ (Thiếu từ vựng và chưa có active_word)
@@ -275,7 +300,29 @@ class ChatEngine:
 
         self.warm_up()
 
-        # Bước 1: Quản lý ngữ cảnh
+        # Bước 1: Kiểm tra Ý định Ngoại lệ & Giao tiếp xã giao (Exception & Chitchat Gate)
+        exc_match = self.exception_handler.match(clean_query)
+        if exc_match:
+            intent_name, resp_text = exc_match
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            self.tracker.add_turn(
+                user_query=clean_query,
+                resolved_query=clean_query,
+                intent=intent_name.upper(),
+                active_word=self.tracker.active_word,
+                answer=resp_text,
+                mode="EXCEPTION_MATCH"
+            )
+            resp = ChatResponse(
+                answer=resp_text,
+                mode="EXCEPTION_MATCH",
+                intent=intent_name.upper(),
+                latency_ms=round(elapsed_ms, 2)
+            )
+            yield resp.answer, resp
+            return
+
+        # Bước 2: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
         resolved_query, target_word, is_follow_up, is_ambiguous = self.tracker.resolve_query(clean_query)
 
         # Bước 2: Kiểm tra MƠ HỒ

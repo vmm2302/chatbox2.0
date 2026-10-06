@@ -23,6 +23,7 @@ class Settings:
     RAW_EXCEL_FILENAME: str = "datahotrohoctuvungtienganhtuA1-B2fix.xlsx"
     RAW_EXCEL_PATH: Path = RAW_DATA_DIR / RAW_EXCEL_FILENAME
     PROCESSED_JSONL_PATH: Path = PROCESSED_DATA_DIR / "qa_records.jsonl"
+    EXCEPTION_INTENTS_PATH: Path = BASE_DIR / "config" / "exception_intent.json"
 
     # Cấu hình ChromaDB
     CHROMA_COLLECTION_NAME: str = "english_vocab_master"

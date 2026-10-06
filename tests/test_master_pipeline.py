@@ -211,6 +211,37 @@ class TestMasterPipelineEndToEnd(unittest.TestCase):
             self.engine.retriever.retrieve = orig_retrieve
             self.engine.llm_client.generate_with_langchain = orig_generate
 
+    def test_scenario_9_exception_intents(self):
+        """Kịch bản 9: Kiểm tra các ý định ngoại lệ, chào hỏi và xã giao (Exception & Chitchat Gate)."""
+        test_cases = [
+            ("Xin chào", "GREETING"),
+            ("Chào bạn", "GREETING"),
+            ("Cảm ơn bạn", "THANKS"),
+            ("Tạm biệt", "GOODBYE"),
+            ("Bạn là ai?", "CHATBOT_IDENTITY"),
+            ("Bạn có thể làm gì?", "CHATBOT_CAPABILITIES"),
+        ]
+        for query, expected_intent in test_cases:
+            with self.subTest(query=query):
+                resp = self.engine.ask(query)
+                self.assertEqual(resp.mode, "EXCEPTION_MATCH")
+                self.assertEqual(resp.intent, expected_intent)
+                self.assertTrue(len(resp.answer) > 0)
+
+    def test_scenario_10_exception_stream(self):
+        """Kịch bản 10: Kiểm tra phản hồi stream đối với câu hỏi ngoại lệ."""
+        final_resp = None
+        collected = []
+        for chunk, resp in self.engine.ask_stream("Bạn là ai?"):
+            collected.append(chunk)
+            if resp:
+                final_resp = resp
+
+        self.assertIsNotNone(final_resp)
+        self.assertEqual(final_resp.mode, "EXCEPTION_MATCH")
+        self.assertEqual(final_resp.intent, "CHATBOT_IDENTITY")
+        self.assertTrue(len(final_resp.answer) > 0)
+
 
 if __name__ == "__main__":
     unittest.main()

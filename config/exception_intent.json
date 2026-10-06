@@ -1,0 +1,180 @@
+{
+  "name": "vocabulary_chatbot_exceptions",
+  "language": "vi",
+  "intents": [
+    {
+      "intent": "greeting",
+      "description": "",
+      "examples": [
+        "Xin chào",
+        "Chào bạn",
+        "Hello",
+        "Hi"
+      ],
+      "response": "Xin chào! Tôi là chatbot hỗ trợ bạn học và tra cứu từ vựng tiếng Anh."
+    },
+    {
+      "intent": "thanks",
+      "description": "",
+      "examples": [
+        "Cảm ơn bạn",
+        "Thanks",
+        "Thank you",
+        "Cảm ơn"
+      ],
+      "response": "Không có gì! Tôi rất vui khi được hỗ trợ bạn học từ vựng tiếng Anh."
+    },
+    {
+      "intent": "goodbye",
+      "description": "",
+      "examples": [
+        "Tạm biệt",
+        "Bye",
+        "Goodbye",
+        "Hẹn gặp lại"
+      ],
+      "response": "Tạm biệt! Chúc bạn học tiếng Anh thật hiệu quả và hẹn gặp lại."
+    },
+    {
+      "intent": "chatbot_identity",
+      "description": "",
+      "examples": [
+        "Bạn là ai?",
+        "Bạn tên gì?",
+        "Bạn có phải người thật không?",
+        "Bạn là AI phải không?"
+      ],
+      "response": "Tôi là chatbot AI hỗ trợ học từ vựng tiếng Anh, giúp tra cứu nghĩa, phát âm, loại từ, trình độ và đưa raví dụ."
+    },
+    {
+      "intent": "chatbot_capabilities",
+      "description": "",
+      "examples": [
+        "Bạn có thể làm gì?",
+        "Bạn hỗ trợ những gì?",
+        "Tôi có thể hỏi bạn những gì?",
+        "Bạn có thể tra từ không?"
+      ],
+      "response": "Tôi hỗ trợ học từ vựng tiếng Anh, bao gồm nghĩa, loại từ, phát âm, trình độ và ví dụ. Hãy hỏi tôi 1 từ tiếng Anh để bắt đầu."
+    },
+    {
+      "intent": "missing_word",
+      "description": "",
+      "examples": [
+        "Nghĩa là gì?",
+        "Phát âm thế nào?",
+        "Từ này thuộc loại từ gì?",
+        "Cho tôi ví dụ",
+        "Dịch từ này"
+      ],
+      "response": "Bạn vui lòng nhập từ tiếng Anh cụ thể mà bạn muốn tra cứu."
+    },
+    {
+      "intent": "unclear_input",
+      "description": "",
+      "examples": [
+        "asdfgh",
+        "123456789",
+        "?????",
+        "abc xyz",
+        "..."
+      ],
+      "response": "Tôi chưa hiểu yêu cầu của bạn. Vui lòng nhập một từ tiếng Anh hoặc câu hỏi cụ thể liên quan đến từ vựng."
+    },
+    {
+      "intent": "out_of_scope",
+      "description": "",
+      "examples": [
+        "Thời tiết hôm nay thế nào?",
+        "Giá vàng hôm nay bao nhiêu?",
+        "Cho tôi công thức nấu ăn",
+        "Giúp tôi giải phương trình",
+        "Viết code Python cho tôi",
+        "Bạn có thể kể chuyện không?",
+        "Hãy kể một câu chuyện vui",
+        "Bạn có thể chơi cờ với tôi không?",
+        "Hãy kể một câu chuyện cổ tích",
+        "Bạn có thể hát không?",
+        "Hãy kể một câu chuyện hài hước"
+      ],
+      "response": "Xin lỗi, yêu cầu này nằm ngoài phạm vi hỗ trợ. Tôi chỉ hỗ trợ học và tra cứu từ vựng tiếng Anh."
+    },
+    {
+      "intent": "translation_request",
+      "description": "",
+      "examples": [
+        "Dịch giúp tôi",
+        "Dịch câu này",
+        "Dịch sang tiếng Việt",
+        "Bạn dịch giúp được không?"
+      ],
+      "response": "Bạn vui lòng gửi một từ tiếng Anh cụ thể cần dịch."
+    },
+    {
+      "intent": "grammar_request",
+      "description": "",
+      "examples": [
+        "Thì hiện tại đơn là gì?",
+        "Giải thích thì quá khứ đơn",
+        "Câu bị động là gì?",
+        "Phân biệt a và an"
+      ],
+      "response": "Chatbot này tập trung vào học từ vựng tiếng Anh. Bạn có thể gửi một từ để tra nghĩa, loại từ, phát âm, trình độ và ví dụ."
+    },
+    {
+      "intent": "general_learning_request",
+      "description": "",
+      "examples": [
+        "Tôi muốn học tiếng Anh",
+        "Giúp tôi học tiếng Anh",
+        "Tôi muốn học từ mới",
+        "Tôi muốn cải thiện vốn từ"
+      ],
+      "response": "Bạn có thể bắt đầu bằng cách gửi một từ tiếng Anh. Tôi sẽ hỗ trợ nghĩa, loại từ, phát âm, trình độ và ví dụ."
+    },
+    {
+      "intent": "example_request",
+      "description": "",
+      "examples": [
+        "Cho tôi một ví dụ",
+        "Đặt câu với từ này",
+        "Cho tôi câu ví dụ",
+        "Ví dụ sử dụng từ này"
+      ],
+      "response": "Bạn vui lòng gửi từ tiếng Anh cụ thể để tôi cung cấp câu ví dụ và giải thích nghĩa."
+    },
+    {
+      "intent": "pronunciation_request",
+      "description": "",
+      "examples": [
+        "Từ này đọc thế nào?",
+        "Phát âm từ này ra sao?",
+        "Cho tôi phiên âm",
+        "IPA của từ này là gì?"
+      ],
+      "response": "Bạn vui lòng nhập từ tiếng Anh cụ thể để tôi cung cấp cách phát âm và phiên âm."
+    },
+    {
+      "intent": "part_of_speech_request",
+      "description": "",
+      "examples": [
+        "Từ này là danh từ hay động từ?",
+        "Từ này thuộc loại từ gì?",
+        "Đây là tính từ phải không?",
+        "POS của từ này là gì?"
+      ],
+      "response": "Bạn vui lòng nhập từ tiếng Anh cụ thể để tôi xác định loại từ và giải thích nghĩa tương ứng."
+    },
+    {
+      "intent": "unknown_request",
+      "description": "",
+      "examples": [
+        "Giúp tôi với",
+        "Tôi cần trợ giúp",
+        "Tôi có một câu hỏi",
+        "Giải thích giúp tôi"
+      ],
+      "response": "Bạn hãy nhập từ tiếng Anh hoặc câu hỏi từ vựng cụ thể. Tôi sẽ hỗ trợ bạn trong phạm vi học từ vựng tiếng Anh."
+    }
+  ]
+}

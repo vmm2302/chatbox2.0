@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-ResponseMode = Literal["DIRECT_MATCH", "RAG_GENERATION", "CLARIFICATION", "NO_MATCH"]
+ResponseMode = Literal["DIRECT_MATCH", "RAG_GENERATION", "CLARIFICATION", "NO_MATCH", "EXCEPTION_MATCH"]
 IntentType = Literal[
     "DEFINE_VOCAB",
     "GET_EXAMPLE",
