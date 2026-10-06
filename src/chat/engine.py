@@ -15,6 +15,8 @@ from typing import Generator, List, Optional, Tuple
 
 from config.settings import settings
 from src.chat.exception_handler import ExceptionHandler
+from src.chat.query_router import QueryRouter
+from src.chat.small_talk_handler import SmallTalkHandler
 from src.chat.topic_tracker import TopicTracker
 from src.core.models import ChatResponse, QARecord, ResponseMode, RetrievalCandidate
 from src.data.loader import QALoader
@@ -41,9 +43,13 @@ class ChatEngine:
         llm_client: Optional[OllamaClient] = None,
         tracker: Optional[TopicTracker] = None,
         exception_handler: Optional[ExceptionHandler] = None,
+        small_talk_handler: Optional[SmallTalkHandler] = None,
+        query_router: Optional[QueryRouter] = None,
     ):
-        # 0. Bộ xử lý ngoại lệ và chào hỏi xã giao
-        self.exception_handler = exception_handler or ExceptionHandler()
+        # 0. Bộ điều phối Query Router và xử lý Small Talk (Architecture Lock)
+        self.small_talk_handler = small_talk_handler or exception_handler or SmallTalkHandler()
+        self.exception_handler = self.small_talk_handler
+        self.query_router = query_router or QueryRouter(small_talk_handler=self.small_talk_handler)
 
         # 1. Nạp tri thức Q&A
         if records is None:
@@ -96,26 +102,54 @@ class ChatEngine:
 
         self.warm_up()
 
-        # Bước 1: Kiểm tra Ý định Ngoại lệ & Giao tiếp xã giao (Exception & Chitchat Gate)
-        exc_match = self.exception_handler.match(clean_query)
-        if exc_match:
-            intent_name, resp_text = exc_match
+        # Bước 1: Query Router điều phối 3 nhánh (Small Talk, Out of Scope, Vocab Query)
+        routing = self.query_router.route(clean_query, self.tracker)
+
+        # 1.1 NHÁNH SMALL TALK: Phản hồi xã giao không đưa vào Hybrid Retrieval
+        if routing.route_type == "SMALL_TALK":
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            answer = self.small_talk_handler.handle(
+                query=clean_query,
+                intent=routing.intent,
+                template_response=routing.template_response,
+                use_llm=False,
+                llm_client=self.llm_client
+            )
             self.tracker.add_turn(
                 user_query=clean_query,
                 resolved_query=clean_query,
-                intent=intent_name.upper(),
+                intent=routing.intent,
                 active_word=self.tracker.active_word,
-                answer=resp_text,
-                mode="EXCEPTION_MATCH"
+                answer=answer,
+                mode="SMALL_TALK"
             )
             return ChatResponse(
-                answer=resp_text,
-                mode="EXCEPTION_MATCH",
-                intent=intent_name.upper(),
+                answer=answer,
+                mode="SMALL_TALK",
+                intent=routing.intent,
                 latency_ms=round(elapsed_ms, 2)
             )
 
+        # 1.2 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
+        if routing.route_type == "OUT_OF_SCOPE":
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            answer = routing.template_response or settings.OUT_OF_SCOPE_RESPONSE
+            self.tracker.add_turn(
+                user_query=clean_query,
+                resolved_query=clean_query,
+                intent="OUT_OF_SCOPE",
+                active_word=self.tracker.active_word,
+                answer=answer,
+                mode="NO_MATCH"
+            )
+            return ChatResponse(
+                answer=answer,
+                mode="NO_MATCH",
+                intent="OUT_OF_SCOPE",
+                latency_ms=round(elapsed_ms, 2)
+            )
+
+        # 1.3 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
         # Bước 2: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
         resolved_query, target_word, is_follow_up, is_ambiguous = self.tracker.resolve_query(clean_query)
 
@@ -300,28 +334,58 @@ class ChatEngine:
 
         self.warm_up()
 
-        # Bước 1: Kiểm tra Ý định Ngoại lệ & Giao tiếp xã giao (Exception & Chitchat Gate)
-        exc_match = self.exception_handler.match(clean_query)
-        if exc_match:
-            intent_name, resp_text = exc_match
+        # Bước 1: Query Router điều phối 3 nhánh (Small Talk, Out of Scope, Vocab Query)
+        routing = self.query_router.route(clean_query, self.tracker)
+
+        # 1.1 NHÁNH SMALL TALK: Phản hồi xã giao không đưa vào Hybrid Retrieval
+        if routing.route_type == "SMALL_TALK":
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            answer = self.small_talk_handler.handle(
+                query=clean_query,
+                intent=routing.intent,
+                template_response=routing.template_response,
+                use_llm=False,
+                llm_client=self.llm_client
+            )
             self.tracker.add_turn(
                 user_query=clean_query,
                 resolved_query=clean_query,
-                intent=intent_name.upper(),
+                intent=routing.intent,
                 active_word=self.tracker.active_word,
-                answer=resp_text,
-                mode="EXCEPTION_MATCH"
+                answer=answer,
+                mode="SMALL_TALK"
             )
             resp = ChatResponse(
-                answer=resp_text,
-                mode="EXCEPTION_MATCH",
-                intent=intent_name.upper(),
+                answer=answer,
+                mode="SMALL_TALK",
+                intent=routing.intent,
                 latency_ms=round(elapsed_ms, 2)
             )
             yield resp.answer, resp
             return
 
+        # 1.2 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
+        if routing.route_type == "OUT_OF_SCOPE":
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            answer = routing.template_response or settings.OUT_OF_SCOPE_RESPONSE
+            self.tracker.add_turn(
+                user_query=clean_query,
+                resolved_query=clean_query,
+                intent="OUT_OF_SCOPE",
+                active_word=self.tracker.active_word,
+                answer=answer,
+                mode="NO_MATCH"
+            )
+            resp = ChatResponse(
+                answer=answer,
+                mode="NO_MATCH",
+                intent="OUT_OF_SCOPE",
+                latency_ms=round(elapsed_ms, 2)
+            )
+            yield resp.answer, resp
+            return
+
+        # 1.3 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
         # Bước 2: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
         resolved_query, target_word, is_follow_up, is_ambiguous = self.tracker.resolve_query(clean_query)
 

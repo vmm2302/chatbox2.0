@@ -3,7 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-ResponseMode = Literal["DIRECT_MATCH", "RAG_GENERATION", "CLARIFICATION", "NO_MATCH", "EXCEPTION_MATCH"]
+ResponseMode = Literal["DIRECT_MATCH", "RAG_GENERATION", "CLARIFICATION", "NO_MATCH", "EXCEPTION_MATCH", "SMALL_TALK"]
+RouteType = Literal["SMALL_TALK", "VOCAB_QUERY", "OUT_OF_SCOPE"]
 IntentType = Literal[
     "DEFINE_VOCAB",
     "GET_EXAMPLE",
@@ -11,7 +12,15 @@ IntentType = Literal[
     "TRANSLATE_VIE_TO_ENG",
     "FOLLOW_UP",
     "OUT_OF_SCOPE",
-    "AMBIGUOUS"
+    "AMBIGUOUS",
+    "SMALL_TALK",
+    "GREETING",
+    "THANKS",
+    "GOODBYE",
+    "CASUAL_CHAT",
+    "SIMPLE_ACKNOWLEDGEMENT",
+    "CHATBOT_IDENTITY",
+    "CHATBOT_CAPABILITIES"
 ]
 
 

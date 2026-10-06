@@ -211,25 +211,29 @@ class TestMasterPipelineEndToEnd(unittest.TestCase):
             self.engine.retriever.retrieve = orig_retrieve
             self.engine.llm_client.generate_with_langchain = orig_generate
 
-    def test_scenario_9_exception_intents(self):
-        """Kịch bản 9: Kiểm tra các ý định ngoại lệ, chào hỏi và xã giao (Exception & Chitchat Gate)."""
+    def test_scenario_9_small_talk_and_special_queries(self):
+        """Kịch bản 9: Kiểm tra các ý định Small Talk (Greeting, Thanks, Goodbye, Casual Chat, Ack, Bot Profile)."""
         test_cases = [
             ("Xin chào", "GREETING"),
             ("Chào bạn", "GREETING"),
             ("Cảm ơn bạn", "THANKS"),
+            ("Thank you", "THANKS"),
             ("Tạm biệt", "GOODBYE"),
+            ("Bạn khỏe không?", "CASUAL_CHAT"),
+            ("Ok", "SIMPLE_ACKNOWLEDGEMENT"),
+            ("Được rồi", "SIMPLE_ACKNOWLEDGEMENT"),
             ("Bạn là ai?", "CHATBOT_IDENTITY"),
             ("Bạn có thể làm gì?", "CHATBOT_CAPABILITIES"),
         ]
         for query, expected_intent in test_cases:
             with self.subTest(query=query):
                 resp = self.engine.ask(query)
-                self.assertEqual(resp.mode, "EXCEPTION_MATCH")
+                self.assertIn(resp.mode, ["SMALL_TALK", "EXCEPTION_MATCH"])
                 self.assertEqual(resp.intent, expected_intent)
                 self.assertTrue(len(resp.answer) > 0)
 
-    def test_scenario_10_exception_stream(self):
-        """Kịch bản 10: Kiểm tra phản hồi stream đối với câu hỏi ngoại lệ."""
+    def test_scenario_10_small_talk_stream(self):
+        """Kịch bản 10: Kiểm tra phản hồi stream đối với Small Talk câu hỏi ngoại lệ."""
         final_resp = None
         collected = []
         for chunk, resp in self.engine.ask_stream("Bạn là ai?"):
@@ -238,9 +242,36 @@ class TestMasterPipelineEndToEnd(unittest.TestCase):
                 final_resp = resp
 
         self.assertIsNotNone(final_resp)
-        self.assertEqual(final_resp.mode, "EXCEPTION_MATCH")
+        self.assertIn(final_resp.mode, ["SMALL_TALK", "EXCEPTION_MATCH"])
         self.assertEqual(final_resp.intent, "CHATBOT_IDENTITY")
         self.assertTrue(len(final_resp.answer) > 0)
+
+    def test_scenario_11_query_router_three_branches(self):
+        """Kịch bản 11: Kiểm thử phân luồng 3 nhánh theo Architecture Lock:
+        1. Small Talk -> Small Talk Handler
+        2. Vocab Query -> PhoBERT + Hybrid Retrieval + RRF + Qwen
+        3. Out of Scope -> Rejection mà không qua Hybrid Retrieval
+        4. Ambiguous -> Clarification
+        """
+        # Nhánh 1: Small Talk
+        resp_st = self.engine.ask("Xin chào")
+        self.assertEqual(resp_st.mode, "SMALL_TALK")
+        self.assertEqual(resp_st.intent, "GREETING")
+
+        # Nhánh 2: Vocab Query
+        resp_vq = self.engine.ask("abandon nghĩa là gì?")
+        self.assertIn(resp_vq.mode, ["DIRECT_MATCH", "RAG_GENERATION"])
+        self.assertEqual(resp_vq.word, "abandon")
+
+        # Nhánh 3: Out of Scope
+        resp_oos = self.engine.ask("Bitcoin hôm nay bao nhiêu?")
+        self.assertEqual(resp_oos.mode, "NO_MATCH")
+        self.assertEqual(resp_oos.intent, "OUT_OF_SCOPE")
+
+        # Trường hợp mơ hồ thiếu thực thể khi chưa có ngữ cảnh
+        self.engine.tracker.clear()
+        resp_clarify = self.engine.ask("từ này nghĩa gì?")
+        self.assertEqual(resp_clarify.mode, "CLARIFICATION")
 
 
 if __name__ == "__main__":

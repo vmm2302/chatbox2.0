@@ -58,6 +58,48 @@
       "response": "Tôi hỗ trợ học từ vựng tiếng Anh, bao gồm nghĩa, loại từ, phát âm, trình độ và ví dụ. Hãy hỏi tôi 1 từ tiếng Anh để bắt đầu."
     },
     {
+      "intent": "casual_chat",
+      "description": "Các câu hỏi thăm xã giao thông thường",
+      "examples": [
+        "Bạn khỏe không?",
+        "Bạn khỏe không",
+        "Bạn có khỏe không?",
+        "Bạn có khỏe không",
+        "Khỏe không?",
+        "Khỏe không",
+        "Dạo này thế nào?",
+        "Dạo này thế nào",
+        "How are you?",
+        "How are you",
+        "How are you doing?",
+        "How are you doing"
+      ],
+      "response": "Tôi là trợ lý AI học từ vựng tiếng Anh, luôn sẵn sàng hỗ trợ bạn bất cứ lúc nào! Hôm nay bạn muốn tra cứu từ vựng nào?"
+    },
+    {
+      "intent": "simple_acknowledgement",
+      "description": "Các từ xác nhận, đồng thuận ngắn",
+      "examples": [
+        "Ok",
+        "OK",
+        "ok",
+        "Được rồi",
+        "Được rồi bạn",
+        "oke",
+        "oki",
+        "dạ",
+        "vâng",
+        "rõ rồi",
+        "hiểu rồi",
+        "uh",
+        "ừ",
+        "okay",
+        "alright",
+        "yes"
+      ],
+      "response": "Tuyệt vời! Nếu bạn có bất kỳ từ tiếng Anh nào cần tra cứu hoặc giải thích, hãy nhắn cho tôi nhé."
+    },
+    {
       "intent": "missing_word",
       "description": "",
       "examples": [
