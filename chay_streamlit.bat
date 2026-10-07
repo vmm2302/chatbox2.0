@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title Chatbox 2.0 - Streamlit UI (Port 8501)
 color 0B

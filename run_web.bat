@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 > nul
 title Chatbox 2.0 - Giao Diện Chuẩn rag-chatbot-main (Gradio)
 color 0B

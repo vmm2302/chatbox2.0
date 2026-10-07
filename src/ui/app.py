@@ -24,6 +24,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+# Đảm bảo in tiếng Việt có dấu không bị lỗi UnicodeEncodeError trên Windows (cp1252 / Code Runner / CMD)
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Đảm bảo đường dẫn gốc được nhận diện khi chạy trực tiếp
 project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:

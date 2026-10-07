@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 > nul
 title Chatbox 2.0 - Cập Nhật Dữ Liệu Tri Thức Excel
 color 0A
@@ -49,7 +49,7 @@ if "%choice%"=="1" (
 
 if "%choice%"=="2" (
     echo.
-    set /p custom_file="Nhập đường dẫn tệp Excel (ví dụ C:\data\tuvung.xlsx): "
+    set /p custom_file="Nhập đường dẫn tệp Excel [ví dụ C:\data\tuvung.xlsx]: "
     if exist "%custom_file%" (
         echo [*] Đang nạp dữ liệu từ "%custom_file%"...
         "%PYTHON_EXE%" ingest_data.py --file "%custom_file%" --mode append

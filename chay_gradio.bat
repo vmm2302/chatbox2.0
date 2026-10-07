@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title Chatbox 2.0 - Gradio UI (rag-chatbot-main)
 color 0B
