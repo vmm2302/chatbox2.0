@@ -35,12 +35,21 @@ class BM25Retriever:
 
     def _build_index(self) -> None:
         """Xây dựng chỉ mục BM25 từ tập câu hỏi và từ vựng của bản ghi."""
+        if not self.records:
+            self.bm25 = None
+            logger.info("Chỉ mục BM25 rỗng (0 bản ghi).")
+            return
+
         corpus: List[List[str]] = []
         for r in self.records:
             # Kết hợp từ vựng mục tiêu và câu hỏi để tăng độ khớp từ khóa
             doc_text = f"{r.word} {r.question}"
             tokens = tokenize_for_bm25(doc_text)
             corpus.append(tokens)
+
+        if not corpus or all(len(c) == 0 for c in corpus):
+            self.bm25 = None
+            return
 
         self.bm25 = BM25Okapi(corpus)
         logger.info("Đã lập chỉ mục BM25 thành công cho %d văn bản.", len(corpus))
@@ -56,7 +65,7 @@ class BM25Retriever:
         Returns:
             List[Tuple[QARecord, float, int]]: Danh sách (bản ghi, điểm số BM25, thứ hạng rank 1-indexed)
         """
-        if not query.strip() or self.bm25 is None:
+        if not query.strip() or self.bm25 is None or not self.records:
             return []
 
         tokens = tokenize_for_bm25(query)

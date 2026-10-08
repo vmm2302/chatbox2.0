@@ -49,23 +49,36 @@ class LexicalMatcher:
 
     def __init__(self, records: List[QARecord]):
         self.records = records
+        self._rebuild_maps()
+
+    def reload(self, new_records: List[QARecord]) -> None:
+        """Cập nhật lại các bảng tra cứu từ tập bản ghi mới."""
+        self.records = new_records
+        self._rebuild_maps()
+
+    def _rebuild_maps(self) -> None:
+        """Xây dựng lại các bản đồ ánh xạ phục vụ so khớp nhanh."""
         # Ánh xạ câu hỏi gốc viết thường -> QARecord
         self.exact_map: Dict[str, QARecord] = {
-            r.question.strip().lower(): r for r in records
+            r.question.strip().lower(): r for r in self.records
         }
         # Ánh xạ câu hỏi đã chuẩn hóa (bỏ dấu tiếng Việt) -> QARecord
         self.normalized_map: Dict[str, QARecord] = {
-            r.normalized_question: r for r in records if r.normalized_question
+            r.normalized_question: r for r in self.records if r.normalized_question
         }
-        # Chỉ mục từ tiếng Anh trong sheet danhsachtutienganhA1-B2
+        # Chỉ mục từ tiếng Anh trong sheet danhsachtutienganhA1-B2 hoặc bản ghi từ vựng
         self.vocab_en_map: Dict[str, QARecord] = {}
-        for r in records:
+        for r in self.records:
             if r.sheet == "danhsachtutienganhA1-B2" or r.sheet == "DICTIONARY_ENTRIES":
                 # Trích xuất từ vựng từ mẫu: "{word} nghĩa là gì?"
                 m = re.match(r"^([a-zA-Z0-9_\s,\-]+)\s+nghĩa là gì", r.question, re.IGNORECASE)
                 if m:
                     word = m.group(1).strip().lower()
                     self.vocab_en_map[word] = r
+            if r.word and r.word.lower() not in ("list", ""):
+                w = r.word.strip().lower()
+                if w not in self.vocab_en_map:
+                    self.vocab_en_map[w] = r
 
     @staticmethod
     def _calculate_token_jaccard(tokens1: List[str], tokens2: List[str]) -> float:
@@ -112,10 +125,20 @@ class LexicalMatcher:
                 method="CORE_NORMALIZED_EXACT"
             )
 
-        # 4. So khớp mẫu tra nghĩa từ vựng: "từ [X] là gì", "nghĩa của [X]", "[X] có nghĩa là gì"
+        # 4. So khớp mẫu tra nghĩa từ vựng: "từ [X] là gì", "nghĩa của [X]", "[X] có nghĩa là gì", "[X] trong tiếng việt có nghĩa là gì"
         patterns = [
+            # Mẫu: "nghĩa của [X]?", "nghĩa từ [X]?", "nghĩa của từ [X]?"
+            r"^(?:nghĩa của từ|nghĩa của|nghĩa từ)\s+([a-zA-Z0-9_\-]+?)\??$",
+            # Mẫu: "[từ] [X] [trong tiếng việt/tiếng anh] [có] nghĩa là gì / là gì / nghĩa sao"
+            r"^(?:từ\s+|từ vựng\s+)?([a-zA-Z0-9_\-]+?)(?:\s+(?:trong|ở|sang)\s+tiếng\s+(?:việt|anh))?\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\??$",
+            # Mẫu đảo: "[trong tiếng việt/tiếng anh] [từ] [X] [có] nghĩa là gì"
+            r"^(?:trong|ở)\s+tiếng\s+(?:việt|anh)\s+(?:từ\s+|từ vựng\s+)?([a-zA-Z0-9_\-]+?)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\??$",
+            # Mẫu chung mở rộng
             r"^(?:từ|nghĩa của từ|nghĩa của)?\s*([a-zA-Z0-9_\s,\-]+?)\s*(?:nghĩa là gì|có nghĩa là gì|là gì|nghĩa sao)\??$",
-            r"^([a-zA-Z0-9_\s,\-]+?)\s+(?:nghĩa là gì|có nghĩa là gì|là gì)\??$"
+            r"^([a-zA-Z0-9_\s,\-]+?)\s+(?:nghĩa là gì|có nghĩa là gì|là gì)\??$",
+            # Mẫu tiếng Anh: "what does [X] mean [in vietnamese]?", "meaning of [X]?"
+            r"^(?:what\s+does\s+)([a-zA-Z0-9_\-]+?)(?:\s+mean(?:\s+in\s+vietnamese)?)\??$",
+            r"^(?:what\s+is\s+the\s+meaning\s+of\s+|meaning\s+of\s+)([a-zA-Z0-9_\-]+?)\??$"
         ]
         for pat in patterns:
             match = re.match(pat, core_query)

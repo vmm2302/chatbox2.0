@@ -69,19 +69,25 @@ class TopicTracker:
         self.active_intent: Optional[str] = None
         self.history: List[ConversationTurn] = []
         self.max_history_turns = max_history_turns
+        self.vocab_words: Set[str] = set()
         self.known_words: Set[str] = set()
 
         if records:
             self.load_known_words(records)
 
     def load_known_words(self, records: List[QARecord]) -> None:
-        """Tải danh sách các từ vựng hợp lệ từ dataset vào bộ nhớ tìm kiếm O(1)."""
-        self.known_words = {
+        """Tải danh sách các từ vựng và từ khóa hợp lệ từ dataset vào bộ nhớ tìm kiếm O(1)."""
+        self.vocab_words = {
             r.word.strip().lower()
             for r in records
-            if r.word and len(r.word.strip()) > 1
+            if r.word and len(r.word.strip()) > 1 and bool(re.search(r"[a-zA-Z]", r.word))
         }
-        logger.info("TopicTracker đã nạp %d từ vựng hợp lệ từ bộ dữ liệu.", len(self.known_words))
+        self.known_words = set(self.vocab_words)
+        for r in records:
+            for token in re.findall(r"\b\w+\b", r.question.lower()):
+                if len(token) > 1 and token not in VIETNAMESE_STOPWORDS:
+                    self.known_words.add(token)
+        logger.info("TopicTracker đã nạp %d từ vựng tiếng Anh và %d từ khóa hợp lệ.", len(self.vocab_words), len(self.known_words))
 
     def extract_target_word(self, query: str) -> Optional[str]:
         """Trích xuất từ tiếng Anh mục tiêu từ câu hỏi của người dùng."""
@@ -91,11 +97,19 @@ class TopicTracker:
 
         clean_lower = clean.lower()
 
-        # 1. Ưu tiên kiểm tra với tập từ vựng chuẩn trong Dataset (known_words)
+        # 0. Ưu tiên kiểm tra các mẫu câu định nghĩa phổ biến
+        # Ví dụ: "nghĩa của [word]?", "nghĩa từ [word]?"
+        meaning_match = re.search(r"(?:nghĩa của|nghĩa từ|nghĩa của từ)\s+([a-zA-Z0-9_\-]+)", clean_lower)
+        if meaning_match:
+            cand = meaning_match.group(1).strip()
+            if cand not in VIETNAMESE_STOPWORDS:
+                return cand
+
+        # 1. Ưu tiên kiểm tra với tập từ vựng tiếng Anh chuẩn trong Dataset (vocab_words)
         # Sắp xếp theo độ dài giảm dần để ưu tiên từ ghép như 'hard-working', 'give up'
-        if self.known_words:
-            sorted_known = sorted(self.known_words, key=len, reverse=True)
-            for kw in sorted_known:
+        if self.vocab_words:
+            sorted_vocab = sorted(self.vocab_words, key=len, reverse=True)
+            for kw in sorted_vocab:
                 pattern = r"(?:\b|\W)" + re.escape(kw) + r"(?:\b|\W)"
                 if re.search(pattern, f" {clean_lower} "):
                     return kw

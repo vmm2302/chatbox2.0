@@ -181,6 +181,7 @@ class BatchIngestionManager:
     def ingest_batch(
         self,
         files: List[Path],
+        mode: str = "add",
         progress_callback: Optional[Callable[[str, float, FileIngestionResult], None]] = None,
         batch_size: int = 16,
     ) -> BatchIngestionReport:
@@ -188,6 +189,7 @@ class BatchIngestionManager:
 
         Args:
             files: Danh sách đường dẫn tệp cần nạp.
+            mode: "add" (bổ sung / update theo ID) hoặc "replace" (xóa làm mới toàn bộ).
             progress_callback: Hàm nhận callback (thông_điệp, tiến_độ_0_đến_1, kết_quả_tệp_hiện_tại).
             batch_size: Kích thước batch embedding BGE-M3 (an toàn cho CPU/RAM).
 
@@ -197,23 +199,31 @@ class BatchIngestionManager:
         batch_start_time = time.perf_counter()
         total_files = len(files)
         file_results: List[FileIngestionResult] = []
+        is_replace = (mode.lower() == "replace")
 
-        # 1. Đọc dữ liệu hiện có để phục vụ kiểm tra trùng lặp bản ghi
+        # 1. Đọc dữ liệu hiện có hoặc khởi tạo tập rỗng khi REPLACE
         existing_records: List[QARecord] = []
-        if self.loader.processed_jsonl_path.exists():
-            try:
-                existing_records = self.loader.load_from_jsonl()
-            except Exception:
-                existing_records = []
+        manifest = self.load_manifest()
 
-        existing_signatures: Set[Tuple[str, str]] = {
-            (r.question.strip().lower(), r.answer.strip().lower())
+        if is_replace:
+            existing_records = []
+            manifest["sources"] = {}
+        else:
+            if self.loader.processed_jsonl_path.exists():
+                try:
+                    existing_records = self.loader.load_from_jsonl()
+                except Exception:
+                    existing_records = []
+
+        existing_by_id: Dict[str, Tuple[int, QARecord]] = {
+            r.record_id: (idx, r) for idx, r in enumerate(existing_records) if r.record_id
+        }
+        existing_signatures: Dict[Tuple[str, str], str] = {
+            (r.question.strip().lower(), r.answer.strip().lower()): r.record_id
             for r in existing_records
         }
-        existing_ids: Set[str] = {r.record_id for r in existing_records}
 
         newly_accumulated_records: List[QARecord] = []
-        manifest = self.load_manifest()
         sources_dict = manifest.setdefault("sources", {})
         seen_batch_hashes: Dict[str, str] = {}
 
@@ -250,22 +260,23 @@ class BatchIngestionManager:
             f_res.file_hash = val_res.file_hash
             f_res.file_size_bytes = val_res.file_size_bytes
 
-            # Bước 2.2: Kiểm tra tệp trùng lặp (Duplicate File Check)
-            duplicate_src_name = seen_batch_hashes.get(val_res.file_hash)
-            if not duplicate_src_name:
-                duplicate_src = self.is_duplicate_file(val_res.file_hash)
-                if duplicate_src:
-                    duplicate_src_name = duplicate_src.get("file_name")
+            # Bước 2.2: Kiểm tra tệp trùng lặp (Duplicate File Check) - chỉ áp dụng khi không phải replace
+            if not is_replace:
+                duplicate_src_name = seen_batch_hashes.get(val_res.file_hash)
+                if not duplicate_src_name:
+                    duplicate_src = self.is_duplicate_file(val_res.file_hash)
+                    if duplicate_src:
+                        duplicate_src_name = duplicate_src.get("file_name")
 
-            if duplicate_src_name:
-                f_res.status = FileStatus.SKIPPED
-                f_res.reason = f"Duplicate file: Trùng nội dung với tệp '{duplicate_src_name}' đã nạp."
-                f_res.action = "Bỏ qua tệp để tránh nhân bản dữ liệu."
-                f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
-                file_results.append(f_res)
-                if progress_callback:
-                    progress_callback(f"Bỏ qua {file_path.name} (Trùng tệp)", pct, f_res)
-                continue
+                if duplicate_src_name:
+                    f_res.status = FileStatus.SKIPPED
+                    f_res.reason = f"Duplicate file: Trùng nội dung với tệp '{duplicate_src_name}' đã nạp."
+                    f_res.action = "Bỏ qua tệp để tránh nhân bản dữ liệu."
+                    f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
+                    file_results.append(f_res)
+                    if progress_callback:
+                        progress_callback(f"Bỏ qua {file_path.name} (Trùng tệp)", pct, f_res)
+                    continue
 
             seen_batch_hashes[val_res.file_hash] = file_path.name
 
@@ -275,7 +286,7 @@ class BatchIngestionManager:
                 raw_extracted = self.router.load_file(
                     file_path=file_path,
                     file_hash=val_res.file_hash,
-                    start_index=len(existing_records) + len(newly_accumulated_records) + 1
+                    start_index=len(existing_records) + 1
                 )
             except Exception as err:
                 f_res.status = FileStatus.FAILED
@@ -298,20 +309,34 @@ class BatchIngestionManager:
                     progress_callback(f"Không có bản ghi trong {file_path.name}", pct, f_res)
                 continue
 
-            # Bước 2.4: Kiểm tra trùng lặp bản ghi nội dung (Duplicate Records Filtering)
+            # Bước 2.4: Phân loại theo Stable ID (ADD / UPDATE / DUPLICATE)
             file_valid_records: List[QARecord] = []
             for r in raw_extracted:
+                # 1. Nếu ID đã tồn tại trong KB -> UPDATE / OVERWRITE
+                if r.record_id and r.record_id in existing_by_id:
+                    old_idx, old_r = existing_by_id[r.record_id]
+                    old_sig = (old_r.question.strip().lower(), old_r.answer.strip().lower())
+                    existing_signatures.pop(old_sig, None)
+
+                    existing_records[old_idx] = r
+                    new_sig = (r.question.strip().lower(), r.answer.strip().lower())
+                    existing_signatures[new_sig] = r.record_id
+                    existing_by_id[r.record_id] = (old_idx, r)
+                    file_valid_records.append(r)
+                    continue
+
+                # 2. Nếu trùng hoàn toàn nội dung mà không có ID mới -> Bỏ qua duplicate
                 sig = (r.question.strip().lower(), r.answer.strip().lower())
                 if sig in existing_signatures:
                     f_res.duplicates_skipped += 1
                     continue
 
-                # Đảm bảo record_id không trùng
-                if r.record_id in existing_ids:
-                    r.record_id = f"BATCH_{len(existing_ids) + 1:04d}"
-
-                existing_signatures.add(sig)
-                existing_ids.add(r.record_id)
+                # 3. ID mới và nội dung mới -> ADD
+                new_idx = len(existing_records)
+                existing_signatures[sig] = r.record_id
+                if r.record_id:
+                    existing_by_id[r.record_id] = (new_idx, r)
+                existing_records.append(r)
                 file_valid_records.append(r)
 
             if not file_valid_records:
@@ -333,30 +358,32 @@ class BatchIngestionManager:
             newly_accumulated_records.extend(file_valid_records)
             file_results.append(f_res)
 
-        # 3. Lập chỉ mục ChromaDB & BM25 đồng nhất (Batch Indexing)
+        # 3. Lập chỉ mục ChromaDB & BM25 đồng nhất (Batch Indexing & Sync)
         chromadb_status = "UNCHANGED"
         bm25_status = "UNCHANGED"
 
-        if newly_accumulated_records:
+        if newly_accumulated_records or is_replace:
             if progress_callback:
                 progress_callback(
-                    f"Đang lập chỉ mục vector BGE-M3 cho {len(newly_accumulated_records)} bản ghi mới...",
+                    f"Đang đồng bộ cơ sở dữ liệu ({len(existing_records)} bản ghi)...",
                     0.85,
                     None
                 )
 
             try:
-                # 3.1. Thêm vector vào ChromaDB
-                bge_retriever = BGEChromaRetriever(existing_records + newly_accumulated_records)
-                added_vecs = bge_retriever.add_records(newly_accumulated_records, batch_size=batch_size)
+                # 3.1. Đồng bộ ChromaDB
+                bge_retriever = BGEChromaRetriever(existing_records)
+                if is_replace:
+                    bge_retriever.build_or_load_collection(force_reindex=True)
+                else:
+                    bge_retriever.upsert_records(newly_accumulated_records, batch_size=batch_size)
                 chromadb_status = "UPDATED"
 
                 # 3.2. Cập nhật qa_records.jsonl
-                all_records = existing_records + newly_accumulated_records
-                self.loader.save_to_jsonl(all_records)
+                self.loader.save_to_jsonl(existing_records)
 
                 # 3.3. Tái lập chỉ mục BM25
-                bm25_retriever = BM25Retriever(all_records)
+                bm25_retriever = BM25Retriever(existing_records)
                 bm25_status = "UPDATED"
 
                 # 3.4. Đánh dấu trạng thái SUCCESS cho các tệp đã index
@@ -565,4 +592,77 @@ class BatchIngestionManager:
             "status": "SUCCESS",
             "message": f"Đã tái lập chỉ mục toàn bộ {len(all_records):,} bản ghi.",
             "total": len(all_records)
+        }
+
+    def delete_record(self, record_id: str) -> Dict[str, Any]:
+        """Xóa 1 bản ghi duy nhất và đồng bộ tuyệt đối giữa Source JSONL, ChromaDB và BM25."""
+        all_records = self.loader.load_from_jsonl() if self.loader.processed_jsonl_path.exists() else []
+        found = False
+        remaining = []
+        for r in all_records:
+            if r.record_id == record_id:
+                found = True
+            else:
+                remaining.append(r)
+
+        if not found:
+            return {
+                "status": "NOT_FOUND",
+                "message": f"Không tìm thấy bản ghi với record_id: '{record_id}'",
+                "deleted": False,
+                "remaining_count": len(all_records),
+                "synced": True
+            }
+
+        # 1. Xóa trong ChromaDB
+        bge_retriever = BGEChromaRetriever(all_records)
+        bge_retriever.delete_records([record_id])
+
+        # 2. Cập nhật lại Source JSONL
+        self.loader.save_to_jsonl(remaining)
+
+        # 3. Tái lập chỉ mục BM25
+        bm25_retriever = BM25Retriever(remaining)
+
+        # 4. Cập nhật manifest
+        manifest = self.load_manifest()
+        for sinfo in manifest.get("sources", {}).values():
+            if record_id in sinfo.get("record_ids", []):
+                sinfo["record_ids"].remove(record_id)
+                sinfo["record_count"] = max(0, sinfo.get("record_count", 1) - 1)
+        self.save_manifest(manifest)
+
+        # 5. Kiểm tra tính đồng bộ
+        chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
+        synced = (len(remaining) == chroma_count == len(bm25_retriever.records))
+
+        logger.info("Delete record %s: Còn lại %d (ChromaDB: %d, BM25: %d, Đồng bộ: %s)",
+                    record_id, len(remaining), chroma_count, len(bm25_retriever.records), synced)
+
+        return {
+            "status": "SUCCESS",
+            "message": f"Đã xóa hoàn toàn bản ghi '{record_id}' khỏi hệ thống.",
+            "deleted": True,
+            "remaining_count": len(remaining),
+            "synced": synced
+        }
+
+    def verify_sync(self) -> Dict[str, Any]:
+        """Kiểm tra tính đồng bộ tuyệt đối giữa Source Data, BM25 và ChromaDB."""
+        records = self.loader.load_from_jsonl() if self.loader.processed_jsonl_path.exists() else []
+        bge = BGEChromaRetriever(records)
+        bge.build_or_load_collection()
+        bm25 = BM25Retriever(records)
+
+        jsonl_count = len(records)
+        chroma_count = bge.collection.count() if bge.collection else 0
+        bm25_count = len(bm25.records)
+
+        synced = (jsonl_count == chroma_count == bm25_count)
+        return {
+            "synced": synced,
+            "source_data_count": jsonl_count,
+            "chromadb_count": chroma_count,
+            "bm25_count": bm25_count,
+            "status": "IN_SYNC" if synced else "OUT_OF_SYNC"
         }

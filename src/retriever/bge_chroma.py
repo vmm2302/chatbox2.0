@@ -81,6 +81,9 @@ class BGEChromaRetriever:
             logger.info("Collection '%s' đã có sẵn %d vector. Sẵn sàng sử dụng.", coll_name, existing_count)
             return
 
+        if not self.records:
+            logger.info("ChromaDB khởi tạo ở trạng thái rỗng (0 vector).")
+            return
 
         logger.info("Bắt đầu lập chỉ mục ChromaDB cho %d bản ghi bằng BGE-M3...", len(self.records))
         model = self._get_embedding_model()
@@ -203,6 +206,67 @@ class BGEChromaRetriever:
         )
         return len(records_to_add)
 
+    def upsert_records(self, records: List[QARecord], batch_size: int = 64) -> int:
+        """Cập nhật hoặc thêm mới các bản ghi vector vào ChromaDB (hỗ trợ update/overwrite)."""
+        if not records:
+            return 0
+
+        if self.collection is None:
+            self.collection = self.client.get_or_create_collection(
+                name=settings.CHROMA_COLLECTION_NAME,
+                metadata={"hnsw:space": "cosine"}
+            )
+
+        model = self._get_embedding_model()
+        total = len(records)
+
+        for i in range(0, total, batch_size):
+            batch = records[i:i + batch_size]
+            batch_texts = [
+                f"Câu hỏi: {r.question}. Từ vựng: {r.word}. {r.answer[:250]}"
+                for r in batch
+            ]
+            batch_ids = [r.record_id for r in batch]
+            batch_metadatas = [
+                {
+                    "record_id": r.record_id,
+                    "word": r.word,
+                    "sheet": r.sheet,
+                    "source": r.source,
+                    "level": r.level
+                }
+                for r in batch
+            ]
+
+            batch_embeddings = model.encode(
+                batch_texts,
+                batch_size=len(batch_texts),
+                show_progress_bar=False,
+                normalize_embeddings=True
+            ).tolist()
+
+            self.collection.upsert(
+                ids=batch_ids,
+                embeddings=batch_embeddings,
+                documents=batch_texts,
+                metadatas=batch_metadatas
+            )
+
+        # Cập nhật cache bản ghi
+        for r in records:
+            self.rec_map[r.record_id] = r
+            replaced = False
+            for idx, existing in enumerate(self.records):
+                if existing.record_id == r.record_id:
+                    self.records[idx] = r
+                    replaced = True
+                    break
+            if not replaced:
+                self.records.append(r)
+
+        logger.info("Đã upsert thành công %d vector trong ChromaDB.", len(records))
+        return len(records)
+
     def delete_records(self, record_ids: List[str]) -> int:
         """Xóa các vector tương ứng với danh sách record_id khỏi ChromaDB.
 
@@ -238,7 +302,11 @@ class BGEChromaRetriever:
         Returns:
             List[Tuple[QARecord, float, int]]: Danh sách (bản ghi, điểm similarity cosine, thứ hạng rank 1-indexed)
         """
-        if not query.strip() or self.collection is None:
+        if not query.strip() or self.collection is None or not self.records or self.collection.count() == 0:
+            return []
+
+        n_results = min(top_k, len(self.records), self.collection.count())
+        if n_results <= 0:
             return []
 
         model = self._get_embedding_model()
@@ -247,7 +315,7 @@ class BGEChromaRetriever:
         try:
             results = self.collection.query(
                 query_embeddings=[query_vector],
-                n_results=min(top_k, len(self.records))
+                n_results=n_results
             )
         except Exception as err:
             logger.error("Lỗi khi truy vấn ChromaDB: %s", err)

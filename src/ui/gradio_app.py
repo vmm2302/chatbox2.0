@@ -285,6 +285,12 @@ def create_gradio_app() -> gr.Blocks:
         # ======================================================================
         with gr.Tab("📁 Quản Trị Kho Tri Thức"):
             gr.Markdown("### Quản trị nạp tài liệu hàng loạt (Batch Multi-File Ingestion)")
+            batch_mode = gr.Radio(
+                label="Chế độ nạp (Import Mode):",
+                choices=["ADD", "REPLACE"],
+                value="ADD",
+                info="ADD: Thêm mới / Cập nhật ghi đè bản ghi trùng ID. REPLACE: Xóa toàn bộ kho tri thức cũ và thay bằng tệp mới."
+            )
             batch_uploader = gr.Files(
                 label="Kéo thả hoặc duyệt nhiều tệp từ máy tính:",
                 file_types=[".pdf", ".docx", ".txt", ".csv", ".xlsx", ".json", ".jsonl", ".md"],
@@ -412,7 +418,7 @@ def create_gradio_app() -> gr.Blocks:
             engine.update_knowledge_base(new_records)
             return f"Processing documents completed! Added {rep.total_records_added} records."
 
-        def handle_batch_process(files: List[Any]) -> str:
+        def handle_batch_process(files: List[Any], mode: str = "ADD") -> str:
             if not files:
                 return "⚠️ Vui lòng chọn ít nhất 1 tệp!"
             settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -425,14 +431,14 @@ def create_gradio_app() -> gr.Blocks:
                     shutil.copy2(src_p, dst_p)
                 saved_paths.append(dst_p)
 
-            rep = batch_manager.ingest_batch(saved_paths)
+            rep = batch_manager.ingest_batch(saved_paths, mode=mode.lower())
             new_records = batch_manager.loader.load_from_jsonl()
             engine.update_knowledge_base(new_records)
 
             md = f"""
-### 🎉 Kết Quả Xử Lý Batch: `{rep.batch_status.value}`
+### 🎉 Kết Quả Xử Lý Batch ({mode.upper()}): `{rep.batch_status.value}`
 * **Tổng số tệp:** {rep.total_files} | **Thành công:** {rep.success_count} | **Bỏ qua:** {rep.skipped_count} | **Lỗi:** {rep.failed_count}
-* **Bản ghi nạp mới:** `+{rep.total_records_added:,}` cặp Q&A
+* **Bản ghi nạp mới/cập nhật:** `+{rep.total_records_added:,}` cặp Q&A
 * **Thời gian xử lý:** `{rep.total_elapsed_seconds:.2f}` giây
 """
             return md
@@ -489,7 +495,7 @@ def create_gradio_app() -> gr.Blocks:
 
         process_batch_btn.click(
             handle_batch_process,
-            inputs=[batch_uploader],
+            inputs=[batch_uploader, batch_mode],
             outputs=[batch_report_markdown]
         )
 

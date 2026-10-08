@@ -115,7 +115,9 @@ class DocxLoader(BaseFileLoader):
                                 w = row[w_idx].strip() if w_idx is not None and w_idx < len(row) else ""
                                 lvl = row[lvl_idx].strip().upper() if lvl_idx is not None and lvl_idx < len(row) else ""
                                 ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(q, a)
-                                rec_id = f"DOCX_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+                                custom_id = row[col_map["record_id"]].strip() if "record_id" in col_map and col_map["record_id"] < len(row) else ""
+                                from src.data.loaders.base import generate_stable_record_id
+                                rec_id = generate_stable_record_id(file_path.name, q, custom_id=custom_id or None)
                                 records.append(QARecord(
                                     record_id=rec_id,
                                     word=w or ext_w,
@@ -144,7 +146,8 @@ class DocxLoader(BaseFileLoader):
                 meaning = m.group(2).strip()
                 q = f"{term} nghĩa là gì?"
                 ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(q, meaning)
-                rec_id = f"DOCX_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+                from src.data.loaders.base import generate_stable_record_id
+                rec_id = generate_stable_record_id(file_path.name, q)
                 records.append(QARecord(
                     record_id=rec_id,
                     word=ext_w or term,
@@ -159,7 +162,8 @@ class DocxLoader(BaseFileLoader):
                 ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(p_text, p_text)
                 first_sentence = p_text.split(".")[0][:80].strip()
                 q = f"Thông tin về '{ext_w}' ({section})" if ext_w else f"{section}: {first_sentence}"
-                rec_id = f"DOCX_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+                from src.data.loaders.base import generate_stable_record_id
+                rec_id = generate_stable_record_id(file_path.name, f"{section}:{first_sentence}")
                 records.append(QARecord(
                     record_id=rec_id,
                     word=ext_w,

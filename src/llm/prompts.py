@@ -20,6 +20,22 @@ QUY TẮC CỐT LÕI (BẮT BUỘC TUÂN THỦ TUYỆT ĐỐI):
    - Sử dụng 100% tiếng Việt chuẩn (chữ Quốc ngữ Latinh) và tiếng Anh trong ví dụ.
    - TUYỆT ĐỐI KHÔNG xuất hiện bất kỳ chữ Hán / ký tự tiếng Trung Quốc nào trong câu trả lời.
 6. Diễn đạt ngắn gọn, rõ ràng, lịch sự và chính xác đúng theo ngữ cảnh.
+7. QUY TẮC BẢO TOÀN CẤU TRÚC TỪ VỰNG:
+   - Preserve the semantic structure of the retrieved vocabulary data.
+   - Do not merge separate meanings and examples into the same line.
+   - Render each meaning and its examples on separate lines.
+   - Tuyệt đối không tự thêm nghĩa mới, không tự tạo ví dụ mới, không thay đổi nội dung ví dụ trong dữ liệu.
+   - Định dạng theo mẫu:
+     **Trình độ:** <level>
+     **Phát âm:** <pronunciation>
+
+     ### <Từ loại (Part of Speech)>
+
+     **1. <Nghĩa 1>**
+     • <Ví dụ 1>
+
+     **2. <Nghĩa 2>**
+     • <Ví dụ 2>
 """.format(out_of_scope_message=settings.OUT_OF_SCOPE_RESPONSE)
 
 # Bí danh tương thích cho giao diện cấu hình
@@ -52,7 +68,8 @@ def build_rag_prompt(query: str, contexts: List[RetrievalResult]) -> List[dict]:
         f"{joined_context}\n"
         f"-----------------------------------------\n"
         f"[CÂU HỎI CỦA NGƯỜI DÙNG]: {query}\n\n"
-        f"Hãy trả lời câu hỏi của người dùng CHỈ DỰA VÀO các thông tin có trong ngữ cảnh trên."
+        f"Hãy trả lời câu hỏi của người dùng CHỈ DỰA VÀO các thông tin có trong ngữ cảnh trên. "
+        f"Bảo toàn cấu trúc từ vựng, không gộp nghĩa và ví dụ vào cùng một dòng."
     )
 
     return [
@@ -70,7 +87,8 @@ def get_langchain_prompt_template() -> ChatPromptTemplate:
             "{context}\n"
             "-----------------------------------------\n"
             "[CÂU HỎI CỦA NGƯỜI DÙNG]: {question}\n\n"
-            "Hãy trả lời câu hỏi của người dùng CHỈ DỰA VÀO các thông tin có trong ngữ cảnh trên."
+            "Hãy trả lời câu hỏi của người dùng CHỈ DỰA VÀO các thông tin có trong ngữ cảnh trên. "
+            "Bảo toàn cấu trúc từ vựng, không gộp nghĩa và ví dụ vào cùng một dòng."
         ))
     ])
 

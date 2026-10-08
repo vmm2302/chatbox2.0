@@ -120,10 +120,12 @@ class SmallTalkHandler:
         # 3. So khớp linh hoạt theo nhóm ý định Small Talk
 
         # 3.1. GREETING
-        if vn_norm in ["xin chao", "chao", "chao ban", "hello", "hi", "hey", "alo"]:
+        greeting_words = {"xin chao", "xin chao ban", "chao", "chao ban", "hello", "hi", "hey", "alo"}
+        if vn_norm in greeting_words or vn_norm.startswith("xin chao") or vn_norm.startswith("chao ban"):
             for item in self.intent_rules:
                 if item.get("intent") == "greeting":
-                    return "greeting", item.get("response")
+                    return "greeting", item.get("response") or "Xin chào! Tôi là chatbot hỗ trợ bạn học và tra cứu từ vựng tiếng Anh."
+            return "greeting", "Xin chào! Tôi là chatbot hỗ trợ bạn học và tra cứu từ vựng tiếng Anh."
 
         # 3.2. THANKS
         if vn_norm in ["cam on", "cam on ban", "thank you", "thanks", "thank", "cam on nhieu"]:

@@ -30,6 +30,15 @@ def compute_file_hash(file_path: Path) -> str:
     return sha.hexdigest()
 
 
+def generate_stable_record_id(source: str, question: str, custom_id: Optional[str] = None) -> str:
+    """Tạo stable ID cho bản ghi. Nếu có custom_id thì dùng, ngược lại hash nguồn và câu hỏi."""
+    if custom_id and str(custom_id).strip():
+        return str(custom_id).strip()
+    raw = f"{source}:{question.strip().lower()}"
+    h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    return f"REC_{h}"
+
+
 class BaseFileLoader(abc.ABC):
     """Lớp trừu tượng định nghĩa giao diện chung cho tất cả các File Loaders."""
 

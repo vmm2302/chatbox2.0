@@ -28,12 +28,11 @@ class ExcelLoader(BaseFileLoader):
         f_hash = file_hash or compute_file_hash(file_path)
         records = self.qa_loader.load_from_excel(file_path)
 
-        # Cập nhật metadata chuẩn hóa
+        from src.data.loaders.base import generate_stable_record_id
         for idx, r in enumerate(records, start_index):
             r.source = file_path.name
-            # Nếu là ID tự sinh hoặc chưa chuẩn hóa
-            if not r.record_id or r.record_id.startswith("CUSTOM_") or r.record_id.startswith("APPEND_"):
-                r.record_id = f"XLSX_{file_path.stem[:8]}_{idx:04d}"
+            if not r.record_id or r.record_id.startswith("APPEND_"):
+                r.record_id = generate_stable_record_id(file_path.name, r.question)
 
         logger.info("ExcelLoader: Nạp thành công %d bản ghi từ %s", len(records), file_path.name)
         return records

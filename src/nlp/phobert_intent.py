@@ -180,8 +180,8 @@ class PhoBERTIntentClassifier:
         follow_up_cues = ["còn", "thế còn", "vậy còn", "dạng từ", "dạng danh từ", "dạng tính từ", "ví dụ nữa"]
         is_follow_up_cue = any(clean_query.lower().startswith(cue) or f" {cue} " in clean_query.lower() for cue in follow_up_cues)
 
-        # 3. Tính toán vector câu hỏi qua PhoBERT
-        query_vector = self._encode_sentence(clean_query)
+        # 3. Tính toán vector câu hỏi qua PhoBERT (chuẩn hóa chữ thường để đồng nhất biểu diễn)
+        query_vector = self._encode_sentence(clean_query.lower())
 
         # 4. So sánh cosine similarity với tất cả các Intent Prototype Centroids
         best_intent: IntentType = "OUT_OF_SCOPE"
@@ -197,6 +197,12 @@ class PhoBERTIntentClassifier:
         translate_cues = ["từ nào", "dịch từ", "sang tiếng anh", "trong tiếng anh", "tiếng anh là gì", "nghĩa tiếng anh", "tìm từ"]
         if any(c in clean_query.lower() for c in translate_cues):
             best_intent = "TRANSLATE_VIE_TO_ENG"
+
+        # Nếu có từ tiếng Anh mục tiêu và hỏi giải nghĩa từ ("nghĩa là gì", "có nghĩa là gì", "nghĩa của", "what does ... mean")
+        q_lower = clean_query.lower()
+        def_cues = ["nghĩa là gì", "có nghĩa là gì", "nghĩa của", "nghĩa từ", "nghĩa sao", "là gì", "mean in vietnamese", "what does", "meaning of", "mean?"]
+        if target_word and any(k in q_lower for k in def_cues):
+            best_intent = "DEFINE_VOCAB"
 
         # Heuristic phát hiện câu hỏi danh sách theo cấp độ
         if target_level and ("danh sách" in clean_query.lower() or "trình độ" in clean_query.lower() or "cấp độ" in clean_query.lower()):

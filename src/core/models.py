@@ -57,10 +57,14 @@ class QARecord:
         self.answer = answer
         self.normalized_question = normalized_question
 
-    # Hỗ trợ backward compatibility với code cũ (id = record_id)
+    # Hỗ trợ backward compatibility với code cũ (id = record_id, difficulty = level)
     @property
     def id(self) -> str:
         return self.record_id
+
+    @property
+    def difficulty(self) -> str:
+        return self.level
 
 
     def to_dict(self) -> Dict[str, str]:

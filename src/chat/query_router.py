@@ -151,7 +151,8 @@ class QueryRouter:
         known_words: Set[str] = tracker.known_words if tracker else set()
 
         # Kiểm tra xem có từ tiếng Anh nào xuất hiện trong câu hỏi không
-        tokens = [t.lower() for t in clean_q.split()]
+        tokens = [re.sub(r"^[^\w]+|[^\w]+$", "", t.lower()) for t in clean_q.split()]
+        tokens = [t for t in tokens if t]
         has_known_word = any(t in known_words for t in tokens)
 
         if not has_active_topic and not has_known_word:

@@ -587,6 +587,21 @@ with tab_knowledge:
             })
         st.dataframe(file_preview_data, use_container_width=True)
 
+        col_m1, col_m2 = st.columns([2, 3])
+        with col_m1:
+            ingestion_mode = st.radio(
+                "Chế độ nạp (Import Mode):",
+                options=["ADD", "REPLACE"],
+                index=0,
+                horizontal=True,
+                help="ADD: Bổ sung dữ liệu mới và cập nhật bản ghi nếu trùng ID. REPLACE: Xóa toàn bộ dữ liệu cũ và xây dựng lại từ đầu."
+            )
+        with col_m2:
+            st.info(
+                "📌 **ADD**: Thêm mới & Cập nhật đè nếu trùng ID.\n"
+                "⚠️ **REPLACE**: Xóa sạch toàn bộ DB cũ và nạp lại từ các tệp này."
+            )
+
         # Nút bấm bắt đầu xử lý toàn bộ batch
         if st.button("🚀 Bắt Đầu Xử Lý Tất Cả Tệp (Process All Files)", key="btn_process_batch_all", type="primary", use_container_width=True):
             settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -606,6 +621,7 @@ with tab_knowledge:
             # Thực thi Batch Ingestion
             report = batch_manager.ingest_batch(
                 files=saved_paths,
+                mode=ingestion_mode.lower(),
                 progress_callback=ui_batch_callback
             )
 
@@ -615,7 +631,7 @@ with tab_knowledge:
 
             st.session_state.batch_report = report
             progress_bar.progress(100, text="Hoàn tất xử lý batch!")
-            st.toast("Hoàn tất xử lý Batch Multi-File Ingestion!", icon="🎉")
+            st.toast(f"Hoàn tất xử lý Batch ({ingestion_mode})!", icon="🎉")
             st.rerun()
 
     # 2. Hiển thị Báo Cáo Tổng Hợp Batch Ingestion

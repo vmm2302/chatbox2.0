@@ -16,10 +16,11 @@ from typing import Generator, List, Optional, Tuple
 from config.settings import settings
 from src.chat.exception_handler import ExceptionHandler
 from src.chat.query_router import QueryRouter
+from src.chat.response_formatter import format_vocabulary_response
 from src.chat.small_talk_handler import SmallTalkHandler
 from src.chat.topic_tracker import TopicTracker
 from src.core.models import ChatResponse, QARecord, ResponseMode, RetrievalCandidate
-from src.data.loader import QALoader
+from src.data.loader import QALoader, normalize_query_text
 from src.llm.client import OllamaClient
 from src.llm.prompts import build_context_string, build_rag_prompt
 from src.nlp.phobert_intent import PhoBERTIntentClassifier
@@ -72,6 +73,18 @@ class ChatEngine:
 
         self._is_initialized = False
 
+    @property
+    def hybrid_retriever(self) -> HybridRetriever:
+        return self.retriever
+
+    @property
+    def bge_retriever(self):
+        return self.retriever.bge_chroma
+
+    @property
+    def bm25_retriever(self):
+        return self.retriever.bm25_retriever
+
     def warm_up(self) -> None:
         """Khởi động toàn bộ chỉ mục BM25, ChromaDB và PhoBERT."""
         if not self._is_initialized:
@@ -91,7 +104,7 @@ class ChatEngine:
     def ask(self, query: str) -> ChatResponse:
         """Xử lý câu hỏi người dùng ở chế độ đồng bộ."""
         start_time = time.perf_counter()
-        clean_query = query.strip()
+        clean_query, normalized_query = normalize_query_text(query)
 
         if not clean_query:
             return ChatResponse(
@@ -103,7 +116,7 @@ class ChatEngine:
         self.warm_up()
 
         # Bước 1: Query Router điều phối 3 nhánh (Small Talk, Out of Scope, Vocab Query)
-        routing = self.query_router.route(clean_query, self.tracker)
+        routing = self.query_router.route(normalized_query, self.tracker)
 
         # 1.1 NHÁNH SMALL TALK: Phản hồi xã giao không đưa vào Hybrid Retrieval
         if routing.route_type == "SMALL_TALK":
@@ -130,7 +143,26 @@ class ChatEngine:
                 latency_ms=round(elapsed_ms, 2)
             )
 
-        # 1.2 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
+        # 1.2 Kiểm tra Knowledge Base rỗng (Empty Knowledge Base Gate)
+        if len(self.records) == 0:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            empty_ans = getattr(settings, "EMPTY_KB_RESPONSE", "Hiện tại cơ sở tri thức chưa có dữ liệu phù hợp để trả lời câu hỏi này. Vui lòng nạp thêm tài liệu vào hệ thống.")
+            self.tracker.add_turn(
+                user_query=clean_query,
+                resolved_query=clean_query,
+                intent="EMPTY_KB",
+                active_word=None,
+                answer=empty_ans,
+                mode="NO_MATCH"
+            )
+            return ChatResponse(
+                answer=empty_ans,
+                mode="NO_MATCH",
+                intent="EMPTY_KB",
+                latency_ms=round(elapsed_ms, 2)
+            )
+
+        # 1.3 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
         if routing.route_type == "OUT_OF_SCOPE":
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             answer = routing.template_response or settings.OUT_OF_SCOPE_RESPONSE
@@ -149,7 +181,7 @@ class ChatEngine:
                 latency_ms=round(elapsed_ms, 2)
             )
 
-        # 1.3 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
+        # 1.4 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
         # Bước 2: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
         resolved_query, target_word, is_follow_up, is_ambiguous = self.tracker.resolve_query(clean_query)
 
@@ -174,7 +206,7 @@ class ChatEngine:
         # Bước 3: Phân loại ý định qua PhoBERT
         has_active_topic = bool(self.tracker.active_word)
         intent_res = self.intent_classifier.classify_intent(
-            clean_query,
+            resolved_query,
             has_active_topic=has_active_topic,
             tracker=self.tracker
         )
@@ -250,7 +282,7 @@ class ChatEngine:
         # 6.1 Khớp chính xác (DIRECT_MATCH)
         if mode == "DIRECT_MATCH":
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            answer = best_candidate.record.answer
+            answer = format_vocabulary_response(best_candidate.record.answer)
             self.tracker.add_turn(
                 user_query=clean_query,
                 resolved_query=resolved_query,
@@ -290,19 +322,20 @@ class ChatEngine:
                 logger.error("Lỗi khi gọi Qwen2.5:7B: %s", final_err)
                 llm_answer = f"{settings.OLLAMA_OFFLINE_RESPONSE}\n(Chi tiết: {final_err})"
 
+        formatted_answer = format_vocabulary_response(llm_answer)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         self.tracker.add_turn(
             user_query=clean_query,
             resolved_query=resolved_query,
             intent=intent_res.intent,
             active_word=self.tracker.active_word,
-            answer=llm_answer,
+            answer=formatted_answer,
             mode="RAG_GENERATION",
             matched_record_id=best_candidate.record.record_id
         )
 
         return ChatResponse(
-            answer=llm_answer,
+            answer=formatted_answer,
             mode="RAG_GENERATION",
             record_id=best_candidate.record.record_id,
             word=best_candidate.record.word,
@@ -321,7 +354,7 @@ class ChatEngine:
     ) -> Generator[Tuple[str, Optional[ChatResponse]], None, None]:
         """Xử lý câu hỏi người dùng theo dạng stream token phục vụ UI."""
         start_time = time.perf_counter()
-        clean_query = query.strip()
+        clean_query, normalized_query = normalize_query_text(query)
 
         if not clean_query:
             resp = ChatResponse(
@@ -335,7 +368,7 @@ class ChatEngine:
         self.warm_up()
 
         # Bước 1: Query Router điều phối 3 nhánh (Small Talk, Out of Scope, Vocab Query)
-        routing = self.query_router.route(clean_query, self.tracker)
+        routing = self.query_router.route(normalized_query, self.tracker)
 
         # 1.1 NHÁNH SMALL TALK: Phản hồi xã giao không đưa vào Hybrid Retrieval
         if routing.route_type == "SMALL_TALK":
@@ -364,7 +397,28 @@ class ChatEngine:
             yield resp.answer, resp
             return
 
-        # 1.2 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
+        # 1.2 Kiểm tra Knowledge Base rỗng (Empty Knowledge Base Gate)
+        if len(self.records) == 0:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            empty_ans = getattr(settings, "EMPTY_KB_RESPONSE", "Hiện tại cơ sở tri thức chưa có dữ liệu phù hợp để trả lời câu hỏi này. Vui lòng nạp thêm tài liệu vào hệ thống.")
+            self.tracker.add_turn(
+                user_query=clean_query,
+                resolved_query=clean_query,
+                intent="EMPTY_KB",
+                active_word=None,
+                answer=empty_ans,
+                mode="NO_MATCH"
+            )
+            resp = ChatResponse(
+                answer=empty_ans,
+                mode="NO_MATCH",
+                intent="EMPTY_KB",
+                latency_ms=round(elapsed_ms, 2)
+            )
+            yield resp.answer, resp
+            return
+
+        # 1.3 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
         if routing.route_type == "OUT_OF_SCOPE":
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             answer = routing.template_response or settings.OUT_OF_SCOPE_RESPONSE
@@ -385,7 +439,7 @@ class ChatEngine:
             yield resp.answer, resp
             return
 
-        # 1.3 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
+        # 1.4 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
         # Bước 2: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
         resolved_query, target_word, is_follow_up, is_ambiguous = self.tracker.resolve_query(clean_query)
 
@@ -411,7 +465,7 @@ class ChatEngine:
 
         # Bước 3: Phân loại ý định
         intent_res = self.intent_classifier.classify_intent(
-            clean_query,
+            resolved_query,
             has_active_topic=bool(self.tracker.active_word),
             tracker=self.tracker
         )
@@ -488,7 +542,7 @@ class ChatEngine:
         # 6.1 DIRECT_MATCH
         if mode == "DIRECT_MATCH":
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            answer = best_candidate.record.answer
+            answer = format_vocabulary_response(best_candidate.record.answer)
             self.tracker.add_turn(
                 user_query=clean_query,
                 resolved_query=resolved_query,
@@ -526,19 +580,20 @@ class ChatEngine:
             accumulated_text += error_msg
             yield error_msg, None
 
+        formatted_final = format_vocabulary_response(accumulated_text)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         self.tracker.add_turn(
             user_query=clean_query,
             resolved_query=resolved_query,
             intent=intent_res.intent,
             active_word=self.tracker.active_word,
-            answer=accumulated_text,
+            answer=formatted_final,
             mode="RAG_GENERATION",
             matched_record_id=best_candidate.record.record_id
         )
 
         final_resp = ChatResponse(
-            answer=accumulated_text,
+            answer=formatted_final,
             mode="RAG_GENERATION",
             record_id=best_candidate.record.record_id,
             word=best_candidate.record.word,

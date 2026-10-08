@@ -56,7 +56,10 @@ class TextLoader(BaseFileLoader):
                     a = parts[1].strip()
                     if q and a:
                         ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(q, a)
-                        rec_id = f"TXT_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+                        id_m = re.search(r"\[(?:id|record_id)\s*[:=]\s*([^\]]+)\]", clean_b, re.IGNORECASE)
+                        custom_id = id_m.group(1).strip() if id_m else None
+                        from src.data.loaders.base import generate_stable_record_id
+                        rec_id = generate_stable_record_id(file_path.name, q, custom_id=custom_id)
                         records.append(QARecord(
                             record_id=rec_id,
                             word=ext_w,
@@ -75,20 +78,32 @@ class TextLoader(BaseFileLoader):
         lines = [line.strip() for line in content.splitlines() if line.strip()]
         entry_pattern = re.compile(r"^#*\s*([a-zA-Z0-9_\s\-]{2,50})\s*[:\-–]\s*(.+)$")
         candidate_entries = []
+        pending_id = None
 
         for line in lines:
+            id_m = re.match(r"^\[(?:id|record_id)\s*[:=]\s*([^\]]+)\]$", line, re.IGNORECASE)
+            if id_m:
+                pending_id = id_m.group(1).strip()
+                continue
             m = entry_pattern.match(line)
             if m:
                 term = m.group(1).strip()
                 meaning = m.group(2).strip()
+                cid = pending_id
+                inline_id = re.search(r"\[(?:id|record_id)\s*[:=]\s*([^\]]+)\]", meaning, re.IGNORECASE)
+                if inline_id:
+                    cid = inline_id.group(1).strip()
+                    meaning = re.sub(r"\[(?:id|record_id)\s*[:=]\s*[^\]]+\]", "", meaning).strip()
                 if len(meaning) > 5:
-                    candidate_entries.append((term, meaning))
+                    candidate_entries.append((term, meaning, cid))
+                pending_id = None
 
         if len(candidate_entries) >= 2 or (len(lines) <= 5 and candidate_entries):
-            for idx, (term, meaning) in enumerate(candidate_entries, start_index):
+            for idx, (term, meaning, cid) in enumerate(candidate_entries, start_index):
                 q = f"{term} nghĩa là gì?"
                 ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(q, meaning)
-                rec_id = f"TXT_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+                from src.data.loaders.base import generate_stable_record_id
+                rec_id = generate_stable_record_id(file_path.name, q, custom_id=cid)
                 records.append(QARecord(
                     record_id=rec_id,
                     word=ext_w or term,
@@ -111,7 +126,8 @@ class TextLoader(BaseFileLoader):
             first_line = p.splitlines()[0][:80].strip()
             ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(p, p)
             q = f"Thông tin về '{ext_w}' trong {file_path.name}" if ext_w else f"Nội dung từ {file_path.name}: {first_line}"
-            rec_id = f"TXT_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+            from src.data.loaders.base import generate_stable_record_id
+            rec_id = generate_stable_record_id(file_path.name, f"{idx}:{first_line}")
             records.append(QARecord(
                 record_id=rec_id,
                 word=ext_w,

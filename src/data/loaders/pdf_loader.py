@@ -82,7 +82,8 @@ class PDFLoader(BaseFileLoader):
                     meaning = m.group(2).strip()
                     q = f"{term} nghĩa là gì?"
                     ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(q, meaning)
-                    rec_id = f"PDF_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+                    from src.data.loaders.base import generate_stable_record_id
+                    rec_id = generate_stable_record_id(file_path.name, q)
                     records.append(QARecord(
                         record_id=rec_id,
                         word=ext_w or term,
@@ -97,7 +98,8 @@ class PDFLoader(BaseFileLoader):
                     ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(p, p)
                     first_line = p.splitlines()[0][:80].strip()
                     q = f"Thông tin về '{ext_w}' (Trang {page_num})" if ext_w else f"Nội dung từ {file_path.name} (Trang {page_num}): {first_line}"
-                    rec_id = f"PDF_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+                    from src.data.loaders.base import generate_stable_record_id
+                    rec_id = generate_stable_record_id(file_path.name, f"Trang {page_num}:{first_line}")
                     records.append(QARecord(
                         record_id=rec_id,
                         word=ext_w,

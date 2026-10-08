@@ -44,7 +44,7 @@ class JSONLoader(BaseFileLoader):
 
         # Trích xuất từ vựng
         word = str(item.get("word", item.get("tu_vung", ""))).strip()
-        level = str(item.get("level", item.get("trinh_do", ""))).strip().upper()
+        level = str(item.get("level", item.get("difficulty", item.get("trinh_do", "")))).strip().upper()
         source = str(item.get("source", item.get("nguon", file_path.name))).strip()
 
         ext_w, ext_lvl = QALoader._extract_word_and_level_fallback(question, answer)
@@ -53,7 +53,9 @@ class JSONLoader(BaseFileLoader):
         if not level:
             level = ext_lvl
 
-        rec_id = item.get("record_id", f"JSON_{file_path.stem[:8]}_{idx:04d}")
+        custom_id = str(item.get("record_id") or item.get("id") or item.get("stt") or "").strip()
+        from src.data.loaders.base import generate_stable_record_id
+        rec_id = generate_stable_record_id(file_path.name, question, custom_id=custom_id or None)
 
         return QARecord(
             record_id=rec_id,

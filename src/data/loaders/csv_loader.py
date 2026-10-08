@@ -110,7 +110,10 @@ class CSVLoader(BaseFileLoader):
             if not level:
                 level = ext_lvl
 
-            rec_id = f"CSV_{file_path.stem[:8]}_{len(records) + start_index:04d}"
+            id_idx = col_map.get("record_id")
+            custom_id = row[id_idx].strip() if id_idx is not None and id_idx < len(row) else ""
+            from src.data.loaders.base import generate_stable_record_id
+            rec_id = generate_stable_record_id(file_path.name, question, custom_id=custom_id or None)
             records.append(QARecord(
                 record_id=rec_id,
                 word=word,

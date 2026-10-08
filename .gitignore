@@ -29,12 +29,19 @@ cached_embs.pkl
 .coverage
 htmlcov/
 
-# 5. Dữ liệu nhị phân cũ / tệp upload tạm
-data/processed/embeddings.npy
-data/raw/upload_*
-data/raw/tonghop.xlsx
+# 5. Dữ liệu Knowledge Base & Tệp mẫu cục bộ (Không đẩy lên Git)
+data/*
+!data/raw/
+!data/raw/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+!data/processed/
+!data/processed/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+storage/
 
-# 6. Cơ sở dữ liệu Vector cục bộ (Tự động tạo trên máy mới từ qa_records.jsonl)
+# 6. Cơ sở dữ liệu Vector cục bộ
 chroma_db/
 
 # 7. Thư mục repo tham khảo cũ (Đã tích hợp trọn vẹn vào src/)

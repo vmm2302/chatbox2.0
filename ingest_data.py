@@ -36,7 +36,8 @@ from src.data.ingestion_manager import IngestionManager
 def print_banner():
     banner = r"""
 ===================================================================
-     CHATBOX 2.0 - CÔNG CỤ NẠP VÀ CẬP NHẬT TRI THỨC EXCEL (RAG)
+     CHATBOX 2.0 - CÔNG CỤ NẠP VÀ CẬP NHẬT TRI THỨC (DYNAMIC RAG)
+  Hỗ trợ 8 định dạng: TXT, PDF, CSV, XLSX, DOCX, JSON, JSONL, MD
 ===================================================================
     """
     print(banner)
@@ -46,41 +47,43 @@ def main():
     print_banner()
 
     parser = argparse.ArgumentParser(
-        description="Công cụ nạp và lập chỉ mục dữ liệu Excel cho Chatbot Tra Cứu Từ Vựng Tiếng Anh"
+        description="Công cụ nạp và lập chỉ mục dữ liệu động cho Chatbox 2.0 (Dynamic Knowledge Base)"
     )
     parser.add_argument(
         "--file", "-f",
         type=str,
         default=str(settings.RAW_EXCEL_PATH),
-        help=f"Đường dẫn tới tệp Excel (.xlsx). Mặc định: {settings.RAW_EXCEL_PATH}"
+        help=f"Đường dẫn tới tệp dữ liệu (TXT, PDF, CSV, XLSX, DOCX, JSON, JSONL, MD). Mặc định: {settings.RAW_EXCEL_PATH}"
     )
     parser.add_argument(
         "--mode", "-m",
         type=str,
-        choices=["append", "replace"],
-        default="append",
-        help="Chế độ nạp: 'append' (bổ sung từ mới, khuyên dùng) hoặc 'replace' (xóa làm mới toàn bộ)"
+        choices=["add", "append", "replace"],
+        default="add",
+        help="Chế độ nạp: 'add'/'append' (bổ sung / cập nhật theo ID) hoặc 'replace' (xóa làm mới toàn bộ)"
     )
 
     args = parser.parse_args()
-    excel_path = Path(args.file)
+    data_path = Path(args.file)
 
-    print(f"[*] Tệp đầu vào:  {excel_path.resolve()}")
-    print(f"[*] Chế độ nạp:   {'Bổ sung từ mới (APPEND)' if args.mode == 'append' else 'Làm mới toàn bộ (REPLACE)'}")
+    mode_label = "Làm mới toàn bộ (REPLACE)" if args.mode == "replace" else "Bổ sung / Cập nhật (ADD)"
+    print(f"[*] Tệp đầu vào:  {data_path.resolve()}")
+    print(f"[*] Chế độ nạp:   {mode_label}")
     print("-" * 67)
 
     manager = IngestionManager()
 
-    # 1. Kiểm tra sơ bộ tệp Excel
-    inspect_info = manager.inspect_excel(excel_path)
+    # 1. Kiểm tra sơ bộ tệp
+    inspect_info = manager.inspect_file(data_path)
     if not inspect_info.get("valid"):
         print(f"[!] LỖI: {inspect_info.get('error')}")
         sys.exit(1)
 
-    print(f"[+] Tệp hợp lệ ({inspect_info['file_size_kb']} KB)")
-    print("[+] Các sheet phát hiện:")
-    for s_name, rows_count in inspect_info["sheets"].items():
-        print(f"    - {s_name}: {rows_count} dòng")
+    print(f"[+] Tệp hợp lệ ({inspect_info.get('file_size_kb', 0)} KB)")
+    if "sheets" in inspect_info:
+        print("[+] Các sheet/mục phát hiện:")
+        for s_name, rows_count in inspect_info["sheets"].items():
+            print(f"    - {s_name}: {rows_count} dòng")
     print("-" * 67)
 
     # 2. Tiến hành nạp dữ liệu kèm thanh tiến trình
@@ -93,7 +96,7 @@ def main():
 
     print("[*] Bắt đầu quá trình nạp và lập chỉ mục...")
     res = manager.ingest(
-        excel_path=excel_path,
+        file_path=data_path,
         mode=args.mode,
         progress_callback=progress_callback
     )
@@ -101,16 +104,16 @@ def main():
 
     if res.status == "SUCCESS":
         print("🎉 CẬP NHẬT KHO TRI THỨC THÀNH CÔNG!")
-        print(f"  • Tổng bản ghi đọc từ Excel:    {res.total_incoming:,}")
-        print(f"  • Số bản ghi mới được nạp:      {res.newly_added:,}")
-        print(f"  • Số bản ghi trùng lặp bỏ qua:  {res.duplicates_skipped:,}")
-        print(f"  • Tổng bản ghi hiện có trong DB: {res.total_active:,}")
-        print(f"  • Thời gian xử lý:              {res.elapsed_seconds:.2f} giây")
+        print(f"  • Tổng bản ghi đọc từ tệp:     {res.total_incoming:,}")
+        print(f"  • Số bản ghi nạp mới/cập nhật: {res.newly_added:,}")
+        print(f"  • Số bản ghi trùng lặp bỏ qua: {res.duplicates_skipped:,}")
+        print(f"  • Tổng bản ghi hiện có trong DB:{res.total_active:,}")
+        print(f"  • Thời gian xử lý:             {res.elapsed_seconds:.2f} giây")
 
         if res.sample_words:
-            print(f"  • Một số từ vựng mới:           {', '.join(res.sample_words[:8])}")
+            print(f"  • Một số từ vựng/nội dung:     {', '.join(res.sample_words[:8])}")
 
-        print("\n[✔] Bây giờ bạn có thể mở Streamlit hoặc chạy Chatbox để tra cứu ngay!")
+        print("\n[✔] Kho tri thức đã đồng bộ (Source JSONL = BM25 = ChromaDB). Sẵn sàng tra cứu!")
         print("===================================================================")
     else:
         print(f"[❌] THẤT BẠI: {res.message}")

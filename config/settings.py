@@ -23,6 +23,7 @@ class Settings:
     RAW_EXCEL_FILENAME: str = "datahotrohoctuvungtienganhtuA1-B2fix.xlsx"
     RAW_EXCEL_PATH: Path = RAW_DATA_DIR / RAW_EXCEL_FILENAME
     PROCESSED_JSONL_PATH: Path = PROCESSED_DATA_DIR / "qa_records.jsonl"
+    SOURCES_MANIFEST_PATH: Path = PROCESSED_DATA_DIR / "sources_manifest.json"
     EXCEPTION_INTENTS_PATH: Path = BASE_DIR / "config" / "exception_intent.json"
 
     # Cấu hình ChromaDB
@@ -65,6 +66,10 @@ class Settings:
     # Câu phản hồi chuẩn khi ngoài phạm vi tri thức hoặc lỗi
     OUT_OF_SCOPE_RESPONSE: str = (
         "Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
+    )
+    EMPTY_KB_RESPONSE: str = (
+        "Hiện tại cơ sở tri thức chưa có dữ liệu phù hợp để trả lời câu hỏi này. "
+        "Vui lòng nạp thêm tài liệu vào hệ thống."
     )
     CLARIFICATION_PROMPT: str = (
         "Bạn đang muốn tra từ tiếng Anh nào? Hãy gửi từ hoặc nội dung bạn muốn tra cứu nhé."

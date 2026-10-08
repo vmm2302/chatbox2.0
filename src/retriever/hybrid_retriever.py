@@ -25,13 +25,15 @@ from src.retriever.lexical_matcher import (
 logger = logging.getLogger(__name__)
 
 
-def is_in_scope_domain(query: str, vocab_words: Set[str]) -> bool:
-    """Kiểm tra câu hỏi có thuộc phạm vi tra cứu từ vựng tiếng Anh không."""
+def is_in_scope_domain(query: str, vocab_words: Set[str], knowledge_words: Optional[Set[str]] = None) -> bool:
+    """Kiểm tra câu hỏi có thuộc phạm vi tri thức hiện có hay không."""
     q_lower = query.lower()
 
-    # 1. Có chứa từ vựng tiếng Anh nằm trong kho tri thức
-    tokens = re.findall(r"\b[a-zA-Z0-9_\-]+\b", q_lower)
+    # 1. Có chứa từ vựng hoặc từ khóa nằm trong kho tri thức
+    tokens = re.findall(r"\b[\w\-]+\b", q_lower)
     if any(t in vocab_words for t in tokens):
+        return True
+    if knowledge_words and any(t in knowledge_words for t in tokens):
         return True
 
     # 2. Câu hỏi yêu cầu danh sách từ theo trình độ (A1, A2, B1, B2)
@@ -39,13 +41,15 @@ def is_in_scope_domain(query: str, vocab_words: Set[str]) -> bool:
         if level in q_lower and any(k in q_lower for k in ["trình độ", "trinh do", "cấp độ", "danh sách"]):
             return True
 
-    # 3. Câu hỏi tra cứu từ tiếng Việt sang tiếng Anh hoặc dịch thuật
+    # 3. Câu hỏi tra cứu từ tiếng Việt sang tiếng Anh hoặc dịch thuật, tra nghĩa
     tieng_anh_indicators = [
         "tiếng anh", "tieng anh", "dịch sang anh", "dich sang anh",
         "trong tiếng anh", "trong tieng anh", "tiếng anh là gì",
         "tieng anh la gi", "từ tiếng anh", "tu tieng anh",
         "nghĩa tiếng anh", "nghia tieng anh", "từ nào", "tu nao",
-        "có nghĩa là", "co nghia la", "mang nghĩa là", "dịch từ", "dich tu"
+        "có nghĩa là", "co nghia la", "mang nghĩa là", "dịch từ", "dich tu",
+        "nghĩa là gì", "nghia la gi", "nghĩa của", "nghia cua",
+        "nghĩa là", "nghia la", "nghĩa sao", "nghia sao"
     ]
     if any(ind in q_lower for ind in tieng_anh_indicators):
         return True
@@ -70,6 +74,17 @@ class HybridRetriever:
         self.english_vocab_words: Set[str] = {
             r.word.lower() for r in records if r.word and r.word.lower() != "list"
         }
+        # Tập hợp từ khóa đầy đủ từ toàn bộ kho tri thức
+        self.knowledge_words: Set[str] = {
+            w.lower()
+            for r in records
+            for w in re.findall(r"\b[\w\-]+\b", f"{r.word} {r.question}")
+            if len(w) > 1 and w.lower() not in VIETNAMESE_STOPWORDS
+        }
+
+    @property
+    def bge_retriever(self) -> BGEChromaRetriever:
+        return self.bge_chroma
 
     def initialize(self, force_reindex: bool = False) -> None:
         """Khởi tạo trước ChromaDB và chỉ mục vector."""
@@ -80,12 +95,17 @@ class HybridRetriever:
         self.records = new_records
         self.rec_map = {r.record_id: r for r in new_records}
         self.bm25_retriever.reload(new_records)
-        self.lexical_matcher.records = new_records
-        self.lexical_matcher.exact_map = {r.normalized_question: r for r in new_records}
+        self.lexical_matcher.reload(new_records)
         self.bge_chroma.records = new_records
         self.bge_chroma.rec_map = self.rec_map
         self.english_vocab_words = {
             r.word.lower() for r in new_records if r.word and r.word.lower() != "list"
+        }
+        self.knowledge_words = {
+            w.lower()
+            for r in new_records
+            for w in re.findall(r"\b[\w\-]+\b", f"{r.word} {r.question}")
+            if len(w) > 1 and w.lower() not in VIETNAMESE_STOPWORDS
         }
         logger.info("HybridRetriever đã cập nhật hoàn tất %d bản ghi tri thức.", len(new_records))
 
@@ -105,13 +125,13 @@ class HybridRetriever:
                 - final_candidates: Top các ứng viên được chọn
         """
         clean_query = query.strip()
-        if not clean_query:
+        if not clean_query or not self.records:
             return "NO_MATCH", None, []
 
         # 0. Cổng kiểm soát miền (Domain Gate)
         # Nếu đang có active entity từ lượt trước thì vẫn coi là in-scope
-        if not active_entity and not is_in_scope_domain(clean_query, self.english_vocab_words):
-            logger.info("Câu hỏi '%s' nằm ngoài phạm vi tra cứu từ vựng -> Chặn tại Domain Gate", clean_query)
+        if not active_entity and not is_in_scope_domain(clean_query, self.english_vocab_words, self.knowledge_words):
+            logger.info("Câu hỏi '%s' nằm ngoài phạm vi tra cứu tri thức -> Chặn tại Domain Gate", clean_query)
             return "NO_MATCH", None, []
 
         # 1. Fast-path Lexical Match (So khớp chính xác hoặc mẫu câu chuẩn)

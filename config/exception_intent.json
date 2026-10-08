@@ -44,7 +44,7 @@
         "Bạn có phải người thật không?",
         "Bạn là AI phải không?"
       ],
-      "response": "Tôi là chatbot AI hỗ trợ học từ vựng tiếng Anh, giúp tra cứu nghĩa, phát âm, loại từ, trình độ và đưa raví dụ."
+      "response": "Tôi là chatbot AI hỗ trợ học từ vựng tiếng Anh, giúp tra cứu nghĩa, phát âm, loại từ, trình độ và đưa ra ví dụ."
     },
     {
       "intent": "chatbot_capabilities",

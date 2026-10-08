@@ -40,6 +40,25 @@ def normalize_vietnamese_text(text: str) -> str:
     return " ".join(clean_text.lower().split())
 
 
+def normalize_query_text(query: str) -> Tuple[str, str]:
+    """Chuẩn hóa câu truy vấn người dùng:
+    - Unicode NFC normalization
+    - Strip khoảng trắng đầu/cuối
+    - Chuẩn hóa nhiều khoảng trắng liên tiếp thành một khoảng trắng đơn
+
+    Returns:
+        Tuple[str, str]:
+            - clean_query: Chuỗi gốc sau khi chuẩn hóa NFC và khoảng trắng (giữ nguyên hoa/thường)
+            - normalized_query: Chuỗi lowercased phục vụ routing/intent matching
+    """
+    if not query:
+        return "", ""
+    nfc_text = unicodedata.normalize("NFC", query)
+    clean_query = re.sub(r"\s+", " ", nfc_text).strip()
+    normalized_query = clean_query.lower()
+    return clean_query, normalized_query
+
+
 def col_to_idx(col_letters: str) -> int:
     """Chuyển đổi ký tự cột Excel (A, B, AA, ...) thành chỉ số 0-indexed."""
     idx = 0
@@ -155,12 +174,15 @@ class QALoader:
             elif any(kw in h for kw in ["tu vung", "tu tieng anh", "word", "vocab"]):
                 if "word" not in col_map:
                     col_map["word"] = idx
-            elif any(kw in h for kw in ["trinh do", "cap do", "level", "cefr"]):
+            elif any(kw in h for kw in ["trinh do", "cap do", "level", "cefr", "difficulty"]):
                 if "level" not in col_map:
                     col_map["level"] = idx
             elif any(kw in h for kw in ["nguon", "source", "tai lieu"]):
                 if "source" not in col_map:
                     col_map["source"] = idx
+            elif any(kw in h for kw in ["record_id", "record id", "recordid", "id", "stt", "ma", "ma ban ghi"]):
+                if "record_id" not in col_map:
+                    col_map["record_id"] = idx
 
         if "question" in col_map and "answer" in col_map:
             return col_map
@@ -275,7 +297,12 @@ class QALoader:
             if not level:
                 level = extracted_level
 
-            rec_id = f"CUSTOM_{start_index + len(records) + 1:04d}"
+            custom_id = ""
+            if "record_id" in col_map and col_map["record_id"] < len(row):
+                custom_id = row[col_map["record_id"]].strip()
+
+            from src.data.loaders.base import generate_stable_record_id
+            rec_id = generate_stable_record_id(source_default, question, custom_id=custom_id or None)
             records.append(QARecord(
                 record_id=rec_id,
                 word=word,
@@ -420,38 +447,62 @@ class QALoader:
     def merge_records(
         cls,
         existing_records: List[QARecord],
-        incoming_records: List[QARecord]
-    ) -> Tuple[List[QARecord], int, int]:
-        """Hợp nhất các bản ghi mới vào tập hiện có, loại bỏ trùng lặp câu hỏi & câu trả lời.
+        incoming_records: List[QARecord],
+        return_updated: bool = False
+    ) -> Tuple:
+        """Hợp nhất các bản ghi mới vào tập hiện có theo Stable Record ID:
+        - Nếu ID đã tồn tại trong KB: UPDATE / OVERWRITE dữ liệu mới.
+        - Nếu ID chưa tồn tại nhưng trùng hoàn toàn (question, answer): Bỏ qua duplicate.
+        - Nếu ID chưa tồn tại và nội dung mới: ADD.
 
         Returns:
-            Tuple[List[QARecord], int, int]: (danh_sách_hợp_nhất, số_lượng_thêm_mới, số_lượng_trùng_lặp)
+            Nếu return_updated=True: Tuple[List[QARecord], int, int, int] (merged, added, updated, dupes)
+            Mặc định: Tuple[List[QARecord], int, int] (merged, added, dupes) để tương thích ngược.
         """
-        existing_signatures: Set[Tuple[str, str]] = {
-            (r.question.strip().lower(), r.answer.strip().lower())
+        existing_by_id: Dict[str, Tuple[int, QARecord]] = {
+            r.record_id: (idx, r) for idx, r in enumerate(existing_records) if r.record_id
+        }
+        existing_signatures: Dict[Tuple[str, str], str] = {
+            (r.question.strip().lower(), r.answer.strip().lower()): r.record_id
             for r in existing_records
         }
-        existing_ids: Set[str] = {r.record_id for r in existing_records}
 
         merged: List[QARecord] = list(existing_records)
         added_count = 0
+        updated_count = 0
         duplicate_count = 0
 
         for inc in incoming_records:
+            # 1. Nếu ID đã tồn tại trong KB -> UPDATE / OVERWRITE
+            if inc.record_id and inc.record_id in existing_by_id:
+                old_idx, old_rec = existing_by_id[inc.record_id]
+                # Xóa signature cũ nếu có
+                old_sig = (old_rec.question.strip().lower(), old_rec.answer.strip().lower())
+                existing_signatures.pop(old_sig, None)
+
+                merged[old_idx] = inc
+                new_sig = (inc.question.strip().lower(), inc.answer.strip().lower())
+                existing_signatures[new_sig] = inc.record_id
+                existing_by_id[inc.record_id] = (old_idx, inc)
+                updated_count += 1
+                continue
+
+            # 2. Kiểm tra trùng lặp nội dung
             sig = (inc.question.strip().lower(), inc.answer.strip().lower())
             if sig in existing_signatures:
                 duplicate_count += 1
                 continue
 
-            # Đảm bảo record_id không bị xung đột
-            if inc.record_id in existing_ids:
-                inc.record_id = f"APPEND_{len(merged) + 1:04d}"
-
-            existing_signatures.add(sig)
-            existing_ids.add(inc.record_id)
+            # 3. ID mới và nội dung mới -> ADD
+            new_idx = len(merged)
+            existing_signatures[sig] = inc.record_id
+            if inc.record_id:
+                existing_by_id[inc.record_id] = (new_idx, inc)
             merged.append(inc)
             added_count += 1
 
+        if return_updated:
+            return merged, added_count, updated_count, duplicate_count
         return merged, added_count, duplicate_count
 
     def save_to_jsonl(self, records: List[QARecord]) -> None:
@@ -463,9 +514,9 @@ class QALoader:
         logger.info("Đã lưu %d bản ghi vào %s", len(records), self.processed_jsonl_path)
 
     def load_from_jsonl(self) -> List[QARecord]:
-        """Tải các bản ghi đã chuẩn hóa từ tệp JSONL."""
+        """Tải các bản ghi đã chuẩn hóa từ tệp JSONL. Trả về rỗng nếu tệp chưa tồn tại."""
         if not self.processed_jsonl_path.exists():
-            raise DataLoadError(f"Không tìm thấy tệp JSONL tại: {self.processed_jsonl_path}")
+            return []
 
         records: List[QARecord] = []
         with open(self.processed_jsonl_path, "r", encoding="utf-8") as f:
@@ -481,16 +532,23 @@ class QALoader:
         return records
 
     def get_or_create_records(self, force_refresh: bool = False) -> List[QARecord]:
-        """Lấy dữ liệu từ JSONL hoặc trích xuất từ Excel thô."""
+        """Lấy dữ liệu từ JSONL hoặc trích xuất từ Excel thô (nếu có). An toàn khi rỗng."""
         if not force_refresh and self.processed_jsonl_path.exists():
             records = self.load_from_jsonl()
-            if records and records[0].word:
+            if records:
                 return records
 
-        logger.info("Bắt đầu trích xuất và làm giàu metadata từ Excel thô...")
-        records = self.load_from_excel(self.raw_excel_path)
-        self.save_to_jsonl(records)
-        return records
+        if self.raw_excel_path.exists():
+            logger.info("Bắt đầu trích xuất từ Excel thô: %s...", self.raw_excel_path)
+            try:
+                records = self.load_from_excel(self.raw_excel_path)
+                self.save_to_jsonl(records)
+                return records
+            except Exception as err:
+                logger.warning("Không thể nạp từ file mẫu thô: %s", err)
+
+        logger.info("Khởi tạo kho tri thức ở trạng thái rỗng (0 bản ghi).")
+        return []
 
     @staticmethod
     def to_langchain_documents(records: List[QARecord]) -> List[Document]:
