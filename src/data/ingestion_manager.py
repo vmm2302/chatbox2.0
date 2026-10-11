@@ -11,7 +11,7 @@ import time
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from config.settings import settings
 from src.core.exceptions import DataLoadError

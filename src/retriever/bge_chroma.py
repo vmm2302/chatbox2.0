@@ -328,8 +328,10 @@ class BGEChromaRetriever:
         for rank, (rec_id, dist) in enumerate(zip(ids, distances), 1):
             # Với khoảng cách cosine trong ChromaDB: cosine_similarity = 1 - distance
             sim_score = max(0.0, 1.0 - float(dist))
-            rec = self.rec_map.get(rec_id)
-            if rec:
-                candidates.append((rec, round(sim_score, 4), rank))
+            # Ngưỡng tương đồng tối thiểu để được coi là ứng viên ngữ nghĩa hợp lệ
+            if sim_score >= 0.45:
+                rec = self.rec_map.get(rec_id)
+                if rec:
+                    candidates.append((rec, round(sim_score, 4), rank))
 
         return candidates

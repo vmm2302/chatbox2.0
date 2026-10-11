@@ -41,6 +41,18 @@ from src.data.loader import normalize_vietnamese_text
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_OUT_OF_SCOPE_TOPICS: Tuple[str, ...] = (
+    "bitcoin", "btc", "ethereum", "crypto", "tien ao",
+    "gia vang", "gia xang", "chung khoan", "co phieu",
+    "thoi tiet", "du bao thoi tiet", "nhiet do",
+    "nau an", "cong thuc nau an", "mon an",
+    "giai phuong trinh", "toan hoc", "giai toan",
+    "viet code", "viet code python", "lap trinh",
+    "choi co", "ke chuyen", "ke chuyen cuoi", "ke chuyen co tich",
+    "hat mot bai", "tin tuc hom nay", "bong da", "ket qua so xo",
+)
+
+
 @dataclass
 class RoutingDecision:
     """Quyết định phân luồng từ Query Router."""
@@ -65,39 +77,29 @@ class QueryRouter:
         self._load_out_of_scope_rules()
 
     def _load_out_of_scope_rules(self) -> None:
-        """Nạp các mẫu ngoài phạm vi (out_of_scope) từ exception_intent.json."""
-        if not self.json_path.exists():
-            return
+        """Nạp các mẫu ngoài phạm vi (out_of_scope) từ exception_intent.json và danh mục mở rộng."""
+        patterns: Set[str] = set()
 
-        try:
-            with open(self.json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for item in data.get("intents", []):
-                    if item.get("intent") == "out_of_scope":
-                        for ex in item.get("examples", []):
-                            norm = normalize_vietnamese_text(re.sub(r"[^\w\s]", "", ex.strip().lower()))
-                            if norm:
-                                self.out_of_scope_patterns.append(norm)
+        if self.json_path.exists():
+            try:
+                with open(self.json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for item in data.get("intents", []):
+                        if item.get("intent") == "out_of_scope":
+                            for ex in item.get("examples", []):
+                                norm = normalize_vietnamese_text(re.sub(r"[^\w\s]", "", ex.strip().lower()))
+                                if norm:
+                                    patterns.add(norm)
+            except Exception as exc:
+                logger.error("Lỗi khi nạp mẫu out-of-scope trong QueryRouter: %s", exc)
 
-            # Bổ sung các chủ đề ngoài phạm vi thông dụng (thời tiết, chứng khoán, tiền ảo, giá vàng...)
-            extra_patterns = [
-                "bitcoin", "btc", "ethereum", "crypto", "tien ao",
-                "gia vang", "gia xang", "chung khoan", "co phieu",
-                "thoi tiet", "du bao thoi tiet", "nhiet do",
-                "nau an", "cong thuc nau an", "mon an",
-                "giai phuong trinh", "toan hoc", "giai toan",
-                "viet code", "viet code python", "lap trinh",
-                "choi co", "ke chuyen", "ke chuyen cuoi", "ke chuyen co tich",
-                "hat mot bai", "tin tuc hom nay", "bong da", "ket qua so xo"
-            ]
-            for ep in extra_patterns:
-                norm_ep = normalize_vietnamese_text(ep)
-                if norm_ep not in self.out_of_scope_patterns:
-                    self.out_of_scope_patterns.append(norm_ep)
+        for ep in DEFAULT_OUT_OF_SCOPE_TOPICS:
+            norm_ep = normalize_vietnamese_text(ep)
+            if norm_ep:
+                patterns.add(norm_ep)
 
-            logger.info("QueryRouter đã nạp %d mẫu câu nhận diện OUT_OF_SCOPE.", len(self.out_of_scope_patterns))
-        except Exception as exc:
-            logger.error("Lỗi khi nạp mẫu out-of-scope trong QueryRouter: %s", exc)
+        self.out_of_scope_patterns = sorted(patterns, key=len, reverse=True)
+        logger.info("QueryRouter đã nạp %d mẫu câu nhận diện OUT_OF_SCOPE.", len(self.out_of_scope_patterns))
 
     def route(
         self,
@@ -156,14 +158,7 @@ class QueryRouter:
         has_known_word = any(t in known_words for t in tokens)
 
         if not has_active_topic and not has_known_word:
-            # Kiểm tra xem câu hỏi có trùng hoặc chứa các mẫu ngoài phạm vi không
-            is_explicit_oos = False
-            for pat in self.out_of_scope_patterns:
-                if pat in vn_norm or vn_norm == pat:
-                    is_explicit_oos = True
-                    break
-
-            if is_explicit_oos:
+            if any(pat in vn_norm for pat in self.out_of_scope_patterns):
                 return RoutingDecision(
                     route_type="OUT_OF_SCOPE",
                     intent="OUT_OF_SCOPE",

@@ -16,12 +16,20 @@ from src.data.loader import normalize_vietnamese_text
 
 logger = logging.getLogger(__name__)
 
+# Danh sách stop words tiếng Việt và từ đệm câu hỏi để tránh BM25 khớp nhầm từ vô nghĩa
+BM25_STOPWORDS = {
+    "tu", "nay", "cho", "toi", "la", "gi", "do", "tren", "nao", "cua", "hay",
+    "giup", "xem", "biet", "voi", "xin", "cam", "on", "va", "nhung", "cac",
+    "duoc", "co", "the", "con", "vay", "sao", "dang", "loai", "mot",
+    "trong", "khi", "neu", "thi", "se", "da", "nhu", "ra", "vao", "lai", "chua", "roi", "khong",
+    "nghia", "cau", "vi", "du", "ban", "minh", "em", "anh", "chi"
+}
+
 
 def tokenize_for_bm25(text: str) -> List[str]:
     """Tách token chuẩn hóa phục vụ BM25."""
     clean = normalize_vietnamese_text(text)
     tokens = clean.split()
-    # Giữ lại token có độ dài > 0
     return [t for t in tokens if t]
 
 
@@ -34,7 +42,7 @@ class BM25Retriever:
         self._build_index()
 
     def _build_index(self) -> None:
-        """Xây dựng chỉ mục BM25 từ tập câu hỏi và từ vựng của bản ghi."""
+        """Xây dựng chỉ mục BM25 từ tập câu hỏi, từ vựng và câu trả lời của bản ghi."""
         if not self.records:
             self.bm25 = None
             logger.info("Chỉ mục BM25 rỗng (0 bản ghi).")
@@ -42,8 +50,8 @@ class BM25Retriever:
 
         corpus: List[List[str]] = []
         for r in self.records:
-            # Kết hợp từ vựng mục tiêu và câu hỏi để tăng độ khớp từ khóa
-            doc_text = f"{r.word} {r.question}"
+            # Kết hợp từ vựng mục tiêu, câu hỏi và một phần định nghĩa để tăng khả năng truy xuất
+            doc_text = f"{r.word} {r.question} {r.answer[:200]}"
             tokens = tokenize_for_bm25(doc_text)
             corpus.append(tokens)
 
@@ -72,7 +80,11 @@ class BM25Retriever:
         if not tokens:
             return []
 
-        scores = self.bm25.get_scores(tokens)
+        # Ưu tiên các token mang nội dung thực tế (lọc bỏ các từ đệm, hỏi đáp rập khuôn)
+        content_tokens = [t for t in tokens if t not in BM25_STOPWORDS]
+        search_tokens = content_tokens if content_tokens else tokens
+
+        scores = self.bm25.get_scores(search_tokens)
 
         # Lấy các chỉ số có điểm cao nhất
         ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)

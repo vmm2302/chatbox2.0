@@ -12,7 +12,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from langchain_core.documents import Document
 
@@ -70,9 +70,9 @@ def col_to_idx(col_letters: str) -> int:
 class QALoader:
     """Lớp chịu trách nhiệm đọc và kiểm tra chất lượng tệp dữ liệu Q&A từ Excel hoặc JSONL."""
 
-    def __init__(self, raw_excel_path: Optional[Path] = None, processed_jsonl_path: Optional[Path] = None):
-        self.raw_excel_path = raw_excel_path or settings.RAW_EXCEL_PATH
-        self.processed_jsonl_path = processed_jsonl_path or settings.PROCESSED_JSONL_PATH
+    def __init__(self, raw_excel_path: Optional[Union[Path, str]] = None, processed_jsonl_path: Optional[Union[Path, str]] = None):
+        self.raw_excel_path = Path(raw_excel_path) if raw_excel_path else settings.RAW_EXCEL_PATH
+        self.processed_jsonl_path = Path(processed_jsonl_path) if processed_jsonl_path else settings.PROCESSED_JSONL_PATH
 
     @staticmethod
     def _read_shared_strings(z: zipfile.ZipFile) -> List[str]:
@@ -316,9 +316,9 @@ class QALoader:
 
         return records
 
-    def load_from_excel(self, excel_path: Optional[Path] = None) -> List[QARecord]:
+    def load_from_excel(self, excel_path: Optional[Union[Path, str]] = None) -> List[QARecord]:
         """Đọc và chuẩn hóa toàn bộ các sheet từ tệp Excel (hỗ trợ cả dataset gốc lẫn tệp mới)."""
-        target_path = excel_path or self.raw_excel_path
+        target_path = Path(excel_path) if excel_path else self.raw_excel_path
         if not target_path.exists():
             raise DataLoadError(f"Không tìm thấy tệp dữ liệu tại: {target_path}")
 

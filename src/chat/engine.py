@@ -101,6 +101,44 @@ class ChatEngine:
         self.tracker.load_known_words(new_records)
         logger.info("ChatEngine đã đồng bộ thành công %d bản ghi tri thức mới.", len(new_records))
 
+    def _create_and_log_response(
+        self,
+        clean_query: str,
+        resolved_query: str,
+        intent: str,
+        answer: str,
+        mode: ResponseMode,
+        start_time: float,
+        active_word: Optional[str] = None,
+        candidate: Optional[RetrievalCandidate] = None,
+        candidates: Optional[List[RetrievalCandidate]] = None,
+    ) -> ChatResponse:
+        """Ghi nhận lượt hội thoại vào TopicTracker và đóng gói kết quả ChatResponse."""
+        elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+        matched_id = candidate.record.record_id if candidate else None
+        self.tracker.add_turn(
+            user_query=clean_query,
+            resolved_query=resolved_query,
+            intent=intent,
+            active_word=active_word,
+            answer=answer,
+            mode=mode,
+            matched_record_id=matched_id,
+        )
+        return ChatResponse(
+            answer=answer,
+            mode=mode,
+            record_id=matched_id,
+            word=candidate.record.word if candidate else None,
+            source=candidate.record.source if candidate else None,
+            bm25_score=candidate.bm25_score if candidate else 0.0,
+            bge_score=candidate.bge_score if candidate else 0.0,
+            rrf_score=candidate.rrf_score if candidate else 0.0,
+            intent=intent,
+            latency_ms=round(elapsed_ms, 2),
+            candidates=candidates if candidates is not None else [],
+        )
+
     def ask(self, query: str) -> ChatResponse:
         """Xử lý câu hỏi người dùng ở chế độ đồng bộ."""
         start_time = time.perf_counter()
@@ -120,7 +158,6 @@ class ChatEngine:
 
         # 1.1 NHÁNH SMALL TALK: Phản hồi xã giao không đưa vào Hybrid Retrieval
         if routing.route_type == "SMALL_TALK":
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             answer = self.small_talk_handler.handle(
                 query=clean_query,
                 intent=routing.intent,
@@ -128,57 +165,40 @@ class ChatEngine:
                 use_llm=False,
                 llm_client=self.llm_client
             )
-            self.tracker.add_turn(
-                user_query=clean_query,
+            return self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=clean_query,
                 intent=routing.intent,
-                active_word=self.tracker.active_word,
-                answer=answer,
-                mode="SMALL_TALK"
-            )
-            return ChatResponse(
                 answer=answer,
                 mode="SMALL_TALK",
-                intent=routing.intent,
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=self.tracker.active_word,
             )
 
         # 1.2 Kiểm tra Knowledge Base rỗng (Empty Knowledge Base Gate)
         if len(self.records) == 0:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             empty_ans = getattr(settings, "EMPTY_KB_RESPONSE", "Hiện tại cơ sở tri thức chưa có dữ liệu phù hợp để trả lời câu hỏi này. Vui lòng nạp thêm tài liệu vào hệ thống.")
-            self.tracker.add_turn(
-                user_query=clean_query,
+            return self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=clean_query,
                 intent="EMPTY_KB",
-                active_word=None,
-                answer=empty_ans,
-                mode="NO_MATCH"
-            )
-            return ChatResponse(
                 answer=empty_ans,
                 mode="NO_MATCH",
-                intent="EMPTY_KB",
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=None,
             )
 
         # 1.3 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
         if routing.route_type == "OUT_OF_SCOPE":
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             answer = routing.template_response or settings.OUT_OF_SCOPE_RESPONSE
-            self.tracker.add_turn(
-                user_query=clean_query,
+            return self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=clean_query,
                 intent="OUT_OF_SCOPE",
-                active_word=self.tracker.active_word,
-                answer=answer,
-                mode="NO_MATCH"
-            )
-            return ChatResponse(
                 answer=answer,
                 mode="NO_MATCH",
-                intent="OUT_OF_SCOPE",
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=self.tracker.active_word,
             )
 
         # 1.4 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
@@ -187,20 +207,14 @@ class ChatEngine:
 
         # Bước 2: Xử lý trạng thái MƠ HỒ (Thiếu từ vựng và chưa có active_word)
         if is_ambiguous:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            self.tracker.add_turn(
-                user_query=clean_query,
+            return self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=resolved_query,
                 intent="AMBIGUOUS",
-                active_word=None,
-                answer=CLARIFICATION_MESSAGE,
-                mode="CLARIFICATION"
-            )
-            return ChatResponse(
                 answer=CLARIFICATION_MESSAGE,
                 mode="CLARIFICATION",
-                intent="AMBIGUOUS",
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=None,
             )
 
         # Bước 3: Phân loại ý định qua PhoBERT
@@ -213,40 +227,27 @@ class ChatEngine:
 
         # Nếu PhoBERT phát hiện mơ hồ
         if intent_res.is_ambiguous:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            self.tracker.add_turn(
-                user_query=clean_query,
+            return self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=resolved_query,
                 intent="AMBIGUOUS",
-                active_word=None,
-                answer=CLARIFICATION_MESSAGE,
-                mode="CLARIFICATION"
-            )
-            return ChatResponse(
                 answer=CLARIFICATION_MESSAGE,
                 mode="CLARIFICATION",
-                intent="AMBIGUOUS",
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=None,
             )
 
         # Nếu câu hỏi hoàn toàn ngoài phạm vi (OUT_OF_SCOPE) và không có từ tiếng Anh nào được phát hiện
         if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not self.tracker.active_word:
-            # Kiểm tra xem có từ tiếng Anh hợp lệ trong query không
             if not any(token.lower() in self.tracker.known_words for token in clean_query.split()):
-                elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-                self.tracker.add_turn(
-                    user_query=clean_query,
+                return self._create_and_log_response(
+                    clean_query=clean_query,
                     resolved_query=resolved_query,
                     intent="OUT_OF_SCOPE",
-                    active_word=None,
-                    answer=settings.OUT_OF_SCOPE_RESPONSE,
-                    mode="NO_MATCH"
-                )
-                return ChatResponse(
                     answer=settings.OUT_OF_SCOPE_RESPONSE,
                     mode="NO_MATCH",
-                    intent="OUT_OF_SCOPE",
-                    latency_ms=round(elapsed_ms, 2)
+                    start_time=start_time,
+                    active_word=None,
                 )
 
         # Bước 4: Truy xuất Hybrid (BM25 + BGE-M3 + RRF)
@@ -257,21 +258,15 @@ class ChatEngine:
 
         # Bước 5: Kiểm tra Domain & Threshold Gate
         if not candidates or best_candidate is None or mode == "NO_MATCH":
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            self.tracker.add_turn(
-                user_query=clean_query,
+            return self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=resolved_query,
                 intent=intent_res.intent,
-                active_word=self.tracker.active_word,
-                answer=settings.OUT_OF_SCOPE_RESPONSE,
-                mode="NO_MATCH"
-            )
-            return ChatResponse(
                 answer=settings.OUT_OF_SCOPE_RESPONSE,
                 mode="NO_MATCH",
-                intent=intent_res.intent,
-                latency_ms=round(elapsed_ms, 2),
-                candidates=candidates
+                start_time=start_time,
+                active_word=self.tracker.active_word,
+                candidates=candidates,
             )
 
         # Cập nhật thực thể đang nói đến nếu tìm được ứng viên phù hợp
@@ -281,29 +276,17 @@ class ChatEngine:
         # Bước 6: Xử lý theo Response Mode
         # 6.1 Khớp chính xác (DIRECT_MATCH)
         if mode == "DIRECT_MATCH":
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             answer = format_vocabulary_response(best_candidate.record.answer)
-            self.tracker.add_turn(
-                user_query=clean_query,
+            return self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=resolved_query,
                 intent=intent_res.intent,
+                answer=answer,
+                mode="DIRECT_MATCH",
+                start_time=start_time,
                 active_word=self.tracker.active_word,
-                answer=answer,
-                mode="DIRECT_MATCH",
-                matched_record_id=best_candidate.record.record_id
-            )
-            return ChatResponse(
-                answer=answer,
-                mode="DIRECT_MATCH",
-                record_id=best_candidate.record.record_id,
-                word=best_candidate.record.word,
-                source=best_candidate.record.source,
-                bm25_score=best_candidate.bm25_score,
-                bge_score=best_candidate.bge_score,
-                rrf_score=best_candidate.rrf_score,
-                intent=intent_res.intent,
-                latency_ms=round(elapsed_ms, 2),
-                candidates=candidates
+                candidate=best_candidate,
+                candidates=candidates,
             )
 
         # 6.2 Tổng hợp và diễn đạt qua LLM có căn cứ ngữ cảnh (RAG_GENERATION)
@@ -323,29 +306,16 @@ class ChatEngine:
                 llm_answer = f"{settings.OLLAMA_OFFLINE_RESPONSE}\n(Chi tiết: {final_err})"
 
         formatted_answer = format_vocabulary_response(llm_answer)
-        elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-        self.tracker.add_turn(
-            user_query=clean_query,
+        return self._create_and_log_response(
+            clean_query=clean_query,
             resolved_query=resolved_query,
             intent=intent_res.intent,
+            answer=formatted_answer,
+            mode="RAG_GENERATION",
+            start_time=start_time,
             active_word=self.tracker.active_word,
-            answer=formatted_answer,
-            mode="RAG_GENERATION",
-            matched_record_id=best_candidate.record.record_id
-        )
-
-        return ChatResponse(
-            answer=formatted_answer,
-            mode="RAG_GENERATION",
-            record_id=best_candidate.record.record_id,
-            word=best_candidate.record.word,
-            source=best_candidate.record.source,
-            bm25_score=best_candidate.bm25_score,
-            bge_score=best_candidate.bge_score,
-            rrf_score=best_candidate.rrf_score,
-            intent=intent_res.intent,
-            latency_ms=round(elapsed_ms, 2),
-            candidates=candidates
+            candidate=best_candidate,
+            candidates=candidates,
         )
 
     def ask_stream(
@@ -372,7 +342,6 @@ class ChatEngine:
 
         # 1.1 NHÁNH SMALL TALK: Phản hồi xã giao không đưa vào Hybrid Retrieval
         if routing.route_type == "SMALL_TALK":
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             answer = self.small_talk_handler.handle(
                 query=clean_query,
                 intent=routing.intent,
@@ -380,61 +349,44 @@ class ChatEngine:
                 use_llm=False,
                 llm_client=self.llm_client
             )
-            self.tracker.add_turn(
-                user_query=clean_query,
+            resp = self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=clean_query,
                 intent=routing.intent,
-                active_word=self.tracker.active_word,
-                answer=answer,
-                mode="SMALL_TALK"
-            )
-            resp = ChatResponse(
                 answer=answer,
                 mode="SMALL_TALK",
-                intent=routing.intent,
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=self.tracker.active_word,
             )
             yield resp.answer, resp
             return
 
         # 1.2 Kiểm tra Knowledge Base rỗng (Empty Knowledge Base Gate)
         if len(self.records) == 0:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             empty_ans = getattr(settings, "EMPTY_KB_RESPONSE", "Hiện tại cơ sở tri thức chưa có dữ liệu phù hợp để trả lời câu hỏi này. Vui lòng nạp thêm tài liệu vào hệ thống.")
-            self.tracker.add_turn(
-                user_query=clean_query,
+            resp = self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=clean_query,
                 intent="EMPTY_KB",
-                active_word=None,
-                answer=empty_ans,
-                mode="NO_MATCH"
-            )
-            resp = ChatResponse(
                 answer=empty_ans,
                 mode="NO_MATCH",
-                intent="EMPTY_KB",
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=None,
             )
             yield resp.answer, resp
             return
 
         # 1.3 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
         if routing.route_type == "OUT_OF_SCOPE":
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             answer = routing.template_response or settings.OUT_OF_SCOPE_RESPONSE
-            self.tracker.add_turn(
-                user_query=clean_query,
+            resp = self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=clean_query,
                 intent="OUT_OF_SCOPE",
-                active_word=self.tracker.active_word,
-                answer=answer,
-                mode="NO_MATCH"
-            )
-            resp = ChatResponse(
                 answer=answer,
                 mode="NO_MATCH",
-                intent="OUT_OF_SCOPE",
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=self.tracker.active_word,
             )
             yield resp.answer, resp
             return
@@ -445,20 +397,14 @@ class ChatEngine:
 
         # Bước 2: Kiểm tra MƠ HỒ
         if is_ambiguous:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            self.tracker.add_turn(
-                user_query=clean_query,
+            resp = self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=resolved_query,
                 intent="AMBIGUOUS",
-                active_word=None,
-                answer=CLARIFICATION_MESSAGE,
-                mode="CLARIFICATION"
-            )
-            resp = ChatResponse(
                 answer=CLARIFICATION_MESSAGE,
                 mode="CLARIFICATION",
-                intent="AMBIGUOUS",
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=None,
             )
             yield resp.answer, resp
             return
@@ -471,40 +417,28 @@ class ChatEngine:
         )
 
         if intent_res.is_ambiguous:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            self.tracker.add_turn(
-                user_query=clean_query,
+            resp = self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=resolved_query,
                 intent="AMBIGUOUS",
-                active_word=None,
-                answer=CLARIFICATION_MESSAGE,
-                mode="CLARIFICATION"
-            )
-            resp = ChatResponse(
                 answer=CLARIFICATION_MESSAGE,
                 mode="CLARIFICATION",
-                intent="AMBIGUOUS",
-                latency_ms=round(elapsed_ms, 2)
+                start_time=start_time,
+                active_word=None,
             )
             yield resp.answer, resp
             return
 
         if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not self.tracker.active_word:
             if not any(token.lower() in self.tracker.known_words for token in clean_query.split()):
-                elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-                self.tracker.add_turn(
-                    user_query=clean_query,
+                resp = self._create_and_log_response(
+                    clean_query=clean_query,
                     resolved_query=resolved_query,
                     intent="OUT_OF_SCOPE",
-                    active_word=None,
-                    answer=settings.OUT_OF_SCOPE_RESPONSE,
-                    mode="NO_MATCH"
-                )
-                resp = ChatResponse(
                     answer=settings.OUT_OF_SCOPE_RESPONSE,
                     mode="NO_MATCH",
-                    intent="OUT_OF_SCOPE",
-                    latency_ms=round(elapsed_ms, 2)
+                    start_time=start_time,
+                    active_word=None,
                 )
                 yield resp.answer, resp
                 return
@@ -517,21 +451,15 @@ class ChatEngine:
 
         # Bước 5: Threshold Gate
         if not candidates or best_candidate is None or mode == "NO_MATCH":
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            self.tracker.add_turn(
-                user_query=clean_query,
+            resp = self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=resolved_query,
                 intent=intent_res.intent,
-                active_word=self.tracker.active_word,
-                answer=settings.OUT_OF_SCOPE_RESPONSE,
-                mode="NO_MATCH"
-            )
-            resp = ChatResponse(
                 answer=settings.OUT_OF_SCOPE_RESPONSE,
                 mode="NO_MATCH",
-                intent=intent_res.intent,
-                latency_ms=round(elapsed_ms, 2),
-                candidates=candidates
+                start_time=start_time,
+                active_word=self.tracker.active_word,
+                candidates=candidates,
             )
             yield resp.answer, resp
             return
@@ -541,29 +469,17 @@ class ChatEngine:
 
         # 6.1 DIRECT_MATCH
         if mode == "DIRECT_MATCH":
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             answer = format_vocabulary_response(best_candidate.record.answer)
-            self.tracker.add_turn(
-                user_query=clean_query,
+            resp = self._create_and_log_response(
+                clean_query=clean_query,
                 resolved_query=resolved_query,
                 intent=intent_res.intent,
+                answer=answer,
+                mode="DIRECT_MATCH",
+                start_time=start_time,
                 active_word=self.tracker.active_word,
-                answer=answer,
-                mode="DIRECT_MATCH",
-                matched_record_id=best_candidate.record.record_id
-            )
-            resp = ChatResponse(
-                answer=answer,
-                mode="DIRECT_MATCH",
-                record_id=best_candidate.record.record_id,
-                word=best_candidate.record.word,
-                source=best_candidate.record.source,
-                bm25_score=best_candidate.bm25_score,
-                bge_score=best_candidate.bge_score,
-                rrf_score=best_candidate.rrf_score,
-                intent=intent_res.intent,
-                latency_ms=round(elapsed_ms, 2),
-                candidates=candidates
+                candidate=best_candidate,
+                candidates=candidates,
             )
             yield resp.answer, resp
             return
@@ -581,28 +497,15 @@ class ChatEngine:
             yield error_msg, None
 
         formatted_final = format_vocabulary_response(accumulated_text)
-        elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-        self.tracker.add_turn(
-            user_query=clean_query,
+        final_resp = self._create_and_log_response(
+            clean_query=clean_query,
             resolved_query=resolved_query,
             intent=intent_res.intent,
+            answer=formatted_final,
+            mode="RAG_GENERATION",
+            start_time=start_time,
             active_word=self.tracker.active_word,
-            answer=formatted_final,
-            mode="RAG_GENERATION",
-            matched_record_id=best_candidate.record.record_id
-        )
-
-        final_resp = ChatResponse(
-            answer=formatted_final,
-            mode="RAG_GENERATION",
-            record_id=best_candidate.record.record_id,
-            word=best_candidate.record.word,
-            source=best_candidate.record.source,
-            bm25_score=best_candidate.bm25_score,
-            bge_score=best_candidate.bge_score,
-            rrf_score=best_candidate.rrf_score,
-            intent=intent_res.intent,
-            latency_ms=round(elapsed_ms, 2),
-            candidates=candidates
+            candidate=best_candidate,
+            candidates=candidates,
         )
         yield "", final_resp

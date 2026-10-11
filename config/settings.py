@@ -4,8 +4,35 @@ Không hardcode bất kỳ giá trị cấu hình nào trong mã nguồn logic.
 Mọi đường dẫn, tham số mô hình và ngưỡng tương đồng đều được định nghĩa tại đây.
 """
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
+
+# Nạp biến môi trường từ .env nếu có
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path)
+except Exception:
+    pass
+
+
+def _resolve_raw_excel_path() -> Path:
+    """Tự động phát hiện đường dẫn tệp Excel thô hợp lệ trong thư mục data/raw/."""
+    raw_dir = Path(__file__).resolve().parent.parent / "data" / "raw"
+    custom_name = os.getenv("RAW_EXCEL_FILENAME", "datahotrohoctuvungtienganhtuA1-B2fix.xlsx")
+    preferred = raw_dir / custom_name
+    if preferred.exists():
+        return preferred
+    # Fallback sang tệp v3 chuẩn hóa thực tế
+    fallback_v3 = raw_dir / "du_lieu_tu_vung_RAG_chuan_hoa_v3.xlsx"
+    if fallback_v3.exists():
+        return fallback_v3
+    # Fallback sang tệp .xlsx bất kỳ trong data/raw/
+    for p in raw_dir.glob("*.xlsx"):
+        return p
+    return preferred
 
 
 @dataclass(frozen=True)
@@ -20,35 +47,36 @@ class Settings:
     CHROMA_DIR: Path = BASE_DIR / "chroma_db"
 
     # Tệp dữ liệu đầu vào và tệp xử lý trung gian
-    RAW_EXCEL_FILENAME: str = "datahotrohoctuvungtienganhtuA1-B2fix.xlsx"
-    RAW_EXCEL_PATH: Path = RAW_DATA_DIR / RAW_EXCEL_FILENAME
-    PROCESSED_JSONL_PATH: Path = PROCESSED_DATA_DIR / "qa_records.jsonl"
-    SOURCES_MANIFEST_PATH: Path = PROCESSED_DATA_DIR / "sources_manifest.json"
-    EXCEPTION_INTENTS_PATH: Path = BASE_DIR / "config" / "exception_intent.json"
+    RAW_EXCEL_FILENAME: str = field(default_factory=lambda: os.getenv("RAW_EXCEL_FILENAME", "datahotrohoctuvungtienganhtuA1-B2fix.xlsx"))
+    RAW_EXCEL_PATH: Path = field(default_factory=_resolve_raw_excel_path)
+    PROCESSED_JSONL_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "processed" / "qa_records.jsonl")
+    SOURCES_MANIFEST_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "processed" / "sources_manifest.json")
+    EXCEPTION_INTENTS_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "config" / "exception_intent.json")
+    EMBEDDINGS_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "processed" / "embeddings.npy")
 
     # Cấu hình ChromaDB
-    CHROMA_COLLECTION_NAME: str = "english_vocab_master"
+    CHROMA_COLLECTION_NAME: str = field(default_factory=lambda: os.getenv("CHROMA_COLLECTION_NAME", "english_vocab_master"))
 
     # Cấu hình Model BGE-M3 (Semantic Retrieval - Embedding chính)
-    BGE_M3_MODEL_NAME: str = "BAAI/bge-m3"
+    BGE_M3_MODEL_NAME: str = field(default_factory=lambda: os.getenv("BGE_M3_MODEL_NAME", "BAAI/bge-m3"))
     BGE_EMBEDDING_DIM: int = 1024
 
     # Cấu hình Model PhoBERT-base-v2 (Query Understanding & Intent Matching)
-    PHOBERT_MODEL_NAME: str = "vinai/phobert-base-v2"
+    PHOBERT_MODEL_NAME: str = field(default_factory=lambda: os.getenv("PHOBERT_MODEL_NAME", "vinai/phobert-base-v2"))
 
     # Cấu hình Ollama Cục bộ (Localhost)
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "qwen2.5:7b"
-    OLLAMA_TIMEOUT_SECONDS: float = 60.0
-    LLM_TEMPERATURE: float = 0.1  # Thấp để bám sát tri thức dataset
+    OLLAMA_BASE_URL: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
+    OLLAMA_MODEL: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
+    OLLAMA_TIMEOUT_SECONDS: float = field(default_factory=lambda: float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "60.0")))
+    LLM_TEMPERATURE: float = field(default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.1")))
 
     # Cấu hình Hybrid Retrieval & Reciprocal Rank Fusion (RRF)
-    RRF_K: int = 60                     # Tham số điều hòa chuẩn trong RRF
+    RRF_K: int = field(default_factory=lambda: int(os.getenv("RRF_K", "60")))
     BM25_TOP_K: int = 15                # Số ứng viên lấy từ BM25
     BGE_TOP_K: int = 15                 # Số ứng viên lấy từ BGE-M3
     FINAL_TOP_K: int = 3                # Số ứng viên cuối cùng gửi tới RAG / Gate
-    TOP_K_RETRIEVAL: int = 3            # Alias số ứng viên truy xuất RRF
-    FALLBACK_RRF_THRESHOLD: float = 0.005 # Ngưỡng tối thiểu chấp nhận ứng viên RRF
+    TOP_K_RETRIEVAL: int = field(default_factory=lambda: int(os.getenv("TOP_K_RETRIEVAL", "3")))
+    FALLBACK_RRF_THRESHOLD: float = field(default_factory=lambda: float(os.getenv("FALLBACK_RRF_THRESHOLD", "0.005")))
 
     # Ngưỡng RRF Relevance Gate (Initial Hypotheses phục vụ benchmark)
     DIRECT_MATCH_RRF_THRESHOLD: float = 0.033   # Đòi hỏi top 1 ở cả BM25 & BGE -> Trả lời gốc

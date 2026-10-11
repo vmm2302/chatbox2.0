@@ -88,6 +88,16 @@ class OllamaClient:
             logger.error("Lỗi không xác định khi gọi Ollama: %s", err)
             raise OllamaResponseError(f"Lỗi khi giao tiếp với Ollama: {err}") from err
 
+    def generate(
+        self,
+        prompt: str,
+        stream: bool = False,
+        temperature: Optional[float] = None
+    ) -> str:
+        """Sinh phản hồi trực tiếp từ một câu prompt đơn giản."""
+        messages = [{"role": "user", "content": prompt}]
+        return self.chat(messages, temperature=temperature)
+
     def stream_chat(
         self,
         messages: List[Dict[str, str]],
