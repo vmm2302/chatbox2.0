@@ -7,6 +7,7 @@ Hỗ trợ 2 chế độ:
 """
 
 import logging
+import shutil
 import time
 import zipfile
 from dataclasses import dataclass, field
@@ -54,6 +55,21 @@ class IngestionManager:
         ext = file_path.suffix.lower().lstrip(".")
         if ext == "xlsx":
             return self.inspect_excel(file_path)
+
+        if ext == "pdf":
+            pdf_loader = self.router.loaders.get("pdf")
+            if pdf_loader and hasattr(pdf_loader, "inspect_pdf"):
+                p_info = pdf_loader.inspect_pdf(file_path)
+                if not p_info.get("valid"):
+                    return p_info
+                return {
+                    "valid": True,
+                    "file_name": file_path.name,
+                    "file_size_kb": p_info.get("file_size_kb", 0),
+                    "sheets": {"PDF_PAGES": p_info.get("total_pages", 0)},
+                    "estimated_rows": p_info.get("pages_with_text", 0),
+                    "pdf_details": p_info,
+                }
 
         val_res = self.router.validate_file(file_path)
         if not val_res.is_valid:
@@ -166,56 +182,91 @@ class IngestionManager:
         _notify(0.25, f"Đã trích xuất {len(incoming_records)} bản ghi từ {len(sheet_info)} nguồn.")
 
         # 2. Xử lý theo chế độ (Mode: ADD / REPLACE)
-        if not is_replace:
-            _notify(0.35, "Đang kiểm tra trùng lặp và Stable ID với dữ liệu hiện có...")
-            existing_records = []
-            if self.loader.processed_jsonl_path.exists():
-                existing_records = self.loader.load_from_jsonl()
+        backup_path = self.loader.processed_jsonl_path.with_suffix(".jsonl.bak")
+        if self.loader.processed_jsonl_path.exists():
+            try:
+                shutil.copy2(self.loader.processed_jsonl_path, backup_path)
+            except Exception as b_err:
+                logger.warning("Không thể tạo bản sao lưu JSONL: %s", b_err)
 
-            # Hợp nhất theo Stable ID (Update nếu ID tồn tại, Add nếu mới, Bỏ qua nếu duplicate)
-            merged_records, added_count, updated_count, dup_count = self.loader.merge_records(
-                existing_records, incoming_records, return_updated=True
+        try:
+            if not is_replace:
+                _notify(0.35, "Đang kiểm tra trùng lặp và Stable ID với dữ liệu hiện có...")
+                existing_records = []
+                if self.loader.processed_jsonl_path.exists():
+                    existing_records = self.loader.load_from_jsonl()
+
+                # Hợp nhất theo Stable ID (Update nếu ID tồn tại, Add nếu mới, Bỏ qua nếu duplicate)
+                merged_records, added_count, updated_count, dup_count = self.loader.merge_records(
+                    existing_records, incoming_records, return_updated=True
+                )
+
+                # Lọc danh sách bản ghi cần cập nhật hoặc thêm mới vào ChromaDB
+                records_to_upsert = [
+                    r for r in incoming_records
+                    if any(m.record_id == r.record_id for m in merged_records)
+                ]
+
+                _notify(0.50, f"Bổ sung: {added_count} mới, Cập nhật: {updated_count}, Trùng lặp: {dup_count}.")
+
+                # Đồng bộ lưu lại vào JSONL
+                _notify(0.60, "Đang cập nhật tệp lưu trữ qa_records.jsonl...")
+                self.loader.save_to_jsonl(merged_records)
+
+                bge_retriever = BGEChromaRetriever(merged_records)
+                if records_to_upsert:
+                    _notify(0.70, f"Đang cập nhật vector BGE-M3 cho {len(records_to_upsert)} bản ghi...")
+                    bge_retriever.upsert_records(records_to_upsert)
+
+                # Đồng bộ BM25
+                _notify(0.85, "Đang cập nhật chỉ mục BM25...")
+                bm25_retriever = BM25Retriever(merged_records)
+
+                final_records = merged_records
+                total_active = len(merged_records)
+                sample_words = [r.word for r in incoming_records if r.word][:10]
+
+            else:  # mode == "replace"
+                _notify(0.40, f"Chế độ làm mới hoàn toàn: Xóa DB cũ và chuẩn bị mã hóa {len(incoming_records)} vector...")
+                # Lưu trước JSONL
+                self.loader.save_to_jsonl(incoming_records)
+
+                bge_retriever = BGEChromaRetriever(incoming_records)
+                bge_retriever.build_or_load_collection(force_reindex=True)
+
+                _notify(0.85, "Đang cập nhật chỉ mục BM25...")
+                bm25_retriever = BM25Retriever(incoming_records)
+
+                final_records = incoming_records
+                added_count = len(incoming_records)
+                dup_count = 0
+                total_active = len(incoming_records)
+                sample_words = [r.word for r in incoming_records if r.word][:10]
+
+            # Xóa backup an toàn khi mọi bước thành công
+            if backup_path.exists():
+                backup_path.unlink(missing_ok=True)
+
+        except Exception as err:
+            logger.error("Lỗi trong quá trình cập nhật chỉ mục: %s", err)
+            if backup_path.exists():
+                try:
+                    shutil.copy2(backup_path, self.loader.processed_jsonl_path)
+                    backup_path.unlink(missing_ok=True)
+                    logger.info("Đã khôi phục lại qa_records.jsonl sau khi gặp lỗi cập nhật.")
+                except Exception as rb_err:
+                    logger.error("Lỗi khi rollback: %s", rb_err)
+
+            return IngestionResult(
+                status="FAILED",
+                total_incoming=len(incoming_records),
+                newly_added=0,
+                duplicates_skipped=0,
+                total_active=len(self.loader.load_from_jsonl()) if self.loader.processed_jsonl_path.exists() else 0,
+                elapsed_seconds=round(time.perf_counter() - start_time, 2),
+                mode=mode,
+                message=f"Lỗi lập chỉ mục ({err.__class__.__name__}): {err}"
             )
-
-            # Lọc danh sách bản ghi cần cập nhật hoặc thêm mới vào ChromaDB
-            records_to_upsert = [
-                r for r in incoming_records
-                if any(m.record_id == r.record_id for m in merged_records)
-            ]
-
-            _notify(0.50, f"Bổ sung: {added_count} mới, Cập nhật: {updated_count}, Trùng lặp: {dup_count}.")
-
-            bge_retriever = BGEChromaRetriever(merged_records)
-            if records_to_upsert:
-                _notify(0.60, f"Đang cập nhật vector BGE-M3 cho {len(records_to_upsert)} bản ghi...")
-                bge_retriever.upsert_records(records_to_upsert)
-
-            # Đồng bộ lưu lại vào JSONL
-            _notify(0.85, "Đang cập nhật tệp lưu trữ qa_records.jsonl và BM25...")
-            self.loader.save_to_jsonl(merged_records)
-
-            # Đồng bộ BM25
-            bm25_retriever = BM25Retriever(merged_records)
-
-            final_records = merged_records
-            total_active = len(merged_records)
-            sample_words = [r.word for r in incoming_records if r.word][:10]
-
-        else:  # mode == "replace"
-            _notify(0.40, f"Chế độ làm mới hoàn toàn: Xóa DB cũ và chuẩn bị mã hóa {len(incoming_records)} vector...")
-            bge_retriever = BGEChromaRetriever(incoming_records)
-            bge_retriever.build_or_load_collection(force_reindex=True)
-
-            _notify(0.85, "Đang cập nhật tệp lưu trữ qa_records.jsonl và BM25...")
-            self.loader.save_to_jsonl(incoming_records)
-
-            bm25_retriever = BM25Retriever(incoming_records)
-
-            final_records = incoming_records
-            added_count = len(incoming_records)
-            dup_count = 0
-            total_active = len(incoming_records)
-            sample_words = [r.word for r in incoming_records if r.word][:10]
 
         # 3. Kiểm tra tính đồng bộ
         chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0

@@ -21,6 +21,7 @@ venv.bak/
 # 3. Thư mục Scratch & Dữ liệu cache thử nghiệm
 scratch/
 temp_test_batch/
+temp_test_pdf_ingestion/
 cached_embs.pkl
 *.log
 

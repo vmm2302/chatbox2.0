@@ -11,6 +11,7 @@ Hỗ trợ:
 
 import json
 import logging
+import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -61,6 +62,13 @@ class FileIngestionResult:
     duplicates_skipped: int = 0
     record_ids: List[str] = field(default_factory=list)
     elapsed_seconds: float = 0.0
+    total_pages: int = 0
+    pages_with_text: int = 0
+    pages_needing_ocr: int = 0
+    ocr_success_pages: int = 0
+    ocr_failed_pages: int = 0
+    total_characters_extracted: int = 0
+    sample_preview: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -77,6 +85,13 @@ class FileIngestionResult:
             "duplicates_skipped": self.duplicates_skipped,
             "record_ids": self.record_ids,
             "elapsed_seconds": self.elapsed_seconds,
+            "total_pages": self.total_pages,
+            "pages_with_text": self.pages_with_text,
+            "pages_needing_ocr": self.pages_needing_ocr,
+            "ocr_success_pages": self.ocr_success_pages,
+            "ocr_failed_pages": self.ocr_failed_pages,
+            "total_characters_extracted": self.total_characters_extracted,
+            "sample_preview": self.sample_preview,
         }
 
 
@@ -299,6 +314,22 @@ class BatchIngestionManager:
                 continue
 
             f_res.records_extracted = len(raw_extracted)
+
+            # Thu thập thông tin trích xuất chi tiết nếu loader hỗ trợ (như PDFLoader)
+            try:
+                loader_obj = self.router.get_loader(file_path)
+                rep = getattr(loader_obj, "last_extraction_report", {})
+                if rep and rep.get("file_name") == file_path.name:
+                    f_res.total_pages = rep.get("total_pages", 0)
+                    f_res.pages_with_text = rep.get("pages_with_text", 0)
+                    f_res.pages_needing_ocr = rep.get("pages_needing_ocr", 0)
+                    f_res.ocr_success_pages = rep.get("ocr_success_pages", 0)
+                    f_res.ocr_failed_pages = rep.get("ocr_failed_pages", 0)
+                    f_res.total_characters_extracted = rep.get("total_characters_extracted", 0)
+                    f_res.sample_preview = rep.get("sample_preview", [])
+            except Exception:
+                pass
+
             if not raw_extracted:
                 f_res.status = FileStatus.FAILED
                 f_res.reason = "Không trích xuất được bản ghi văn bản / Q&A hợp lệ nào."
@@ -370,8 +401,19 @@ class BatchIngestionManager:
                     None
                 )
 
+            # 3.0 Sao lưu dự phòng JSONL trước khi cập nhật
+            backup_path = self.loader.processed_jsonl_path.with_suffix(".jsonl.bak")
+            if self.loader.processed_jsonl_path.exists():
+                try:
+                    shutil.copy2(self.loader.processed_jsonl_path, backup_path)
+                except Exception as b_err:
+                    logger.warning("Không thể tạo bản sao lưu JSONL: %s", b_err)
+
             try:
-                # 3.1. Đồng bộ ChromaDB
+                # 3.1. Lưu trước vào file qa_records.jsonl chuẩn hóa
+                self.loader.save_to_jsonl(existing_records)
+
+                # 3.2. Đồng bộ ChromaDB
                 bge_retriever = BGEChromaRetriever(existing_records)
                 if is_replace:
                     bge_retriever.build_or_load_collection(force_reindex=True)
@@ -379,12 +421,13 @@ class BatchIngestionManager:
                     bge_retriever.upsert_records(newly_accumulated_records, batch_size=batch_size)
                 chromadb_status = "UPDATED"
 
-                # 3.2. Cập nhật qa_records.jsonl
-                self.loader.save_to_jsonl(existing_records)
-
                 # 3.3. Tái lập chỉ mục BM25
                 bm25_retriever = BM25Retriever(existing_records)
                 bm25_status = "UPDATED"
+
+                # Xóa bản backup an toàn sau khi cả 3 hệ thống đồng bộ thành công
+                if backup_path.exists():
+                    backup_path.unlink(missing_ok=True)
 
                 # 3.4. Đánh dấu trạng thái SUCCESS cho các tệp đã index
                 for res in file_results:
@@ -412,12 +455,21 @@ class BatchIngestionManager:
 
             except Exception as err:
                 logger.error("Lỗi khi lập chỉ mục batch: %s", err)
+                # Tự động rollback khôi phục JSONL cũ an toàn
+                if backup_path.exists():
+                    try:
+                        shutil.copy2(backup_path, self.loader.processed_jsonl_path)
+                        backup_path.unlink(missing_ok=True)
+                        logger.info("Đã rollback khôi phục lại qa_records.jsonl thành công.")
+                    except Exception as rb_err:
+                        logger.error("Lỗi khi rollback qa_records.jsonl: %s", rb_err)
+
                 chromadb_status = f"FAILED: {err}"
                 bm25_status = "FAILED"
                 for res in file_results:
                     if res.status == FileStatus.INDEXING:
                         res.status = FileStatus.FAILED
-                        res.reason = f"Lỗi lập chỉ mục: {err}"
+                        res.reason = f"Lỗi lập chỉ mục ({err.__class__.__name__}): {err}"
 
         # 4. Tính toán kết quả tổng thể (Batch Status: SUCCESS / PARTIAL SUCCESS / FAILED)
         success_cnt = sum(1 for r in file_results if r.status == FileStatus.SUCCESS)
