@@ -1,7 +1,7 @@
 """Định nghĩa các mô hình dữ liệu (Data Transfer Objects) trong hệ thống Master Architecture."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 ResponseMode = Literal["DIRECT_MATCH", "RAG_GENERATION", "CLARIFICATION", "NO_MATCH", "EXCEPTION_MATCH", "SMALL_TALK"]
 RouteType = Literal["SMALL_TALK", "VOCAB_QUERY", "OUT_OF_SCOPE"]
@@ -35,6 +35,7 @@ class QARecord:
     question: str = ""
     answer: str = ""
     normalized_question: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -46,7 +47,8 @@ class QARecord:
         question: str = "",
         answer: str = "",
         normalized_question: str = "",
-        id: Optional[str] = None
+        id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         self.record_id = record_id or id or ""
         self.word = word
@@ -56,6 +58,7 @@ class QARecord:
         self.question = question
         self.answer = answer
         self.normalized_question = normalized_question
+        self.metadata = metadata if metadata is not None else {}
 
     # Hỗ trợ backward compatibility với code cũ (id = record_id, difficulty = level)
     @property
@@ -66,8 +69,7 @@ class QARecord:
     def difficulty(self) -> str:
         return self.level
 
-
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> Dict[str, Any]:
         """Chuyển đổi thành từ điển lưu trữ JSONL và ChromaDB metadata."""
         return {
             "record_id": self.record_id,
@@ -79,13 +81,16 @@ class QARecord:
             "question": self.question,
             "answer": self.answer,
             "normalized_question": self.normalized_question,
+            "metadata": self.metadata,
         }
 
-
     @classmethod
-    def from_dict(cls, data: Dict[str, str]) -> "QARecord":
+    def from_dict(cls, data: Dict[str, Any]) -> "QARecord":
         """Khôi phục đối tượng QARecord từ từ điển."""
         rec_id = data.get("record_id") or data.get("id") or ""
+        meta = data.get("metadata")
+        if not isinstance(meta, dict):
+            meta = {}
         return cls(
             record_id=rec_id,
             word=data.get("word", ""),
@@ -95,6 +100,7 @@ class QARecord:
             question=data.get("question", ""),
             answer=data.get("answer", ""),
             normalized_question=data.get("normalized_question", ""),
+            metadata=meta,
         )
 
 
