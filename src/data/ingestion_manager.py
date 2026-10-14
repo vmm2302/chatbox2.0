@@ -226,6 +226,24 @@ class IngestionManager:
         _notify(1.0, f"Hoàn tất nạp dữ liệu! Tổng cộng: {total_active:,} bản ghi đang hoạt động (Đồng bộ: {synced}).")
         elapsed = round(time.perf_counter() - start_time, 2)
 
+        if not synced:
+            return IngestionResult(
+                status="FAILED",
+                total_incoming=len(incoming_records),
+                newly_added=added_count,
+                duplicates_skipped=dup_count,
+                total_active=total_active,
+                elapsed_seconds=elapsed,
+                mode=mode,
+                sheets_info=sheet_info,
+                sample_words=sample_words,
+                message=(
+                    f"Lỗi: Các thành phần không đồng bộ sau khi nạp "
+                    f"(JSONL: {total_active}, ChromaDB: {chroma_count}, BM25: {bm25_count}). "
+                    f"Vui lòng thực hiện Reindex để đưa kho tri thức về trạng thái nhất quán."
+                )
+            )
+
         return IngestionResult(
             status="SUCCESS",
             total_incoming=len(incoming_records),
@@ -241,7 +259,7 @@ class IngestionManager:
                 f"(bỏ qua {dup_count} bản ghi trùng). "
                 f"Tổng số bản ghi trong kho: {total_active:,}. "
                 f"Thời gian xử lý: {elapsed} giây. "
-                f"Trạng thái đồng bộ: {'Đồng bộ 100%' if synced else 'Chưa đồng bộ'}"
+                f"Trạng thái đồng bộ: Đồng bộ 100%."
             )
         )
 
@@ -268,12 +286,21 @@ class IngestionManager:
         chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
         synced = (len(remaining) == chroma_count == len(bm25_retriever.records))
 
+        if not synced:
+            return {
+                "status": "FAILED",
+                "message": f"Lỗi không đồng bộ sau khi xóa bản ghi: ChromaDB={chroma_count}, JSONL={len(remaining)}, BM25={len(bm25_retriever.records)}",
+                "deleted": False,
+                "remaining_count": len(remaining),
+                "synced": False
+            }
+
         return {
             "status": "SUCCESS",
             "message": f"Đã xóa hoàn toàn bản ghi {record_id}.",
             "deleted": True,
             "remaining_count": len(remaining),
-            "synced": synced
+            "synced": True
         }
 
     def verify_sync(self) -> Dict[str, Any]:

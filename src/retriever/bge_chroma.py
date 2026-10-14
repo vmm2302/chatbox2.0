@@ -43,20 +43,13 @@ class BGEChromaRetriever:
                     local_files_only=True
                 )
             except Exception as exc:
-                logger.info("Chưa có cache cục bộ cho BGE-M3 (%s), đang tải từ Hugging Face...", exc)
-                old_hf = os.environ.pop("HF_HUB_OFFLINE", None)
-                old_tr = os.environ.pop("TRANSFORMERS_OFFLINE", None)
-                try:
-                    self.model = SentenceTransformer(
-                        settings.BGE_M3_MODEL_NAME,
-                        device="cpu",
-                        local_files_only=False
-                    )
-                finally:
-                    if old_hf:
-                        os.environ["HF_HUB_OFFLINE"] = old_hf
-                    if old_tr:
-                        os.environ["TRANSFORMERS_OFFLINE"] = old_tr
+                err_msg = (
+                    f"Không thể nạp mô hình embedding '{settings.BGE_M3_MODEL_NAME}' từ local cache: {exc}. "
+                    "Hệ thống đang hoạt động ở chế độ OFFLINE nghiêm ngặt, không tự ý tải model qua mạng trong runtime. "
+                    "Vui lòng tải model trước qua script: 'python scripts/download_models.py' hoặc tham khảo HUONG_DAN_CAI_DAT_MAY_MOI.md."
+                )
+                logger.error(err_msg)
+                raise RuntimeError(err_msg) from exc
         return self.model
 
     def build_or_load_collection(self, force_reindex: bool = False) -> None:

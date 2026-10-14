@@ -149,22 +149,31 @@ class TestBatchMultiFileIngestion(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.test_dir = project_root / "temp_test_batch"
+        if cls.test_dir.exists():
+            shutil.rmtree(cls.test_dir, ignore_errors=True)
         cls.test_dir.mkdir(parents=True, exist_ok=True)
 
         cls.manifest_test_path = cls.test_dir / "test_manifest.json"
 
-        # Cô lập hoàn toàn ChromaDB cho môi trường test
+        # Cô lập hoàn toàn ChromaDB và JSONL cho môi trường test
         cls.orig_chroma_dir = settings.CHROMA_DIR
         cls.test_chroma_dir = cls.test_dir / "test_chroma_db"
         cls.test_chroma_dir.mkdir(parents=True, exist_ok=True)
         object.__setattr__(settings, "CHROMA_DIR", cls.test_chroma_dir)
 
-        cls.manager = BatchIngestionManager(manifest_path=cls.manifest_test_path)
+        cls.orig_jsonl_path = settings.PROCESSED_JSONL_PATH
+        cls.test_jsonl_path = cls.test_dir / "test_qa_records.jsonl"
+        object.__setattr__(settings, "PROCESSED_JSONL_PATH", cls.test_jsonl_path)
+
+        from src.data.loader import QALoader
+        test_loader = QALoader()
+        test_loader.processed_jsonl_path = cls.test_jsonl_path
+        cls.manager = BatchIngestionManager(loader=test_loader, manifest_path=cls.manifest_test_path)
 
         # Sao lưu an toàn dữ liệu sản xuất
         cls.backup_jsonl = settings.PROCESSED_DATA_DIR / "qa_records_test_backup.jsonl"
-        if settings.PROCESSED_JSONL_PATH.exists():
-            shutil.copy2(settings.PROCESSED_JSONL_PATH, cls.backup_jsonl)
+        if cls.orig_jsonl_path.exists():
+            shutil.copy2(cls.orig_jsonl_path, cls.backup_jsonl)
 
         cls.backup_manifest = settings.PROCESSED_DATA_DIR / "sources_manifest_test_backup.json"
         prod_manifest = settings.PROCESSED_DATA_DIR / "sources_manifest.json"
@@ -173,8 +182,9 @@ class TestBatchMultiFileIngestion(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # Khôi phục đường dẫn ChromaDB gốc
+        # Khôi phục đường dẫn ChromaDB và JSONL gốc
         object.__setattr__(settings, "CHROMA_DIR", cls.orig_chroma_dir)
+        object.__setattr__(settings, "PROCESSED_JSONL_PATH", cls.orig_jsonl_path)
 
         # Dọn dẹp thư mục test
         if cls.test_dir.exists():
@@ -182,7 +192,7 @@ class TestBatchMultiFileIngestion(unittest.TestCase):
 
         # Khôi phục dữ liệu gốc
         if cls.backup_jsonl.exists():
-            shutil.copy2(cls.backup_jsonl, settings.PROCESSED_JSONL_PATH)
+            shutil.copy2(cls.backup_jsonl, cls.orig_jsonl_path)
             cls.backup_jsonl.unlink(missing_ok=True)
 
         if cls.backup_manifest.exists():

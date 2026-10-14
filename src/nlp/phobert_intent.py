@@ -91,17 +91,13 @@ class PhoBERTIntentClassifier:
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, local_files_only=True)
             self.model = AutoModel.from_pretrained(self.model_name, local_files_only=True)
         except Exception as exc:
-            logger.info("Chưa có cache cục bộ cho PhoBERT (%s), đang tải từ Hugging Face...", exc)
-            old_hf = os.environ.pop("HF_HUB_OFFLINE", None)
-            old_tr = os.environ.pop("TRANSFORMERS_OFFLINE", None)
-            try:
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, local_files_only=False)
-                self.model = AutoModel.from_pretrained(self.model_name, local_files_only=False)
-            finally:
-                if old_hf:
-                    os.environ["HF_HUB_OFFLINE"] = old_hf
-                if old_tr:
-                    os.environ["TRANSFORMERS_OFFLINE"] = old_tr
+            err_msg = (
+                f"Không thể nạp mô hình PhoBERT '{self.model_name}' từ local cache: {exc}. "
+                "Hệ thống đang hoạt động ở chế độ OFFLINE nghiêm ngặt, không tự ý tải model qua mạng trong runtime. "
+                "Vui lòng tải model trước qua script: 'python scripts/download_models.py' hoặc tham khảo HUONG_DAN_CAI_DAT_MAY_MOI.md."
+            )
+            logger.error(err_msg)
+            raise RuntimeError(err_msg) from exc
         self.model.eval()
 
         logger.info("Bắt đầu tính toán biểu diễn vector cho các Intent Prototypes...")

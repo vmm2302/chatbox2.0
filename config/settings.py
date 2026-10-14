@@ -9,13 +9,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Nạp biến môi trường từ .env nếu có
+_env_path = Path(__file__).resolve().parent.parent / ".env"
 try:
     from dotenv import load_dotenv
-    _env_path = Path(__file__).resolve().parent.parent / ".env"
     if _env_path.exists():
         load_dotenv(_env_path)
-except Exception:
-    pass
+except ImportError:
+    import logging
+    logging.getLogger("config.settings").warning(
+        "Chưa cài đặt thư viện 'python-dotenv'. Để nạp cấu hình từ .env, vui lòng cài: pip install python-dotenv"
+    )
+except Exception as _env_err:
+    import logging
+    logging.getLogger("config.settings").error(
+        "Lỗi khi nạp tệp cấu hình .env: %s. Đang sử dụng thiết lập mặc định.", _env_err
+    )
 
 
 def _resolve_raw_excel_path() -> Path:

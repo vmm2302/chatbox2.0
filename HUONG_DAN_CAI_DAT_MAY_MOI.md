@@ -129,19 +129,28 @@ Script này sẽ tải:
 
 ---
 
-### Bước 7: Đồng bộ & Chuẩn bị Kho Tri Thức (Knowledge Base)
+### Bước 7: Đồng bộ & Khởi tạo Chỉ mục Kho Tri Thức (ChromaDB & BM25)
 
-Nếu bạn có tệp từ điển SQLite `dictionary_en_vi.db` và danh mục từ vựng `The_Oxford_3000_by_CEFR_level.pdf` trong thư mục `data/raw/`:
+Sau khi clone repo mới, cơ sở dữ liệu vector ChromaDB chưa được tạo sẵn để tiết kiệm dung lượng repo.
 
-1. **Đồng bộ từ vựng Oxford 3000 & Từ điển SQLite vào JSONL:**
+1. **Khởi tạo cơ sở dữ liệu Vector ChromaDB và BM25 từ tệp Q&A có sẵn:**
+   ```bash
+   python ingest_data.py --file "data/processed/qa_records.jsonl" --mode replace
+   ```
+
+2. **(Tùy chọn) Đồng bộ lại từ tệp Oxford 3000 PDF & Từ điển SQLite:**
    ```bash
    python scripts/sync_oxford_knowledge.py
    ```
 
-2. **Nạp thêm dữ liệu từ vựng mới từ tệp Excel / PDF / Word / CSV:**
+3. **(Tùy chọn) Nạp thêm dữ liệu từ vựng mới từ tệp Excel / PDF / Word / CSV:**
    ```bash
    python ingest_data.py --file "data/raw/du_lieu_tu_vung_RAG_chuan_hoa_v3.xlsx" --mode append
    ```
+
+> [!TIP]
+> **Nhận diện PDF dạng scan (Tùy chọn OCR):**  
+> Dự án hỗ trợ trích xuất văn bản từ trang scan qua OCR cục bộ (`pytesseract`). Để sử dụng, hãy cài đặt [Tesseract OCR for Windows](https://github.com/UB-Mannheim/tesseract/wiki) (hoặc `sudo apt install tesseract-ocr` trên Ubuntu). Nếu chưa cài, hệ thống vẫn xử lý văn bản bình thường và bỏ qua OCR kèm cảnh báo rõ ràng.
 
 ---
 

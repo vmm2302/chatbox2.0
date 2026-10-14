@@ -11,6 +11,8 @@ Hỗ trợ:
 
 import json
 import logging
+import re
+import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -201,26 +203,29 @@ class BatchIngestionManager:
         file_results: List[FileIngestionResult] = []
         is_replace = (mode.lower() == "replace")
 
-        # 1. Đọc dữ liệu hiện có hoặc khởi tạo tập rỗng khi REPLACE
-        existing_records: List[QARecord] = []
+        # 1. Đọc dữ liệu hiện có và manifest gốc
+        original_existing_records: List[QARecord] = []
+        if self.loader.processed_jsonl_path.exists():
+            try:
+                original_existing_records = self.loader.load_from_jsonl()
+            except Exception:
+                original_existing_records = []
+
         manifest = self.load_manifest()
 
+        # Staging: Thiết lập vùng làm việc (Working / Staged Records)
         if is_replace:
-            existing_records = []
-            manifest["sources"] = {}
+            # Chế độ REPLACE: Dữ liệu mới được thu thập trên staging độc lập, chưa xóa dữ liệu cũ
+            working_records: List[QARecord] = []
         else:
-            if self.loader.processed_jsonl_path.exists():
-                try:
-                    existing_records = self.loader.load_from_jsonl()
-                except Exception:
-                    existing_records = []
+            working_records = list(original_existing_records)
 
-        existing_by_id: Dict[str, Tuple[int, QARecord]] = {
-            r.record_id: (idx, r) for idx, r in enumerate(existing_records) if r.record_id
+        working_by_id: Dict[str, Tuple[int, QARecord]] = {
+            r.record_id: (idx, r) for idx, r in enumerate(working_records) if r.record_id
         }
-        existing_signatures: Dict[Tuple[str, str], str] = {
+        working_signatures: Dict[Tuple[str, str], str] = {
             (r.question.strip().lower(), r.answer.strip().lower()): r.record_id
-            for r in existing_records
+            for r in working_records
         }
 
         newly_accumulated_records: List[QARecord] = []
@@ -230,8 +235,13 @@ class BatchIngestionManager:
         # 2. Xử lý tuần tự từng tệp một cách độc lập
         for file_idx, file_path in enumerate(files, 1):
             file_start = time.perf_counter()
+
+            # Phục hồi tên tệp hiển thị gốc nếu tệp được lưu với prefix tránh trùng lặp
+            clean_name_match = re.match(r"^(?:raw|batch|doc|upload)_[0-9a-f]{8}_(.+)$", file_path.name)
+            display_file_name = clean_name_match.group(1) if clean_name_match else file_path.name
+
             f_res = FileIngestionResult(
-                file_name=file_path.name,
+                file_name=display_file_name,
                 file_path=str(file_path.resolve()),
                 file_type=file_path.suffix.lower().lstrip("."),
                 file_size_bytes=file_path.stat().st_size if file_path.exists() else 0,
@@ -242,7 +252,7 @@ class BatchIngestionManager:
             # Thông báo tiến độ
             pct = (file_idx - 1) / max(total_files, 1)
             if progress_callback:
-                progress_callback(f"Bắt đầu xử lý {file_path.name}...", pct, f_res)
+                progress_callback(f"Bắt đầu xử lý {display_file_name}...", pct, f_res)
 
             # Bước 2.1: Xác thực tệp (Validation)
             f_res.status = FileStatus.VALIDATING
@@ -254,7 +264,7 @@ class BatchIngestionManager:
                 f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
                 file_results.append(f_res)
                 if progress_callback:
-                    progress_callback(f"Lỗi tệp {file_path.name}: {f_res.reason}", pct, f_res)
+                    progress_callback(f"Lỗi tệp {display_file_name}: {f_res.reason}", pct, f_res)
                 continue
 
             f_res.file_hash = val_res.file_hash
@@ -275,10 +285,10 @@ class BatchIngestionManager:
                     f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
                     file_results.append(f_res)
                     if progress_callback:
-                        progress_callback(f"Bỏ qua {file_path.name} (Trùng tệp)", pct, f_res)
+                        progress_callback(f"Bỏ qua {display_file_name} (Trùng tệp)", pct, f_res)
                     continue
 
-            seen_batch_hashes[val_res.file_hash] = file_path.name
+            seen_batch_hashes[val_res.file_hash] = display_file_name
 
             # Bước 2.3: Phân tích & Trích xuất nội dung (Processing)
             f_res.status = FileStatus.PROCESSING
@@ -286,7 +296,7 @@ class BatchIngestionManager:
                 raw_extracted = self.router.load_file(
                     file_path=file_path,
                     file_hash=val_res.file_hash,
-                    start_index=len(existing_records) + 1
+                    start_index=len(working_records) + 1
                 )
             except Exception as err:
                 f_res.status = FileStatus.FAILED
@@ -295,7 +305,7 @@ class BatchIngestionManager:
                 f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
                 file_results.append(f_res)
                 if progress_callback:
-                    progress_callback(f"Lỗi đọc {file_path.name}: {err}", pct, f_res)
+                    progress_callback(f"Lỗi đọc {display_file_name}: {err}", pct, f_res)
                 continue
 
             f_res.records_extracted = len(raw_extracted)
@@ -306,7 +316,7 @@ class BatchIngestionManager:
                 f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
                 file_results.append(f_res)
                 if progress_callback:
-                    progress_callback(f"Không có bản ghi trong {file_path.name}", pct, f_res)
+                    progress_callback(f"Không có bản ghi trong {display_file_name}", pct, f_res)
                 continue
 
             # Bước 2.4: Phân loại theo Stable ID (ADD / UPDATE / DUPLICATE)
@@ -316,44 +326,48 @@ class BatchIngestionManager:
                 if not r.record_id:
                     continue
 
+                # Chuẩn hóa metadata nguồn về display_file_name
+                if not r.source or r.source == file_path.name:
+                    r.source = display_file_name
+
                 # 1. Nếu trong cùng tệp đã xuất hiện ID này rồi:
-                # Cập nhật đè lên bản ghi trước trong file_valid_records và existing_records thay vì append duplicate
+                # Cập nhật đè lên bản ghi trước trong file_valid_records và working_records thay vì append duplicate
                 if r.record_id in file_seen_ids:
                     for i, f_rec in enumerate(file_valid_records):
                         if f_rec.record_id == r.record_id:
                             file_valid_records[i] = r
                             break
-                    if r.record_id in existing_by_id:
-                        old_idx, _ = existing_by_id[r.record_id]
-                        existing_records[old_idx] = r
+                    if r.record_id in working_by_id:
+                        old_idx, _ = working_by_id[r.record_id]
+                        working_records[old_idx] = r
                     continue
 
                 file_seen_ids.add(r.record_id)
 
                 # 2. Nếu ID đã tồn tại trong KB -> UPDATE / OVERWRITE
-                if r.record_id in existing_by_id:
-                    old_idx, old_r = existing_by_id[r.record_id]
+                if r.record_id in working_by_id:
+                    old_idx, old_r = working_by_id[r.record_id]
                     old_sig = (old_r.question.strip().lower(), old_r.answer.strip().lower())
-                    existing_signatures.pop(old_sig, None)
+                    working_signatures.pop(old_sig, None)
 
-                    existing_records[old_idx] = r
+                    working_records[old_idx] = r
                     new_sig = (r.question.strip().lower(), r.answer.strip().lower())
-                    existing_signatures[new_sig] = r.record_id
-                    existing_by_id[r.record_id] = (old_idx, r)
+                    working_signatures[new_sig] = r.record_id
+                    working_by_id[r.record_id] = (old_idx, r)
                     file_valid_records.append(r)
                     continue
 
                 # 3. Nếu trùng hoàn toàn nội dung mà không có ID mới -> Bỏ qua duplicate
                 sig = (r.question.strip().lower(), r.answer.strip().lower())
-                if sig in existing_signatures:
+                if sig in working_signatures:
                     f_res.duplicates_skipped += 1
                     continue
 
                 # 4. ID mới và nội dung mới -> ADD
-                new_idx = len(existing_records)
-                existing_signatures[sig] = r.record_id
-                existing_by_id[r.record_id] = (new_idx, r)
-                existing_records.append(r)
+                new_idx = len(working_records)
+                working_signatures[sig] = r.record_id
+                working_by_id[r.record_id] = (new_idx, r)
+                working_records.append(r)
                 file_valid_records.append(r)
 
             if not file_valid_records:
@@ -363,7 +377,7 @@ class BatchIngestionManager:
                 f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
                 file_results.append(f_res)
                 if progress_callback:
-                    progress_callback(f"Bản ghi trong {file_path.name} đều đã tồn tại", pct, f_res)
+                    progress_callback(f"Bản ghi trong {display_file_name} đều đã tồn tại", pct, f_res)
                 continue
 
             # Tệp có bản ghi mới hợp lệ
@@ -387,21 +401,56 @@ class BatchIngestionManager:
         deduped_accumulated.reverse()
         newly_accumulated_records = deduped_accumulated
 
-        # 3. Lập chỉ mục ChromaDB & BM25 đồng nhất (Batch Indexing & Sync)
+        # 3. Lập chỉ mục ChromaDB & BM25 đồng nhất với cơ chế Staging & Rollback an toàn
         chromadb_status = "UNCHANGED"
         bm25_status = "UNCHANGED"
+        rollback_needed = False
 
-        if newly_accumulated_records or is_replace:
+        # --- KIỂM TRA BẢO VỆ DỮ LIỆU REPLACE (REPLACE DATA SAFETY GATE) ---
+        if is_replace and len(newly_accumulated_records) == 0:
+            logger.warning(
+                "Chế độ REPLACE bị hủy bỏ: Không có bản ghi hợp lệ nào được trích xuất từ các tệp đầu vào. "
+                "Kho tri thức hiện tại (%d bản ghi) được bảo toàn nguyên vẹn.",
+                len(original_existing_records)
+            )
+            for res in file_results:
+                if res.status == FileStatus.INDEXING or res.status == FileStatus.QUEUED:
+                    res.status = FileStatus.FAILED
+                    res.reason = "Không có bản ghi hợp lệ để lập chỉ mục. Đã hủy bỏ thao tác REPLACE để bảo vệ dữ liệu cũ."
+                    res.action = "Kiểm tra lại nội dung tệp đầu vào."
+
+            chromadb_status = "UNCHANGED (REPLACE ABORTED)"
+            bm25_status = "UNCHANGED"
+            rollback_needed = True
+
+        elif newly_accumulated_records or (is_replace and len(working_records) > 0):
+            jsonl_path = self.loader.processed_jsonl_path
+            manifest_path = self.manifest_path
+            bak_jsonl = jsonl_path.with_suffix(".jsonl.bak")
+            bak_manifest = manifest_path.with_suffix(".json.bak")
+
+            # 3.0. Tạo bản sao lưu Snapshot Backup trước khi ghi
+            try:
+                if jsonl_path.exists():
+                    shutil.copy2(jsonl_path, bak_jsonl)
+                if manifest_path.exists():
+                    shutil.copy2(manifest_path, bak_manifest)
+            except Exception as bak_err:
+                logger.warning("Không thể tạo snapshot backup: %s", bak_err)
+
+            target_records = working_records
+
             if progress_callback:
                 progress_callback(
-                    f"Đang đồng bộ cơ sở dữ liệu ({len(existing_records)} bản ghi)...",
+                    f"Đang đồng bộ cơ sở dữ liệu ({len(target_records)} bản ghi)...",
                     0.85,
                     None
                 )
 
             try:
                 # 3.1. Đồng bộ ChromaDB
-                bge_retriever = BGEChromaRetriever(existing_records)
+                bge_retriever = BGEChromaRetriever(target_records)
+                chroma_count_before = bge_retriever.collection.count() if bge_retriever.collection else 0
                 if is_replace:
                     bge_retriever.build_or_load_collection(force_reindex=True)
                 else:
@@ -409,20 +458,45 @@ class BatchIngestionManager:
                 chromadb_status = "UPDATED"
 
                 # 3.2. Cập nhật qa_records.jsonl
-                self.loader.save_to_jsonl(existing_records)
+                self.loader.save_to_jsonl(target_records)
 
                 # 3.3. Tái lập chỉ mục BM25
-                bm25_retriever = BM25Retriever(existing_records)
+                bm25_retriever = BM25Retriever(target_records)
                 bm25_status = "UPDATED"
 
-                # 3.4. Đánh dấu trạng thái SUCCESS cho các tệp đã index
+                # 3.4. Kiểm tra tính đồng bộ trước khi commit manifest
+                chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
+                jsonl_count = len(target_records)
+                bm25_count = len(bm25_retriever.records)
+
+                if is_replace or (chroma_count_before == len(original_existing_records)):
+                    if not (chroma_count == jsonl_count == bm25_count):
+                        raise RuntimeError(
+                            f"Không đồng bộ giữa các thành phần sau khi index: "
+                            f"ChromaDB={chroma_count}, JSONL={jsonl_count}, BM25={bm25_count}"
+                        )
+                else:
+                    if chroma_count < chroma_count_before:
+                        raise RuntimeError(
+                            f"Lỗi thất thoát vector ChromaDB sau khi index: "
+                            f"Trước={chroma_count_before}, Sau={chroma_count}"
+                        )
+                    if jsonl_count != bm25_count:
+                        raise RuntimeError(
+                            f"Không đồng bộ giữa JSONL và BM25: JSONL={jsonl_count}, BM25={bm25_count}"
+                        )
+
+                # 3.5. Cập nhật manifest
+                if is_replace:
+                    manifest["sources"] = {}
+                sources_dict = manifest.setdefault("sources", {})
+
                 for res in file_results:
                     if res.status == FileStatus.INDEXING:
                         res.status = FileStatus.SUCCESS
                         res.reason = f"Đã nạp thành công {res.records_added} bản ghi vào kho tri thức."
                         res.action = "Sẵn sàng tra cứu."
 
-                        # Đăng ký vào manifest
                         source_id = f"SRC_{res.file_hash[:12]}"
                         sources_dict[source_id] = {
                             "source_id": source_id,
@@ -439,21 +513,52 @@ class BatchIngestionManager:
 
                 self.save_manifest(manifest)
 
+                # Xóa bản sao lưu sau khi commit thành công
+                if bak_jsonl.exists():
+                    bak_jsonl.unlink(missing_ok=True)
+                if bak_manifest.exists():
+                    bak_manifest.unlink(missing_ok=True)
+
             except Exception as err:
-                logger.error("Lỗi khi lập chỉ mục batch: %s", err)
+                logger.error("Lỗi khi lập chỉ mục batch: %s. Đang kích hoạt ROLLBACK...", err)
+                rollback_needed = True
                 chromadb_status = f"FAILED: {err}"
                 bm25_status = "FAILED"
+
+                # Thực hiện ROLLBACK an toàn
+                try:
+                    if bak_jsonl.exists():
+                        shutil.copy2(bak_jsonl, jsonl_path)
+                        bak_jsonl.unlink(missing_ok=True)
+                    elif jsonl_path.exists() and is_replace and not original_existing_records:
+                        jsonl_path.unlink(missing_ok=True)
+
+                    if bak_manifest.exists():
+                        shutil.copy2(bak_manifest, manifest_path)
+                        bak_manifest.unlink(missing_ok=True)
+
+                    if is_replace:
+                        BGEChromaRetriever(original_existing_records).build_or_load_collection(force_reindex=True)
+                    else:
+                        added_ids = [r.record_id for r in newly_accumulated_records if r.record_id]
+                        if added_ids:
+                            BGEChromaRetriever(original_existing_records).delete_records(added_ids)
+                except Exception as rb_err:
+                    logger.critical("Rollback thất bại: %s", rb_err)
+
                 for res in file_results:
                     if res.status == FileStatus.INDEXING:
                         res.status = FileStatus.FAILED
-                        res.reason = f"Lỗi lập chỉ mục: {err}"
+                        res.reason = f"Lỗi lập chỉ mục: {err} (Đã phục hồi dữ liệu ban đầu)."
 
         # 4. Tính toán kết quả tổng thể (Batch Status: SUCCESS / PARTIAL SUCCESS / FAILED)
         success_cnt = sum(1 for r in file_results if r.status == FileStatus.SUCCESS)
         skipped_cnt = sum(1 for r in file_results if r.status == FileStatus.SKIPPED)
         failed_cnt = sum(1 for r in file_results if r.status == FileStatus.FAILED)
 
-        if success_cnt == total_files:
+        if rollback_needed or failed_cnt == total_files:
+            b_status = BatchStatus.FAILED
+        elif success_cnt == total_files:
             b_status = BatchStatus.SUCCESS
         elif success_cnt > 0 or (skipped_cnt > 0 and failed_cnt == 0):
             b_status = BatchStatus.PARTIAL_SUCCESS
@@ -538,34 +643,80 @@ class BatchIngestionManager:
                 "remaining_count": len(all_records),
             }
 
-        # 3. Xóa vector trong ChromaDB
-        bge_retriever = BGEChromaRetriever(all_records)
-        bge_retriever.delete_records(list(ids_to_delete))
+        # 3. Tạo snapshot backup trước khi xóa
+        jsonl_path = self.loader.processed_jsonl_path
+        manifest_path = self.manifest_path
+        bak_jsonl = jsonl_path.with_suffix(".jsonl.bak")
+        bak_manifest = manifest_path.with_suffix(".json.bak")
+        try:
+            if jsonl_path.exists():
+                shutil.copy2(jsonl_path, bak_jsonl)
+            if manifest_path.exists():
+                shutil.copy2(manifest_path, bak_manifest)
+        except Exception as bak_err:
+            logger.warning("Không thể tạo snapshot backup trước khi xóa nguồn: %s", bak_err)
 
-        # 4. Loại bỏ bản ghi khỏi qa_records.jsonl
-        remaining_records = [r for r in all_records if r.record_id not in ids_to_delete]
-        self.loader.save_to_jsonl(remaining_records)
+        try:
+            # Xóa vector trong ChromaDB
+            bge_retriever = BGEChromaRetriever(all_records)
+            bge_retriever.delete_records(list(ids_to_delete))
 
-        # 5. Tái lập chỉ mục BM25
-        bm25_retriever = BM25Retriever(remaining_records)
+            # Loại bỏ bản ghi khỏi qa_records.jsonl
+            remaining_records = [r for r in all_records if r.record_id not in ids_to_delete]
+            self.loader.save_to_jsonl(remaining_records)
 
-        # 6. Cập nhật manifest
-        if target_sid and target_sid in sources_dict:
-            sources_dict[target_sid]["status"] = "DELETED"
-            sources_dict[target_sid]["deleted_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            self.save_manifest(manifest)
+            # Tái lập chỉ mục BM25
+            bm25_retriever = BM25Retriever(remaining_records)
 
-        logger.info(
-            "Delete Source: Đã xóa hoàn toàn %d bản ghi của nguồn '%s'. Còn lại: %d bản ghi.",
-            len(ids_to_delete), source_identifier, len(remaining_records)
-        )
+            # Kiểm tra tính đồng bộ
+            chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
+            if not (chroma_count == len(remaining_records) == len(bm25_retriever.records)):
+                raise RuntimeError(
+                    f"Lệch đồng bộ sau khi xóa nguồn: ChromaDB={chroma_count}, JSONL={len(remaining_records)}, BM25={len(bm25_retriever.records)}"
+                )
 
-        return {
-            "status": "SUCCESS",
-            "message": f"Đã xóa hoàn toàn {len(ids_to_delete)} bản ghi và vector của nguồn '{source_identifier}'.",
-            "deleted_count": len(ids_to_delete),
-            "remaining_count": len(remaining_records),
-        }
+            # Cập nhật manifest
+            if target_sid and target_sid in sources_dict:
+                sources_dict[target_sid]["status"] = "DELETED"
+                sources_dict[target_sid]["deleted_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                self.save_manifest(manifest)
+
+            if bak_jsonl.exists():
+                bak_jsonl.unlink(missing_ok=True)
+            if bak_manifest.exists():
+                bak_manifest.unlink(missing_ok=True)
+
+            logger.info(
+                "Delete Source: Đã xóa hoàn toàn %d bản ghi của nguồn '%s'. Còn lại: %d bản ghi.",
+                len(ids_to_delete), source_identifier, len(remaining_records)
+            )
+
+            return {
+                "status": "SUCCESS",
+                "message": f"Đã xóa hoàn toàn {len(ids_to_delete)} bản ghi và vector của nguồn '{source_identifier}'.",
+                "deleted_count": len(ids_to_delete),
+                "remaining_count": len(remaining_records),
+            }
+        except Exception as err:
+            logger.error("Lỗi khi xóa nguồn '%s': %s. Đang hoàn tác khôi phục dữ liệu...", source_identifier, err)
+            if bak_jsonl.exists():
+                shutil.copy2(bak_jsonl, jsonl_path)
+                bak_jsonl.unlink(missing_ok=True)
+            if bak_manifest.exists():
+                shutil.copy2(bak_manifest, manifest_path)
+                bak_manifest.unlink(missing_ok=True)
+
+            try:
+                BGEChromaRetriever(all_records).build_or_load_collection(force_reindex=True)
+            except Exception as rb_err:
+                logger.critical("Rollback ChromaDB sau lỗi xóa nguồn thất bại: %s", rb_err)
+
+            return {
+                "status": "FAILED",
+                "message": f"Lỗi xóa nguồn: {err} (Đã phục hồi dữ liệu ban đầu an toàn).",
+                "deleted_count": 0,
+                "remaining_count": len(all_records),
+            }
 
     # --- TÁI LẬP CHỈ MỤC (REINDEX) ---
 
@@ -601,6 +752,16 @@ class BatchIngestionManager:
         # Cập nhật BM25
         bm25_retriever = BM25Retriever(all_records)
 
+        # Kiểm tra tính đồng bộ
+        chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
+        synced = (chroma_count == len(all_records) == len(bm25_retriever.records))
+        if not synced:
+            return {
+                "status": "FAILED",
+                "message": f"Lệch đồng bộ sau khi reindex: ChromaDB={chroma_count}, JSONL={len(all_records)}, BM25={len(bm25_retriever.records)}",
+                "reindexed_count": added
+            }
+
         return {
             "status": "SUCCESS",
             "message": f"Đã tái lập chỉ mục thành công cho {added} vector của nguồn '{source_identifier}'.",
@@ -616,6 +777,15 @@ class BatchIngestionManager:
         bge_retriever = BGEChromaRetriever(all_records)
         bge_retriever.build_or_load_collection(force_reindex=True)
         bm25_retriever = BM25Retriever(all_records)
+
+        chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
+        synced = (chroma_count == len(all_records) == len(bm25_retriever.records))
+        if not synced:
+            return {
+                "status": "FAILED",
+                "message": f"Lỗi không đồng bộ sau khi reindex all: ChromaDB={chroma_count}, JSONL={len(all_records)}, BM25={len(bm25_retriever.records)}",
+                "total": len(all_records)
+            }
 
         return {
             "status": "SUCCESS",
@@ -643,38 +813,71 @@ class BatchIngestionManager:
                 "synced": True
             }
 
-        # 1. Xóa trong ChromaDB
-        bge_retriever = BGEChromaRetriever(all_records)
-        bge_retriever.delete_records([record_id])
+        # 1. Snapshot backup
+        jsonl_path = self.loader.processed_jsonl_path
+        bak_jsonl = jsonl_path.with_suffix(".jsonl.bak")
+        try:
+            if jsonl_path.exists():
+                shutil.copy2(jsonl_path, bak_jsonl)
+        except Exception:
+            pass
 
-        # 2. Cập nhật lại Source JSONL
-        self.loader.save_to_jsonl(remaining)
+        try:
+            # 2. Xóa trong ChromaDB
+            bge_retriever = BGEChromaRetriever(all_records)
+            bge_retriever.delete_records([record_id])
 
-        # 3. Tái lập chỉ mục BM25
-        bm25_retriever = BM25Retriever(remaining)
+            # 3. Cập nhật lại Source JSONL
+            self.loader.save_to_jsonl(remaining)
 
-        # 4. Cập nhật manifest
-        manifest = self.load_manifest()
-        for sinfo in manifest.get("sources", {}).values():
-            if record_id in sinfo.get("record_ids", []):
-                sinfo["record_ids"].remove(record_id)
-                sinfo["record_count"] = max(0, sinfo.get("record_count", 1) - 1)
-        self.save_manifest(manifest)
+            # 4. Tái lập chỉ mục BM25
+            bm25_retriever = BM25Retriever(remaining)
 
-        # 5. Kiểm tra tính đồng bộ
-        chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
-        synced = (len(remaining) == chroma_count == len(bm25_retriever.records))
+            # 5. Cập nhật manifest
+            manifest = self.load_manifest()
+            for sinfo in manifest.get("sources", {}).values():
+                if record_id in sinfo.get("record_ids", []):
+                    sinfo["record_ids"].remove(record_id)
+                    sinfo["record_count"] = max(0, sinfo.get("record_count", 1) - 1)
+            self.save_manifest(manifest)
 
-        logger.info("Delete record %s: Còn lại %d (ChromaDB: %d, BM25: %d, Đồng bộ: %s)",
-                    record_id, len(remaining), chroma_count, len(bm25_retriever.records), synced)
+            # 6. Kiểm tra tính đồng bộ
+            chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
+            synced = (len(remaining) == chroma_count == len(bm25_retriever.records))
+            if not synced:
+                raise RuntimeError(
+                    f"Lệch đồng bộ sau khi xóa record: ChromaDB={chroma_count}, JSONL={len(remaining)}, BM25={len(bm25_retriever.records)}"
+                )
 
-        return {
-            "status": "SUCCESS",
-            "message": f"Đã xóa hoàn toàn bản ghi '{record_id}' khỏi hệ thống.",
-            "deleted": True,
-            "remaining_count": len(remaining),
-            "synced": synced
-        }
+            if bak_jsonl.exists():
+                bak_jsonl.unlink(missing_ok=True)
+
+            logger.info("Delete record %s: Còn lại %d (ChromaDB: %d, BM25: %d, Đồng bộ: %s)",
+                        record_id, len(remaining), chroma_count, len(bm25_retriever.records), synced)
+
+            return {
+                "status": "SUCCESS",
+                "message": f"Đã xóa hoàn toàn bản ghi '{record_id}' khỏi hệ thống.",
+                "deleted": True,
+                "remaining_count": len(remaining),
+                "synced": True
+            }
+        except Exception as err:
+            logger.error("Lỗi khi xóa bản ghi %s: %s. Đang khôi phục...", record_id, err)
+            if bak_jsonl.exists():
+                shutil.copy2(bak_jsonl, jsonl_path)
+                bak_jsonl.unlink(missing_ok=True)
+            try:
+                BGEChromaRetriever(all_records).build_or_load_collection(force_reindex=True)
+            except Exception:
+                pass
+            return {
+                "status": "FAILED",
+                "message": f"Lỗi xóa bản ghi: {err}. Đã khôi phục dữ liệu ban đầu.",
+                "deleted": False,
+                "remaining_count": len(all_records),
+                "synced": False
+            }
 
     def verify_sync(self) -> Dict[str, Any]:
         """Kiểm tra tính đồng bộ tuyệt đối giữa Source Data, BM25 và ChromaDB."""

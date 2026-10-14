@@ -112,17 +112,30 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### Bước 2: Tải mô hình cục bộ & Cấu hình
-```bash
-# Tạo file .env
-copy .env.example .env    # Windows CMD/PowerShell (hoặc cp .env.example .env trên Linux)
+### Bước 2: Tải mô hình cục bộ & Cấu hình (Bắt buộc cho lần đầu)
 
-# Tải trước mô hình PhoBERT-base-v2 và BGE-M3
+> [!IMPORTANT]
+> **Trạng thái bản Clone mới (Fresh Clone State):**  
+> Để giữ kích thước repository nhẹ, các trọng số mô hình lớn (`models/`) và cơ sở dữ liệu vector (`data/chroma_db/`) được loại trừ trong `.gitignore`.  
+> Hệ thống tuân thủ **Strict Offline Mode** (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`) — trong runtime, ứng dụng tuyệt đối **không tự ý kết nối Internet để tải ngầm mô hình**. Nếu thiếu mô hình, hệ thống sẽ trả về lỗi kèm câu lệnh hướng dẫn setup cụ thể.
+
+```bash
+# 1. Tạo file cấu hình môi trường .env
+copy .env.example .env    # Windows CMD/PowerShell (hoặc cp .env.example .env trên Linux/macOS)
+
+# 2. Tải trước mô hình PhoBERT-base-v2 và BGE-M3 vào local models cache (Bắt buộc chạy trước khi khởi động)
 python scripts/download_models.py
 
-# Kéo mô hình Qwen2.5:7B qua Ollama
+# 3. Kéo mô hình Qwen2.5:7B qua Ollama
 ollama pull qwen2.5:7b
+
+# 4. Khởi tạo / Đồng bộ chỉ mục Vector ChromaDB & BM25 lần đầu (từ 3,725 cặp Q&A có sẵn):
+python ingest_data.py --file "data/processed/qa_records.jsonl" --mode replace
 ```
+
+> [!TIP]
+> **Hỗ trợ OCR cho PDF dạng scan (Tùy chọn):**  
+> Hệ thống tích hợp sẵn nhận diện trang scan qua OCR cục bộ. Để sử dụng tính năng này, cài đặt [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) (Windows) hoặc `sudo apt install tesseract-ocr` (Linux). Nếu chưa cài Tesseract, hệ thống sẽ ghi cảnh báo rõ ràng và tiếp tục xử lý các trang văn bản bình thường mà không bị crash.
 
 ### Bước 3: Khởi chạy ứng dụng qua Terminal
 

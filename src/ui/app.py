@@ -23,6 +23,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+from uuid import uuid4
 
 # Đảm bảo in tiếng Việt có dấu không bị lỗi UnicodeEncodeError trên Windows (cp1252 / Code Runner / CMD)
 if sys.platform == "win32":
@@ -195,7 +196,8 @@ with tab_interface:
                         settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
                         temp_paths: List[Path] = []
                         for uf in uploaded_doc_files:
-                            t_path = settings.RAW_DATA_DIR / uf.name
+                            safe_name = f"doc_{uuid4().hex[:8]}_{uf.name}"
+                            t_path = settings.RAW_DATA_DIR / safe_name
                             with open(t_path, "wb") as f:
                                 f.write(uf.getbuffer())
                             temp_paths.append(t_path)
@@ -606,9 +608,9 @@ with tab_knowledge:
         if st.button("🚀 Bắt Đầu Xử Lý Tất Cả Tệp (Process All Files)", key="btn_process_batch_all", type="primary", use_container_width=True):
             settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
             saved_paths: List[Path] = []
-
             for uf in uploaded_batch_files:
-                target_path = settings.RAW_DATA_DIR / uf.name
+                safe_name = f"batch_{uuid4().hex[:8]}_{uf.name}"
+                target_path = settings.RAW_DATA_DIR / safe_name
                 with open(target_path, "wb") as f:
                     f.write(uf.getbuffer())
                 saved_paths.append(target_path)
