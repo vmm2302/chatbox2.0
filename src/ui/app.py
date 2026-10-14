@@ -236,6 +236,14 @@ with tab_interface:
             else:
                 st.markdown("🔴 **Ollama Local:** Chưa bật service")
 
+            # Giám sát thiết bị xử lý Embedding BGE-M3 (GPU / CPU)
+            import torch
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                st.markdown(f"⚡ **Embedding:** GPU `{gpu_name}`")
+            else:
+                st.markdown("💻 **Embedding:** CPU")
+
             active_w = engine.tracker.active_word
             if active_w:
                 st.markdown(f"🎯 **Từ vựng active:** `{active_w}`")

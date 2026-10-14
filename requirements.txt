@@ -12,6 +12,8 @@ chromadb>=0.4.22
 rank-bm25>=0.2.2
 
 # Xử lý ngôn ngữ tự nhiên & Mô hình Embedding (NLP & Transformers)
+# Mẹo: Với máy có GPU NVIDIA (RTX 3050...), cài PyTorch CUDA để tăng tốc 15-20x:
+# pip install torch --index-url https://download.pytorch.org/whl/cu124
 torch>=2.0.0
 transformers>=4.36.0
 sentence-transformers>=2.2.0

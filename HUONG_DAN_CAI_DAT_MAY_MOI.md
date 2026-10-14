@@ -72,6 +72,14 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+> [!TIP]
+> **Kích hoạt GPU cho BGE-M3 (Khuyên dùng nếu máy có card NVIDIA RTX / GTX):**  
+> Mặc định pip cài bản PyTorch CPU. Để tăng tốc độ mã hóa dữ liệu gấp **15 – 20 lần** (từ 240+ từ/giây) và giải phóng 100% CPU/RAM, hãy chạy thêm lệnh:
+> ```bash
+> pip install torch --index-url https://download.pytorch.org/whl/cu124
+> ```
+> Hệ thống sẽ tự động nhận diện và đẩy toàn bộ tác vụ Embedding sang card đồ họa NVIDIA.
+
 Danh sách các thư viện chính bao gồm:
 - **Giao diện Web:** `streamlit`, `gradio`
 - **Vector & Tìm kiếm:** `chromadb`, `rank-bm25`

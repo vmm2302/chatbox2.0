@@ -110,6 +110,9 @@ source .venv/bin/activate
 # 3. Cài đặt các thư viện bắt buộc
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+
+# (Khuyên dùng cho máy có GPU NVIDIA) Tăng tốc độ nạp dữ liệu gấp 15-20x:
+pip install torch --index-url https://download.pytorch.org/whl/cu124
 ```
 
 ### Bước 2: Tải mô hình cục bộ & Cấu hình (Bắt buộc cho lần đầu)

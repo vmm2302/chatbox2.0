@@ -98,6 +98,7 @@ class Settings:
     DIRECT_MATCH_THRESHOLD: float = 0.88
     RAG_THRESHOLD: float = 0.60
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
+    EMBEDDING_DEVICE: str = field(default_factory=lambda: os.getenv("EMBEDDING_DEVICE", "auto"))
 
 
 

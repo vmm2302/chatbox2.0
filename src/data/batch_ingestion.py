@@ -451,10 +451,12 @@ class BatchIngestionManager:
                 # 3.1. Đồng bộ ChromaDB
                 bge_retriever = BGEChromaRetriever(target_records)
                 chroma_count_before = bge_retriever.collection.count() if bge_retriever.collection else 0
+                import torch
+                effective_batch_size = 64 if torch.cuda.is_available() else batch_size
                 if is_replace:
                     bge_retriever.build_or_load_collection(force_reindex=True)
                 else:
-                    bge_retriever.upsert_records(newly_accumulated_records, batch_size=batch_size)
+                    bge_retriever.upsert_records(newly_accumulated_records, batch_size=effective_batch_size)
                 chromadb_status = "UPDATED"
 
                 # 3.2. Cập nhật qa_records.jsonl

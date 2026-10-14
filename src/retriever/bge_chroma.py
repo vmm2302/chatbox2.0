@@ -32,14 +32,28 @@ class BGEChromaRetriever:
         self.model: Optional[SentenceTransformer] = None
         self.collection = None
 
+    def _resolve_device(self) -> str:
+        """Xác định thiết bị thực thi mô hình BGE-M3 (hỗ trợ GPU CUDA hoặc CPU)."""
+        import torch
+        conf_device = (getattr(settings, "EMBEDDING_DEVICE", "auto") or "auto").strip().lower()
+        if conf_device in ("cuda", "gpu"):
+            if torch.cuda.is_available():
+                return "cuda"
+            logger.warning("Cấu hình EMBEDDING_DEVICE='cuda' nhưng CUDA không khả dụng. Tự động chuyển sang 'cpu'.")
+            return "cpu"
+        elif conf_device == "auto":
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        return "cpu"
+
     def _get_embedding_model(self) -> SentenceTransformer:
-        """Nạp mô hình BGE-M3 từ local cache (chạy trên CPU để tiết kiệm VRAM cho Qwen)."""
+        """Nạp mô hình BGE-M3 từ local cache (tự động dùng GPU CUDA nếu có, hoặc fallback CPU)."""
         if self.model is None:
-            logger.info("Đang nạp mô hình BGE-M3 từ local cache: %s", settings.BGE_M3_MODEL_NAME)
+            device = self._resolve_device()
+            logger.info("Đang nạp mô hình BGE-M3 từ local cache: %s (Thiết bị: %s)", settings.BGE_M3_MODEL_NAME, device)
             try:
                 self.model = SentenceTransformer(
                     settings.BGE_M3_MODEL_NAME,
-                    device="cpu",
+                    device=device,
                     local_files_only=True
                 )
             except Exception as exc:
@@ -295,6 +309,9 @@ class BGEChromaRetriever:
                 self.records.append(r)
 
         logger.info("Đã upsert thành công %d vector trong ChromaDB.", len(records))
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return len(records)
 
     def delete_records(self, record_ids: List[str]) -> int:
