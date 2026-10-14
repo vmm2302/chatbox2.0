@@ -1,22 +1,15 @@
 """Giao diện Web Chatbox 2.0 phát triển trên Streamlit.
 
-Đồng bộ toàn diện phong cách giao diện và bố cục từ rag-chatbot-main:
-1. Header & Typography: 'Local RAG Chatbot 🤖' phong cách Soft Slate.
-2. Cấu trúc 4 Tabs chính:
-   - 💬 Interface: Giao diện Tra Cứu Từ Vựng (Bố cục 2 cột: Setting Panel bên trái + Chatbot bên phải).
-   - ⚙️ Setting: Cấu hình System Prompt và các siêu tham số RAG.
-   - 📋 Output: Nhật ký sự kiện, kiểm định truy vấn & Provenance Audit Trace.
-   - 📁 Quản Trị Kho Tri Thức: Batch Multi-File Ingestion & Quản lý nguồn.
-3. Chat Controls & Avatars:
-   - Avatar icon đồng bộ từ assets/user.png và assets/bot.png.
-   - Trạng thái Status: Ready!, Answering!, Completed!
-   - Bộ chọn Chat Mode: QA (Tra cứu chuẩn xác) vs Chat (Hội thoại ngữ nghĩa).
-   - Bộ 4 nút tác vụ chuẩn demo.png: Hide/Show Setting, Undo, Clear, Reset.
+Hệ thống tra cứu từ vựng tiếng Anh bằng tiếng Việt:
+- Tab 1 (💬 Tra Cứu Từ Vựng): Giao diện 1 cột trung tâm tối giản, lịch sử hội thoại, expander nguồn dữ liệu thật, nút Cuộc trò chuyện mới.
+- Tab 2 (📁 Quản Lý Dữ Liệu): Nạp đa tệp (8 định dạng), phân tách ADD/REPLACE kèm xác nhận an toàn, thống kê lưu trữ độc lập (JSONL, ChromaDB, BM25).
+- Tab 3 (🛠️ Chẩn Đoán & Kiểm Định): Thông số động GPU/CUDA, phân biệt model cấu hình/đã cài/đang nạp, System Prompt read-only, công tắc Inspector, nhật ký audit.
 """
 
-import html
 import base64
+import html
 import json
+import logging
 import os
 import shutil
 import sys
@@ -25,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import uuid4
 
-# Đảm bảo in tiếng Việt có dấu không bị lỗi UnicodeEncodeError trên Windows (cp1252 / Code Runner / CMD)
+# Đảm bảo in tiếng Việt có dấu không bị lỗi UnicodeEncodeError trên Windows
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -38,6 +31,7 @@ project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+import requests
 import streamlit as st
 
 # Cho phép chạy trực tiếp bằng lệnh `python app.py` hoặc nút Run trong VS Code
@@ -51,8 +45,17 @@ from config.settings import settings
 from src.chat.engine import ChatEngine
 from src.core.models import ChatResponse
 from src.data.batch_ingestion import BatchIngestionManager, BatchStatus, FileStatus
-from src.llm.prompts import PROMPT_TEMPLATE
 from src.ui.theme import CUSTOM_CSS
+
+logger = logging.getLogger(__name__)
+
+# Đọc an toàn System Prompt thực tế từ src.llm.prompts
+try:
+    from src.llm.prompts import SYSTEM_PROMPT
+    SYSTEM_PROMPT_SOURCE = "src.llm.prompts.SYSTEM_PROMPT"
+except Exception as prompt_err:
+    SYSTEM_PROMPT = None
+    SYSTEM_PROMPT_SOURCE = f"Lỗi đọc prompt: {prompt_err}"
 
 # Đường dẫn Avatar và dữ liệu base64 đồng bộ từ assets/
 user_img_path = project_root / "assets" / "user.png"
@@ -66,518 +69,371 @@ BOT_B64 = base64.b64encode(bot_img_path.read_bytes()).decode("ascii") if bot_img
 
 # Cấu hình trang Streamlit
 st.set_page_config(
-    page_title="Local RAG Chatbot 🤖 - English Vocabulary Assistant",
+    page_title="Chatbox 2.0 - Tra Cứu Từ Vựng Tiếng Anh",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Áp dụng CSS Theme đồng bộ từ rag-chatbot-main
+# Áp dụng CSS Theme đồng bộ
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
+
+# --- CÁC HÀM XÁC MINH & CHẨN ĐOÁN RUNTIME (CACHED AN TOÀN) ---
+
+@st.cache_data
+def get_hardware_runtime_info() -> Dict[str, Any]:
+    """Kiểm tra cấu hình phần cứng một lần, an toàn khi không có GPU hoặc lỗi Torch."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device_name = torch.cuda.get_device_name(0)
+            cuda_ver = getattr(torch.version, "cuda", "N/A")
+            return {
+                "available": True,
+                "device_type": "GPU (CUDA)",
+                "device_name": device_name,
+                "cuda_version": cuda_ver,
+                "device_count": torch.cuda.device_count(),
+            }
+    except Exception as exc:
+        logger.warning("Không thể truy vấn thông tin GPU qua Torch: %s", exc)
+
+    return {
+        "available": False,
+        "device_type": "CPU",
+        "device_name": "CPU (CUDA không khả dụng)",
+        "cuda_version": "N/A",
+        "device_count": 0,
+    }
+
+
+@st.cache_data(ttl=30)
+def get_ollama_runtime_status(base_url: str, configured_model: str) -> Dict[str, Any]:
+    """Kiểm tra dịch vụ Ollama qua HTTP (cache 30s để tránh spam mạng khi rerun):
+    - Phân biệt model cấu hình, model đã cài và model đang nạp.
+    """
+    clean_url = (base_url or "http://localhost:11434").rstrip("/")
+    status: Dict[str, Any] = {
+        "online": False,
+        "configured_model": configured_model,
+        "installed_models": [],
+        "running_models": [],
+        "error": None,
+    }
+
+    try:
+        # 1. Kiểm tra /api/tags để lấy danh sách model đã cài đặt
+        tags_resp = requests.get(f"{clean_url}/api/tags", timeout=1.5)
+        if tags_resp.status_code == 200:
+            status["online"] = True
+            tags_data = tags_resp.json()
+            models_list = tags_data.get("models", [])
+            status["installed_models"] = [m.get("name") for m in models_list if m.get("name")]
+
+            # 2. Kiểm tra /api/ps để lấy model đang nạp vào VRAM/RAM
+            try:
+                ps_resp = requests.get(f"{clean_url}/api/ps", timeout=1.5)
+                if ps_resp.status_code == 200:
+                    ps_data = ps_resp.json()
+                    status["running_models"] = [m.get("name") for m in ps_data.get("models", []) if m.get("name")]
+            except Exception:
+                pass
+        else:
+            status["error"] = f"Mã HTTP {tags_resp.status_code}"
+    except Exception as exc:
+        status["error"] = str(exc)
+
+    return status
+
+
+def inspect_storage_metrics(engine: ChatEngine) -> Dict[str, Any]:
+    """Đọc độc lập số lượng bản ghi thực tế của từng tầng lưu trữ."""
+    results: Dict[str, Any] = {
+        "jsonl_disk_count": None,
+        "jsonl_disk_error": None,
+        "engine_records_count": None,
+        "engine_records_error": None,
+        "chroma_count": None,
+        "chroma_error": None,
+        "bm25_count": None,
+        "bm25_error": None,
+    }
+
+    # 1. Đọc tệp JSONL trên đĩa (settings.PROCESSED_JSONL_PATH)
+    try:
+        jsonl_path = settings.PROCESSED_JSONL_PATH
+        if jsonl_path.exists():
+            with open(jsonl_path, "r", encoding="utf-8") as f:
+                lines = sum(1 for line in f if line.strip())
+            results["jsonl_disk_count"] = lines
+        else:
+            results["jsonl_disk_error"] = f"Tệp không tồn tại ({jsonl_path.name})"
+    except Exception as exc:
+        results["jsonl_disk_error"] = str(exc)
+
+    # 2. Đọc bản ghi trong bộ nhớ ChatEngine
+    try:
+        if hasattr(engine, "records") and isinstance(engine.records, list):
+            results["engine_records_count"] = len(engine.records)
+        else:
+            results["engine_records_error"] = "engine.records không hợp lệ"
+    except Exception as exc:
+        results["engine_records_error"] = str(exc)
+
+    # 3. Đọc số vector ChromaDB
+    try:
+        if hasattr(engine, "bge_retriever") and engine.bge_retriever:
+            coll = engine.bge_retriever.collection
+            if coll is not None:
+                results["chroma_count"] = coll.count()
+            else:
+                import chromadb
+                client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
+                coll = client.get_collection(name=settings.CHROMA_COLLECTION_NAME)
+                results["chroma_count"] = coll.count()
+        else:
+            results["chroma_error"] = "Không tìm thấy bge_retriever"
+    except Exception as exc:
+        results["chroma_error"] = str(exc)
+
+    # 4. Đọc số bản ghi BM25
+    try:
+        if hasattr(engine, "bm25_retriever") and engine.bm25_retriever:
+            if hasattr(engine.bm25_retriever, "records") and isinstance(engine.bm25_retriever.records, list):
+                results["bm25_count"] = len(engine.bm25_retriever.records)
+            else:
+                results["bm25_error"] = "bm25_retriever.records không hợp lệ"
+        else:
+            results["bm25_error"] = "Không tìm thấy bm25_retriever"
+    except Exception as exc:
+        results["bm25_error"] = str(exc)
+
+    return results
+
+
+# --- KHỞI TẠO SINGLETON CHAT ENGINE & BATCH MANAGER ---
 
 @st.cache_resource(show_spinner="Đang khởi tạo các chỉ mục tri thức và mô hình...")
 def get_chatbot_engine() -> ChatEngine:
     """Tạo singleton instance của ChatEngine và làm nóng các chỉ mục."""
-    engine = ChatEngine()
-    engine.warm_up()
-    return engine
+    eng = ChatEngine()
+    eng.warm_up()
+    return eng
 
 
 engine = get_chatbot_engine()
 batch_manager = BatchIngestionManager()
 
-# --- KHỞI TẠO SESSION STATE ---
+# --- KHỞI TẠO SESSION STATE CỐT LÕI ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "show_setting" not in st.session_state:
-    st.session_state.show_setting = True
-if "status" not in st.session_state:
-    st.session_state.status = "Ready!"
-if "chat_mode" not in st.session_state:
-    st.session_state.chat_mode = "QA"
-if "language" not in st.session_state:
-    st.session_state.language = "vi"
-if "model_name" not in st.session_state:
-    st.session_state.model_name = settings.OLLAMA_MODEL
-if "dev_mode" not in st.session_state:
-    st.session_state.dev_mode = True
-if "custom_system_prompt" not in st.session_state:
-    st.session_state.custom_system_prompt = PROMPT_TEMPLATE
 if "audit_logs" not in st.session_state:
     st.session_state.audit_logs = []
+if "dev_mode" not in st.session_state:
+    st.session_state.dev_mode = False
+if "status" not in st.session_state:
+    st.session_state.status = "Sẵn sàng!"
 if "batch_report" not in st.session_state:
     st.session_state.batch_report = None
-if "failed_files_to_retry" not in st.session_state:
-    st.session_state.failed_files_to_retry = {}
 
 
-# --- HEADER GIAO DIỆN (CHÍNH XÁC PHONG CÁCH demo.png) ---
-st.markdown('<div class="gr-app-title">Local RAG Chatbot 🤖</div>', unsafe_allow_html=True)
+# --- HEADER VÀ THANH TRẠNG THÁI CHUNG ---
+ollama_info = get_ollama_runtime_status(settings.OLLAMA_BASE_URL, settings.OLLAMA_MODEL)
+kb_records_count = len(engine.records) if hasattr(engine, "records") and engine.records else 0
 
-# --- 4 TABS ĐIỀU HƯỚNG CHÍNH ---
-tab_interface, tab_setting, tab_output, tab_knowledge = st.tabs([
-    "Interface",
-    "Setting",
-    "Output",
-    "📁 Quản Trị Kho Tri Thức"
+st.markdown('<div class="app-header-container">', unsafe_allow_html=True)
+st.markdown('<div class="app-title">Chatbox 2.0 🤖</div>', unsafe_allow_html=True)
+st.markdown('<div class="app-subtitle">Hệ thống tra cứu từ vựng tiếng Anh theo ngữ cảnh & chuẩn CEFR</div>', unsafe_allow_html=True)
+
+ollama_badge_class = "online" if ollama_info["online"] else "offline"
+ollama_badge_text = f"🟢 Ollama: {ollama_info['configured_model']}" if ollama_info["online"] else "🔴 Ollama: Ngoại tuyến"
+
+st.markdown(
+    f"""
+    <div class="header-badges">
+        <span class="status-badge {ollama_badge_class}">{ollama_badge_text}</span>
+        <span class="status-badge">📚 Kho tri thức: {kb_records_count:,} bản ghi</span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+st.markdown('</div>', unsafe_allow_html=True)
+
+
+# --- BỐ CỤC 3 TAB CHUYÊN BIỆT ---
+tab_chat, tab_knowledge, tab_diagnostics = st.tabs([
+    "💬 Tra Cứu Từ Vựng",
+    "📁 Quản Lý Dữ Liệu",
+    "🛠️ Chẩn Đoán & Kiểm Định"
 ])
 
 
 # ==============================================================================
-# TAB 1: GIAO DIỆN CHÍNH (INTERFACE TAB) — BỐ CỤC 2 CỘT CHUẨN demo.png
+# TAB 1: 💬 TRA CỨU TỪ VỰNG (MÀN HÌNH CHÍNH)
 # ==============================================================================
-with tab_interface:
-    # Điều phối hiển thị 2 cột nếu show_setting = True, hoặc 1 cột nếu ẩn
-    if st.session_state.show_setting:
-        col_setting, col_chat = st.columns([1, 2.5], gap="medium")
-    else:
-        col_setting = None
-        col_chat = st.container()
+with tab_chat:
+    # 1. Thanh điều khiển: Nút "Cuộc trò chuyện mới"
+    col_t1, col_t2 = st.columns([6, 2])
+    with col_t2:
+        if st.button("➕ Cuộc trò chuyện mới", key="btn_new_chat", use_container_width=True):
+            st.session_state.messages = []
+            if hasattr(engine, "tracker") and hasattr(engine.tracker, "clear"):
+                engine.tracker.clear()
+            st.session_state.status = "Sẵn sàng!"
+            st.toast("Đã bắt đầu cuộc trò chuyện mới.", icon="✨")
+            st.rerun()
 
-    # --- CỘT TRÁI: SETTING PANEL ---
-    if col_setting is not None:
-        with col_setting:
-            st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-
-            # 1. Trạng thái Status (Chuẩn Gradio Textbox demo.png)
-            curr_status = st.session_state.status
+    # 2. Khung hiển thị tin nhắn hội thoại
+    chat_container = st.container()
+    with chat_container:
+        if not st.session_state.messages:
+            # Trạng thái rỗng: Lời chào tiếng Việt trang nhã, KHÔNG có thẻ gợi ý nhanh
             st.markdown(
-                f"""
-                <div class="gr-label">Status</div>
-                <div class="gr-status-textbox">{curr_status}</div>
+                """
+                <div class="welcome-card">
+                    <div class="welcome-title">Chào mừng bạn đến với Chatbox 2.0! 👋</div>
+                    <div class="welcome-text">
+                        Hệ thống hỗ trợ tra cứu định nghĩa, phiên âm, từ loại, cấp độ CEFR và câu ví dụ của từ vựng tiếng Anh bằng câu hỏi tiếng Việt tự nhiên.<br/>
+                        Hãy nhập từ vựng tiếng Anh hoặc câu hỏi của bạn vào ô bên dưới để bắt đầu tra cứu.
+                    </div>
+                </div>
                 """,
                 unsafe_allow_html=True
             )
-
-            # 2. Lựa chọn Ngôn ngữ (Language radio dạng pill)
-            st.markdown("<div class='gr-label'>Language</div>", unsafe_allow_html=True)
-            lang_idx = 0 if st.session_state.language == "vi" else 1
-            selected_lang = st.radio(
-                "Language",
-                options=["vi", "eng"],
-                index=lang_idx,
-                horizontal=True,
-                label_visibility="collapsed",
-                key="radio_lang_setting"
-            )
-            st.session_state.language = selected_lang
-
-            # 3. Hiển thị Trình tự Pipeline cố định (Architecture Lock - Không chia rẽ model)
-            st.markdown("<div class='gr-label' style='margin-top: 10px;'>Pipeline Trình Tự Bắt Buộc:</div>", unsafe_allow_html=True)
-            pipeline_options = [
-                "PhoBERT ➔ BM25 + BGE-M3 ➔ RRF Gate ➔ Qwen2.5:7B"
-            ]
-            st.selectbox(
-                "Pipeline Trình Tự Bắt Buộc:",
-                options=pipeline_options,
-                index=0,
-                disabled=True,
-                label_visibility="collapsed",
-                key="select_model_setting",
-                help="Pipeline thống nhất: 1. PhoBERT (Ý định) ➔ 2. BM25 + BGE-M3 (Truy xuất) ➔ 3. RRF Gate (Lọc) ➔ 4. Qwen2.5:7B (Sinh câu trả lời)."
-            )
-
-            # 4. Thêm tài liệu nhanh (Add Documents)
-            st.markdown("<div class='gr-label' style='margin-top: 14px;'>📄 Add Documents</div>", unsafe_allow_html=True)
-            uploaded_doc_files = st.file_uploader(
-                "Add Documents",
-                type=["txt", "pdf", "csv", "xlsx", "docx", "json", "jsonl", "md"],
-                accept_multiple_files=True,
-                label_visibility="collapsed",
-                key="inline_doc_uploader"
-            )
-
-            col_doc1, col_doc2 = st.columns(2)
-            with col_doc1:
-                st.markdown('<div class="btn-upload">', unsafe_allow_html=True)
-                if st.button("Upload", key="btn_doc_upload", use_container_width=True, type="primary"):
-                    if uploaded_doc_files:
-                        settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
-                        temp_paths: List[Path] = []
-                        for uf in uploaded_doc_files:
-                            safe_name = f"doc_{uuid4().hex[:8]}_{uf.name}"
-                            t_path = settings.RAW_DATA_DIR / safe_name
-                            with open(t_path, "wb") as f:
-                                f.write(uf.getbuffer())
-                            temp_paths.append(t_path)
-
-                        progress_bar = st.progress(0, text="Đang chuẩn bị nạp tài liệu...")
-
-                        def sidebar_callback(msg: str, pct: float, current_res: Optional[Any]):
-                            progress_bar.progress(min(max(int(pct * 100), 0), 100), text=msg)
-
-                        rep = batch_manager.ingest_batch(temp_paths, progress_callback=sidebar_callback)
-                        new_recs = batch_manager.loader.load_from_jsonl()
-                        engine.update_knowledge_base(new_recs)
-                        progress_bar.progress(100, text="Hoàn tất nạp tài liệu!")
-                        st.session_state.status = "Processing documents 📄 completed!"
-                        st.session_state.batch_report = rep
-                        st.toast(f"Đã nạp {rep.success_count} tệp thành công!", icon="✅")
-                        st.rerun()
-                    else:
-                        st.warning("Vui lòng chọn ít nhất 1 tệp!")
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            with col_doc2:
-                st.markdown('<div class="btn-reset">', unsafe_allow_html=True)
-                if st.button("Reset", key="btn_doc_reset", use_container_width=True):
-                    st.session_state.status = "Ready!"
-                    st.toast("Đã đặt lại danh sách tệp đính kèm.", icon="🔄")
-                    st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            st.markdown("---")
-
-            # 5. Giám sát hệ thống & Chủ đề hiện hành
-            is_ollama_ready = engine.llm_client.is_service_ready()
-            if is_ollama_ready:
-                st.markdown("🟢 **Ollama Local:** Sẵn sàng")
-            else:
-                st.markdown("🔴 **Ollama Local:** Chưa bật service")
-
-            # Giám sát thiết bị xử lý Embedding BGE-M3 (GPU / CPU)
-            import torch
-            if torch.cuda.is_available():
-                gpu_name = torch.cuda.get_device_name(0)
-                st.markdown(f"⚡ **Embedding:** GPU `{gpu_name}`")
-            else:
-                st.markdown("💻 **Embedding:** CPU")
-
-            active_w = engine.tracker.active_word
-            if active_w:
-                st.markdown(f"🎯 **Từ vựng active:** `{active_w}`")
-            else:
-                st.caption("🎯 Chưa có từ vựng active")
-
-            st.caption(f"📚 **Kho tri thức:** `{len(engine.records):,}` cặp Q&A")
-
-            # Checkbox hiện Inspector
-            st.session_state.dev_mode = st.checkbox(
-                "Hiện Inspector kỹ thuật",
-                value=st.session_state.dev_mode,
-                help="Hiển thị PhoBERT Intent, RRF score, BM25 rank, BGE-M3 rank và Record ID.",
-                key="checkbox_dev_mode"
-            )
-
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    # --- CỘT PHẢI: KHUNG CHATBOT CHÍNH (MAIN CHAT AREA) ---
-    with col_chat:
-        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-        st.markdown('<div class="panel-card-header">💬 Chatbot</div>', unsafe_allow_html=True)
-
-        # Khung tin nhắn cuộn tròn chuẩn demo.png
-        chat_msg_container = st.container(height=480)
-        with chat_msg_container:
-            # Lời chào mặc định nếu chưa có tin nhắn
-            if not st.session_state.messages:
-                st.markdown(
-                    f"""
-                    <div class="bot-msg-wrapper">
-                        <img src="data:image/png;base64,{BOT_B64}" class="bot-avatar-img" />
-                        <div class="bot-bubble-box">
-                            Hi 👋, how can I help you today? Tôi là trợ lý tra cứu từ vựng tiếng Anh. Bạn có thể tra nghĩa, ví dụ, từ đồng nghĩa hoặc câu hỏi từ vựng tiếng Anh bằng tiếng Việt tự nhiên!
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-            # Hiển thị lịch sử hội thoại
-            for msg in st.session_state.messages:
-                role = msg.get("role", "user")
+        else:
+            for idx, msg in enumerate(st.session_state.messages):
+                role = msg.get("role", "assistant")
                 content = msg.get("content", "")
                 meta: Optional[ChatResponse] = msg.get("meta")
 
                 if role == "user":
-                    # Tin nhắn người dùng nằm ở BÊN PHẢI (User on the RIGHT)
-                    escaped_c = html.escape(content).replace("\n", "<br>")
                     st.markdown(
                         f"""
                         <div class="user-msg-wrapper">
-                            <div class="user-bubble-box">{escaped_c}</div>
-                            <img src="data:image/png;base64,{USER_B64}" class="user-avatar-img" />
+                            <div class="user-bubble-box">{html.escape(content)}</div>
+                            <img class="user-avatar-img" src="data:image/png;base64,{USER_B64}" alt="User" />
                         </div>
                         """,
                         unsafe_allow_html=True
                     )
                 else:
-                    # Tin nhắn Chatbot nằm ở BÊN TRÁI (Chatbot on the LEFT)
-                    st.markdown('<div class="bot-msg-wrapper">', unsafe_allow_html=True)
-                    with st.chat_message("assistant", avatar=BOT_AVATAR):
-                        st.markdown(content)
+                    # Tin nhắn Bot
+                    st.markdown(
+                        f"""
+                        <div class="bot-msg-wrapper">
+                            <img class="bot-avatar-img" src="data:image/png;base64,{BOT_B64}" alt="Bot" />
+                            <div class="bot-bubble-box">
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    # Render Markdown nội dung trả lời (bảo toàn định dạng phân dòng, in đậm, danh sách)
+                    st.markdown(content)
 
-                        # Hiển thị Provenance Inspector nếu bật dev_mode
-                        if st.session_state.dev_mode and meta is not None:
-                            with st.expander(f"🔍 Inspector: {meta.mode} | Intent: {meta.intent or 'N/A'} (RRF: {meta.rrf_score:.4f})"):
-                                c1, c2, c3, c4 = st.columns(4)
-                                c1.metric("Response Mode", meta.mode)
-                                c2.metric("PhoBERT Intent", meta.intent or "N/A")
-                                c3.metric("RRF Score", f"{meta.rrf_score:.4f}")
-                                c4.metric("Độ trễ", f"{meta.latency_ms:.1f} ms")
+                    # Hiển thị Nguồn dữ liệu (Provenance) - Chỉ hiển thị metadata có thật
+                    if meta is not None:
+                        # Trích xuất metadata thực tế từ response hoặc candidate đầu tiên
+                        source_file = getattr(meta, "source", None)
+                        rec_id = getattr(meta, "record_id", None)
+                        word_val = getattr(meta, "word", None)
+                        sheet_val = None
 
-                                if meta.record_id:
-                                    st.markdown(f"**Mã bản ghi:** `{meta.record_id}` | **Từ vựng:** `{meta.word}` | **Nguồn:** `{meta.source}`")
+                        if getattr(meta, "candidates", None) and len(meta.candidates) > 0:
+                            top_candidate = meta.candidates[0].record
+                            if not source_file:
+                                source_file = getattr(top_candidate, "source", None) or getattr(top_candidate, "source_file", None)
+                            if not rec_id:
+                                rec_id = getattr(top_candidate, "record_id", None) or getattr(top_candidate, "id", None)
+                            if not word_val:
+                                word_val = getattr(top_candidate, "word", None)
+                            sheet_val = getattr(top_candidate, "sheet", None)
 
-                                if meta.candidates:
-                                    st.markdown("**Top ứng viên trích xuất sau khi hợp nhất RRF (k=60):**")
-                                    c_table = []
-                                    for rk, cand in enumerate(meta.candidates, 1):
-                                        c_table.append({
-                                            "Hạng RRF": f"#{rk}",
-                                            "Mã Record": cand.record.record_id,
-                                            "Từ vựng": cand.record.word or "N/A",
-                                            "Nguồn": cand.record.source or cand.record.sheet,
-                                            "Điểm BM25": f"{cand.bm25_score:.2f} (#{cand.bm25_rank})",
-                                            "Điểm BGE-M3": f"{cand.bge_score:.4f} (#{cand.bge_rank})",
-                                            "Điểm RRF": f"{cand.rrf_score:.4f}"
-                                        })
-                                    st.dataframe(c_table, use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                        # Chỉ hiển thị Expander Nguồn dữ liệu khi có ít nhất một thông tin metadata có thật
+                        has_provenance = any([rec_id, source_file, word_val, sheet_val])
+                        if has_provenance:
+                            with st.expander("📄 Nguồn dữ liệu trích xuất", expanded=False):
+                                prov_html = []
+                                if rec_id:
+                                    prov_html.append(f'<span class="source-badge">Mã bản ghi: <b>{html.escape(str(rec_id))}</b></span>')
+                                if word_val:
+                                    prov_html.append(f'<span class="source-badge">Từ vựng: <b>{html.escape(str(word_val))}</b></span>')
+                                if source_file:
+                                    prov_html.append(f'<span class="source-badge">Tệp nguồn: <b>{html.escape(str(source_file))}</b></span>')
+                                if sheet_val:
+                                    prov_html.append(f'<span class="source-badge">Sheet/Phần: <b>{html.escape(str(sheet_val))}</b></span>')
 
-        # Hàng nhập tin nhắn inline trong card chuẩn demo.png
-        with st.form(key="chat_inline_form", clear_on_submit=True):
-            col_m1, col_m2, col_m3 = st.columns([1.5, 7.5, 1])
-            with col_m1:
-                chat_mode_val = st.selectbox(
-                    "Chế độ",
-                    options=["QA", "chat"],
-                    index=0 if st.session_state.chat_mode == "QA" else 1,
-                    label_visibility="collapsed",
-                    help="QA: Tra cứu chuẩn xác | chat: Đàm thoại giải thích ngữ nghĩa",
-                    key="select_chat_mode"
+                                st.markdown("".join(prov_html), unsafe_allow_html=True)
+
+                        # Bảng Inspector Kỹ thuật: Chỉ hiển thị khi người dùng bật tùy chọn ở Tab Chẩn đoán
+                        if st.session_state.dev_mode:
+                            with st.expander("🔬 Bảng phân tích kỹ thuật (Inspector)", expanded=False):
+                                ic1, ic2, ic3, ic4 = st.columns(4)
+                                ic1.metric("Response Mode", str(getattr(meta, "mode", "N/A")))
+                                ic2.metric("PhoBERT Intent", str(getattr(meta, "intent", "N/A") or "N/A"))
+                                ic3.metric("RRF Score", f"{getattr(meta, 'rrf_score', 0.0):.4f}")
+                                ic4.metric("Độ trễ", f"{getattr(meta, 'latency_ms', 0.0):.1f} ms")
+
+                    st.markdown('</div></div>', unsafe_allow_html=True)
+
+    # 3. Ô nhập câu hỏi người dùng
+    user_query = st.chat_input("Nhập từ vựng tiếng Anh hoặc câu hỏi bằng tiếng Việt...")
+    if user_query:
+        clean_input = user_query.strip()
+        if clean_input:
+            # Lưu tin nhắn người dùng
+            st.session_state.messages.append({
+                "role": "user",
+                "content": clean_input
+            })
+            st.session_state.status = "Đang xử lý..."
+
+            # Gọi ChatEngine xử lý câu hỏi với xử lý ngoại lệ an toàn
+            try:
+                response = engine.ask(clean_input)
+            except Exception as ask_err:
+                logger.error("Lỗi khi xử lý truy vấn: %s", ask_err, exc_info=True)
+                response = ChatResponse(
+                    answer=(
+                        f"⚠️ **Không thể kết nối hoặc xử lý câu trả lời từ mô hình.**\n\n"
+                        f"- Chi tiết lỗi: `{ask_err}`\n"
+                        f"- Vui lòng kiểm tra dịch vụ Ollama cục bộ ({settings.OLLAMA_BASE_URL}) hoặc thử lại sau."
+                    ),
+                    mode="ERROR",
+                    latency_ms=0.0
                 )
-                st.session_state.chat_mode = chat_mode_val
 
-            with col_m2:
-                prompt_input = st.text_input(
-                    "Tin nhắn",
-                    placeholder="Enter you message:",
-                    label_visibility="collapsed",
-                    key="chat_inline_text"
-                )
-
-            with col_m3:
-                submitted = st.form_submit_button("➤", use_container_width=True)
-
-        # Xử lý khi người dùng gửi câu hỏi
-        if submitted and prompt_input:
-            st.session_state.status = "Answering!"
-            # 1. Ghi nhận tin nhắn người dùng
-            st.session_state.messages.append({"role": "user", "content": prompt_input})
-            with chat_msg_container:
-                escaped_input = html.escape(prompt_input).replace("\n", "<br>")
-                st.markdown(
-                    f"""
-                    <div class="user-msg-wrapper">
-                        <div class="user-bubble-box">{escaped_input}</div>
-                        <img src="data:image/png;base64,{USER_B64}" class="user-avatar-img" />
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                # 2. Gọi ChatEngine xử lý RAG
-                st.markdown('<div class="bot-msg-wrapper">', unsafe_allow_html=True)
-                with st.chat_message("assistant", avatar=BOT_AVATAR):
-                    with st.spinner("Đang tra cứu từ điển và tổng hợp tri thức..."):
-                        response: ChatResponse = engine.ask(prompt_input)
-
-                    # Hiệu ứng typing stream
-                    msg_placeholder = st.empty()
-                    streamed_text = ""
-                    for char in response.answer:
-                        streamed_text += char
-                        msg_placeholder.markdown(streamed_text + "▌")
-                        time.sleep(0.003)
-                    msg_placeholder.markdown(response.answer)
-
-                    # Hiển thị Inspector ngay sau khi trả lời nếu bật
-                    if st.session_state.dev_mode:
-                        with st.expander(f"🔍 Inspector: {response.mode} | Intent: {response.intent or 'N/A'} (RRF: {response.rrf_score:.4f})"):
-                            c1, c2, c3, c4 = st.columns(4)
-                            c1.metric("Response Mode", response.mode)
-                            c2.metric("PhoBERT Intent", response.intent or "N/A")
-                            c3.metric("RRF Score", f"{response.rrf_score:.4f}")
-                            c4.metric("Độ trễ", f"{response.latency_ms:.1f} ms")
-                st.markdown('</div>', unsafe_allow_html=True)
-
-            # 3. Lưu vào session state
+            # Lưu câu trả lời bot
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": response.answer,
                 "meta": response
             })
-            st.session_state.status = "Completed!"
+            st.session_state.status = "Hoàn tất!"
 
-            # 4. Ghi log sự kiện vào Output Tab
+            # Ghi nhật ký vào audit log
+            active_word_val = getattr(engine.tracker, "active_word", None) if hasattr(engine, "tracker") else None
             st.session_state.audit_logs.append({
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "query": prompt_input,
-                "mode": response.mode,
-                "intent": response.intent,
-                "active_word": engine.tracker.active_word,
-                "record_id": response.record_id,
-                "rrf_score": response.rrf_score,
-                "latency_ms": response.latency_ms,
+                "query": clean_input,
+                "mode": str(getattr(response, "mode", "UNKNOWN")),
+                "intent": getattr(response, "intent", None),
+                "active_word": active_word_val,
+                "record_id": getattr(response, "record_id", None),
+                "rrf_score": getattr(response, "rrf_score", 0.0),
+                "latency_ms": getattr(response, "latency_ms", 0.0),
                 "answer": response.answer
             })
             st.rerun()
 
-        # Hàng 4 nút tác vụ chuẩn demo.png (Hide/Show Setting, Undo, Clear, Reset)
-        st.markdown('<div class="chat-action-bar">', unsafe_allow_html=True)
-        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
-
-        with btn_col1:
-            toggle_label = "Hide Setting" if st.session_state.show_setting else "Show Setting"
-            if st.button(toggle_label, key="btn_toggle_setting", use_container_width=True):
-                st.session_state.show_setting = not st.session_state.show_setting
-                st.rerun()
-
-        with btn_col2:
-            if st.button("Undo", key="btn_chat_undo", use_container_width=True):
-                if st.session_state.messages:
-                    while st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
-                        st.session_state.messages.pop()
-                    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-                        st.session_state.messages.pop()
-                    if engine.tracker.history:
-                        engine.tracker.history.pop()
-                        engine.tracker.active_word = engine.tracker.history[-1].active_word if engine.tracker.history else None
-                    st.session_state.status = "Ready!"
-                    st.toast("Đã hoàn tác lượt hội thoại gần nhất.", icon="↩️")
-                    st.rerun()
-
-        with btn_col3:
-            if st.button("Clear", key="btn_chat_clear", use_container_width=True):
-                st.session_state.messages = []
-                st.session_state.status = "Ready!"
-                st.toast("Đã xóa tin nhắn màn hình chat.", icon="🧹")
-                st.rerun()
-
-        with btn_col4:
-            if st.button("Reset", key="btn_chat_reset", use_container_width=True):
-                st.session_state.messages = []
-                engine.tracker.clear()
-                st.session_state.status = "Ready!"
-                st.toast("Đã đặt lại toàn bộ phiên hội thoại.", icon="🔄")
-                st.rerun()
-
-        st.markdown('</div></div>', unsafe_allow_html=True)
-
 
 # ==============================================================================
-# TAB 2: CẤU HÌNH HỆ THỐNG (SETTING TAB) — CHUẨN rag-chatbot-main
-# ==============================================================================
-with tab_setting:
-    st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-card-header">⚙️ System Prompt & Hyperparameters</div>', unsafe_allow_html=True)
-
-    st.markdown("#### System Prompt")
-    st.caption("Cấu hình chỉ thị kiểm soát hành vi tổng hợp tri thức của Qwen2.5:7B:")
-    
-    current_prompt = st.text_area(
-        label="System Prompt Content",
-        value=st.session_state.custom_system_prompt,
-        height=240,
-        label_visibility="collapsed",
-        key="textarea_system_prompt"
-    )
-
-    col_p1, col_p2 = st.columns([1, 1])
-    with col_p1:
-        if st.button("Set System Prompt", key="btn_set_sys_prompt", type="primary", use_container_width=True):
-            st.session_state.custom_system_prompt = current_prompt
-            st.success("Đã cập nhật System Prompt thành công!")
-            st.toast("System prompt updated!", icon="✅")
-
-    with col_p2:
-        if st.button("Reset to Default Prompt", key="btn_reset_sys_prompt", use_container_width=True):
-            st.session_state.custom_system_prompt = PROMPT_TEMPLATE
-            st.info("Đã khôi phục System Prompt gốc của dự án.")
-            st.rerun()
-
-    st.markdown("---")
-    st.markdown("#### Siêu Tham Số Truy Xuất & Sinh Ngữ Nghĩa")
-
-    col_h1, col_h2, col_h3 = st.columns(3)
-    with col_h1:
-        st.slider("Temperature LLM (Độ sáng tạo)", min_value=0.0, max_value=1.0, value=settings.LLM_TEMPERATURE, step=0.05, disabled=True, key="slider_llm_temp")
-        st.caption("Khóa ở mức 0.1 để đảm bảo chống suy diễn tự do (Zero Hallucination).")
-
-    with col_h2:
-        st.number_input("RRF Smoothing Parameter (k)", min_value=10, max_value=100, value=settings.RRF_K, disabled=True, key="input_rrf_k")
-        st.caption("Hệ số điều hòa chuẩn k=60 của Reciprocal Rank Fusion.")
-
-    with col_h3:
-        st.number_input("Top-K Retrieval Candidates", min_value=1, max_value=10, value=settings.TOP_K_RETRIEVAL, disabled=True, key="input_top_k")
-        st.caption("Số lượng đoạn trích xuất có điểm RRF cao nhất gửi tới LLM.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-# ==============================================================================
-# TAB 3: NHẬT KÝ & KIỂM ĐỊNH (OUTPUT TAB) — CHUẨN rag-chatbot-main
-# ==============================================================================
-with tab_output:
-    st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-card-header">📋 System Logs & Audit Trace</div>', unsafe_allow_html=True)
-
-    col_out1, col_out2 = st.columns([4, 1])
-    with col_out1:
-        st.markdown(f"**Tổng số lượt truy vấn đã ghi nhận:** `{len(st.session_state.audit_logs)}` lượt")
-    with col_out2:
-        if st.button("Clear Log", key="btn_clear_audit_log", use_container_width=True):
-            st.session_state.audit_logs = []
-            st.toast("Đã xóa toàn bộ nhật ký truy vấn.", icon="🧹")
-            st.rerun()
-
-    if not st.session_state.audit_logs:
-        st.info("Chưa có nhật ký truy vấn nào trong phiên hiện tại. Hãy đặt câu hỏi ở tab Interface để theo dõi log.")
-    else:
-        log_markdown_lines = []
-        log_markdown_lines.append("# CHATBOX 2.0 AUDIT LOG TRACE")
-        log_markdown_lines.append(f"Generated at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-        for idx, entry in enumerate(reversed(st.session_state.audit_logs), 1):
-            log_markdown_lines.append(
-                f"### [Query #{idx}] {entry['timestamp']}\n"
-                f"- **User Query:** `{entry['query']}`\n"
-                f"- **Response Mode:** `{entry['mode']}`\n"
-                f"- **PhoBERT Intent:** `{entry['intent']}`\n"
-                f"- **Active Word:** `{entry['active_word']}`\n"
-                f"- **Primary Record ID:** `{entry['record_id']}`\n"
-                f"- **RRF Score:** `{entry['rrf_score']:.4f}`\n"
-                f"- **Latency:** `{entry['latency_ms']:.1f} ms`\n"
-                f"- **Answer Snippet:** {entry['answer'][:150]}...\n"
-                f"{'-'*40}"
-            )
-
-        full_log_text = "\n".join(log_markdown_lines)
-        st.code(full_log_text, language="markdown")
-
-        st.download_button(
-            label="📥 Tải Nhật Ký Audit (JSON)",
-            data=json.dumps(st.session_state.audit_logs, ensure_ascii=False, indent=2),
-            file_name="chatbox2_audit_log.json",
-            mime="application/json",
-            use_container_width=True,
-            key="btn_download_audit_json"
-        )
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-# ==============================================================================
-# TAB 4: QUẢN TRỊ KHO TRI THỨC (BATCH MULTI-FILE INGESTION TAB)
+# TAB 2: 📁 QUẢN LÝ DỮ LIỆU (KNOWLEDGE BASE MANAGEMENT)
 # ==============================================================================
 with tab_knowledge:
     st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-card-header">📁 Quản Trị Kho Tri Thức (Batch Ingestion)</div>', unsafe_allow_html=True)
-
+    st.markdown('<div class="panel-card-header">📁 Quản Trị & Cập Nhật Kho Tri Thức</div>', unsafe_allow_html=True)
     st.markdown(
-        "Hỗ trợ Admin tải lên đồng thời nhiều tệp thuộc **8 định dạng tài liệu** khác nhau "
+        "Hỗ trợ tải lên cùng lúc nhiều tệp dữ liệu thuộc **8 định dạng tài liệu** "
         "để tự động trích xuất, khử trùng lặp và cập nhật cơ sở dữ liệu vector mà không cần khởi động lại ứng dụng."
     )
 
@@ -598,27 +454,51 @@ with tab_knowledge:
                 "Tên tệp": uf.name,
                 "Kích thước (KB)": round(uf.size / 1024, 2),
                 "Định dạng": uf.name.split(".")[-1].lower(),
-                "Trạng thái": "Sẵn sàng xử lý (QUEUED)"
+                "Trạng thái": "Sẵn sàng (QUEUED)"
             })
         st.dataframe(file_preview_data, use_container_width=True)
 
-        col_m1, col_m2 = st.columns([2, 3])
+        col_m1, col_m2 = st.columns([1, 1])
         with col_m1:
             ingestion_mode = st.radio(
-                "Chế độ nạp (Import Mode):",
-                options=["ADD", "REPLACE"],
+                "Chế độ nạp dữ liệu:",
+                options=["ADD (Bổ sung)", "REPLACE (Thay thế toàn bộ)"],
                 index=0,
-                horizontal=True,
-                help="ADD: Bổ sung dữ liệu mới và cập nhật bản ghi nếu trùng ID. REPLACE: Xóa toàn bộ dữ liệu cũ và xây dựng lại từ đầu."
+                help="ADD: Bổ sung dữ liệu mới và cập nhật bản ghi nếu trùng ID. REPLACE: Xóa dữ liệu cũ và xây dựng lại từ đầu."
             )
-        with col_m2:
-            st.info(
-                "📌 **ADD**: Thêm mới & Cập nhật đè nếu trùng ID.\n"
-                "⚠️ **REPLACE**: Xóa sạch toàn bộ DB cũ và nạp lại từ các tệp này."
-            )
+            is_replace_mode = "REPLACE" in ingestion_mode
 
-        # Nút bấm bắt đầu xử lý toàn bộ batch
-        if st.button("🚀 Bắt Đầu Xử Lý Tất Cả Tệp (Process All Files)", key="btn_process_batch_all", type="primary", use_container_width=True):
+        with col_m2:
+            if not is_replace_mode:
+                st.info(
+                    "📌 **Chế độ ADD**: Bổ sung tệp mới vào kho tri thức hiện tại. "
+                    "Các bản ghi trùng lặp nội dung sẽ được tự động bỏ qua."
+                )
+            else:
+                st.warning(
+                    "⚠️ **Chế độ REPLACE**: Thao tác này sẽ xóa toàn bộ kho tri thức hiện có và xây dựng lại từ các tệp này. "
+                    "Hệ thống sẽ sao lưu snapshot dự phòng trước khi thay thế."
+                )
+
+        # Lớp bảo vệ UI Guard: Bắt buộc xác nhận trước khi cho phép REPLACE
+        can_proceed = True
+        if is_replace_mode:
+            confirm_replace = st.checkbox(
+                "⚠️ Tôi xác nhận muốn THAY THẾ TOÀN BỘ kho tri thức hiện tại bằng các tệp này.",
+                key="cb_confirm_replace"
+            )
+            can_proceed = confirm_replace
+            if not can_proceed:
+                st.caption("🔒 Nút xử lý bị khóa cho đến khi bạn tích chọn xác nhận bên trên.")
+
+        # Nút bấm bắt đầu xử lý
+        if st.button(
+            "🚀 Bắt Đầu Xử Lý Batch Tệp",
+            key="btn_process_batch_all",
+            type="primary",
+            disabled=not can_proceed,
+            use_container_width=True
+        ):
             settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
             saved_paths: List[Path] = []
             for uf in uploaded_batch_files:
@@ -628,131 +508,312 @@ with tab_knowledge:
                     f.write(uf.getbuffer())
                 saved_paths.append(target_path)
 
-            progress_bar = st.progress(0, text="Đang chuẩn bị nạp batch...")
+            progress_bar = st.progress(0, text="Đang khởi tạo tiến trình nạp...")
 
-            def ui_batch_callback(msg: str, pct: float, current_res: Optional[Any]):
-                progress_bar.progress(int(pct * 100), text=msg)
+            def ui_batch_callback(msg: str, pct: float, current_res: Optional[Any] = None):
+                clamped_pct = max(0.0, min(1.0, float(pct)))
+                progress_bar.progress(int(clamped_pct * 100), text=msg)
 
-            # Thực thi Batch Ingestion
-            report = batch_manager.ingest_batch(
-                files=saved_paths,
-                mode=ingestion_mode.lower(),
-                progress_callback=ui_batch_callback
-            )
+            selected_mode_str = "replace" if is_replace_mode else "add"
 
-            # Cập nhật nóng ChatEngine trong bộ nhớ
-            new_records = batch_manager.loader.load_from_jsonl()
-            engine.update_knowledge_base(new_records)
+            try:
+                # Thực thi Batch Ingestion
+                report = batch_manager.ingest_batch(
+                    files=saved_paths,
+                    mode=selected_mode_str,
+                    progress_callback=ui_batch_callback
+                )
+                st.session_state.batch_report = report
 
-            st.session_state.batch_report = report
-            progress_bar.progress(100, text="Hoàn tất xử lý batch!")
-            st.toast(f"Hoàn tất xử lý Batch ({ingestion_mode})!", icon="🎉")
+                # Kiểm tra trạng thái báo cáo thực tế: Phân biệt SUCCESS, PARTIAL_SUCCESS và FAILED
+                b_status = getattr(report, "batch_status", BatchStatus.FAILED)
+                status_val = b_status.value if hasattr(b_status, "value") else str(b_status)
+
+                if status_val == BatchStatus.SUCCESS.value:
+                    # Nạp lại dữ liệu vào bộ nhớ ChatEngine
+                    new_records = batch_manager.loader.load_from_jsonl()
+                    engine.update_knowledge_base(new_records)
+                    progress_bar.progress(100, text="Hoàn tất xử lý batch thành công!")
+                    st.success("Đã hoàn tất xử lý và cập nhật kho tri thức thành công!")
+                    st.toast("Hoàn tất xử lý Batch!", icon="🎉")
+                elif status_val == BatchStatus.PARTIAL_SUCCESS.value:
+                    new_records = batch_manager.loader.load_from_jsonl()
+                    engine.update_knowledge_base(new_records)
+                    progress_bar.progress(100, text="Xử lý hoàn tất một phần (Có tệp bị bỏ qua hoặc lỗi).")
+                    st.warning("Hoàn tất xử lý một phần: Một số tệp đã được thêm, một số tệp bị bỏ qua hoặc lỗi.")
+                    st.toast("Xử lý hoàn tất một phần!", icon="⚠️")
+                else:
+                    # Trạng thái FAILED
+                    progress_bar.progress(100, text="Xử lý batch thất bại. Dữ liệu cũ được bảo toàn.")
+                    st.error(
+                        "Batch ingestion thất bại hoặc thao tác thay thế bị hủy bỏ. "
+                        "Kho tri thức cũ được bảo toàn nguyên vẹn."
+                    )
+            except Exception as batch_err:
+                logger.error("Lỗi trong quá trình thực thi batch ingestion: %s", batch_err, exc_info=True)
+                st.error(f"Đã xảy ra sự cố nghiêm trọng khi nạp dữ liệu: {batch_err}")
+
             st.rerun()
 
-    # 2. Hiển thị Báo Cáo Tổng Hợp Batch Ingestion
+    # 2. Báo cáo kết quả xử lý Batch gần nhất
     report = st.session_state.batch_report
     if report:
         st.markdown("---")
-        st.subheader("📊 Báo Cáo Xử Lý Batch (Batch Ingestion Report)")
+        st.subheader("📊 Báo Cáo Xử Lý Batch Gần Nhất")
+        b_status = getattr(report, "batch_status", BatchStatus.FAILED)
+        status_val = b_status.value if hasattr(b_status, "value") else str(b_status)
 
-        # Thống kê tổng quan
         col_s1, col_s2, col_s3, col_s4, col_s5 = st.columns(5)
         col_s1.metric("Tổng số tệp", report.total_files)
-        col_s2.metric("Thành công (SUCCESS)", report.success_count)
-        col_s3.metric("Bỏ qua (SKIPPED)", report.skipped_count)
-        col_s4.metric("Thất bại (FAILED)", report.failed_count)
-        col_s5.metric("Bản ghi nạp mới", f"+{report.total_records_added:,}")
+        col_s2.metric("Thành công", report.success_count)
+        col_s3.metric("Bỏ qua", report.skipped_count)
+        col_s4.metric("Thất bại", report.failed_count)
+        col_s5.metric("Trạng thái", status_val)
 
-        # Trạng thái tổng thể
-        if report.batch_status == BatchStatus.SUCCESS:
-            st.success(f"🎉 **Trạng thái Batch:** `{report.batch_status.value}` — Toàn bộ tệp đã được xử lý và lập chỉ mục hoàn tất!")
-        elif report.batch_status == BatchStatus.PARTIAL_SUCCESS:
-            st.warning(f"⚠️ **Trạng thái Batch:** `{report.batch_status.value}` — Đã nạp thành công các tệp hợp lệ. Một số tệp bị bỏ qua hoặc lỗi.")
-        else:
-            st.error(f"❌ **Trạng thái Batch:** `{report.batch_status.value}` — Không tệp nào được đưa vào cơ sở tri thức.")
+        # Chi tiết từng tệp
+        if getattr(report, "file_results", None):
+            with st.expander("Chi tiết kết quả từng tệp", expanded=True):
+                detail_rows = []
+                for fr in report.file_results:
+                    detail_rows.append({
+                        "Tên tệp": fr.file_name,
+                        "Trạng thái": fr.status.value if hasattr(fr.status, "value") else str(fr.status),
+                        "Bản ghi trích xuất": fr.records_extracted,
+                        "Bản ghi thêm mới": fr.records_added,
+                        "Trùng lặp": fr.duplicates_skipped,
+                        "Lý do / Hành động": fr.reason or "Hoàn tất",
+                    })
+                st.dataframe(detail_rows, use_container_width=True)
 
-        # Chi tiết trạng thái từng tệp (File Status Table)
-        file_status_rows = []
-        failed_files = {}
-
-        for fr in report.file_results:
-            st_text = fr.status.value if isinstance(fr.status, FileStatus) else fr.status
-            file_status_rows.append({
-                "Tên tệp": fr.file_name,
-                "Định dạng": fr.file_type.upper(),
-                "Trạng thái": st_text,
-                "Trích xuất": fr.records_extracted,
-                "Thêm mới": fr.records_added,
-                "Trùng lặp": fr.duplicates_skipped,
-                "Thời gian (s)": fr.elapsed_seconds,
-                "Lý do / Ghi chú": fr.reason or "Thành công"
-            })
-            if fr.status == FileStatus.FAILED:
-                failed_files[fr.file_name] = fr
-
-        st.dataframe(file_status_rows, use_container_width=True)
-
-        # Hỗ trợ Retry độc lập cho tệp lỗi
-        if failed_files:
-            st.subheader("🔄 Thử Lại Tệp Thất Bại (Retry Failed Files)")
-            for f_name, f_obj in failed_files.items():
-                col_r1, col_r2 = st.columns([3, 1])
-                col_r1.error(f"**{f_name}**: {f_obj.reason}")
-                if col_r2.button(f"Retry {f_name}", key=f"retry_{f_name}"):
-                    retry_path = Path(f_obj.file_path)
-                    if retry_path.exists():
-                        retry_report = batch_manager.ingest_batch([retry_path])
-                        new_records = batch_manager.loader.load_from_jsonl()
-                        engine.update_knowledge_base(new_records)
-                        st.toast(f"Đã thử lại {f_name}: {retry_report.batch_status.value}")
-                        st.session_state.batch_report = retry_report
-                        st.rerun()
-
-    # 3. Quản Lý Nguồn Dữ Liệu Hiện Có (Source Management)
+    # 3. Thống kê trạng thái lưu trữ độc lập
     st.markdown("---")
-    st.subheader("📚 Danh Mục Nguồn Dữ Liệu Đang Hoạt Động (Active Sources)")
-    st.caption("Quản lý danh sách các tệp nguồn đã được đưa vào Knowledge Base. Hỗ trợ xóa nguồn hoặc tái lập chỉ mục.")
+    st.subheader("📦 Trạng Thái Lưu Trữ & Chỉ Mục Độc Lập")
+    st.caption("Các tầng lưu trữ và chỉ mục được quản lý riêng biệt, phản ánh số liệu thực tế:")
 
-    active_sources_list = batch_manager.get_active_sources()
-    if not active_sources_list:
-        st.info("Chưa có nguồn tệp nào được đăng ký trong manifest. Dữ liệu mặc định 3,725 cặp Q&A vẫn sẵn sàng.")
+    storage_stats = inspect_storage_metrics(engine)
+    col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+
+    with col_k1:
+        st.markdown('<div class="metric-box">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Tệp JSONL Trên Đĩa</div>', unsafe_allow_html=True)
+        if storage_stats["jsonl_disk_count"] is not None:
+            st.markdown(f'<div class="metric-value">{storage_stats["jsonl_disk_count"]:,} dòng</div>', unsafe_allow_html=True)
+            st.markdown('<div class="metric-caption">data/processed/qa_records.jsonl</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="metric-value" style="color:#DC2626;font-size:0.9rem;">⚠️ {storage_stats["jsonl_disk_error"]}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_k2:
+        st.markdown('<div class="metric-box">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Bộ Nhớ ChatEngine</div>', unsafe_allow_html=True)
+        if storage_stats["engine_records_count"] is not None:
+            st.markdown(f'<div class="metric-value">{storage_stats["engine_records_count"]:,} bản ghi</div>', unsafe_allow_html=True)
+            st.markdown('<div class="metric-caption">QARecord nạp trong RAM</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="metric-value" style="color:#DC2626;font-size:0.9rem;">⚠️ {storage_stats["engine_records_error"]}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_k3:
+        st.markdown('<div class="metric-box">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">ChromaDB Vector</div>', unsafe_allow_html=True)
+        if storage_stats["chroma_count"] is not None:
+            st.markdown(f'<div class="metric-value">{storage_stats["chroma_count"]:,} vectors</div>', unsafe_allow_html=True)
+            st.markdown('<div class="metric-caption">Chỉ mục BGE-M3 (1024-d)</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="metric-value" style="color:#DC2626;font-size:0.9rem;">⚠️ {storage_stats["chroma_error"]}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_k4:
+        st.markdown('<div class="metric-box">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">BM25 Lexical Index</div>', unsafe_allow_html=True)
+        if storage_stats["bm25_count"] is not None:
+            st.markdown(f'<div class="metric-value">{storage_stats["bm25_count"]:,} mục</div>', unsafe_allow_html=True)
+            st.markdown('<div class="metric-caption">Inverted Index từ khóa</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="metric-value" style="color:#DC2626;font-size:0.9rem;">⚠️ {storage_stats["bm25_error"]}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Đánh giá trạng thái sẵn sàng
+    indices_ready = (
+        storage_stats["engine_records_count"] is not None and storage_stats["engine_records_count"] > 0 and
+        storage_stats["chroma_count"] is not None and storage_stats["chroma_count"] > 0 and
+        storage_stats["bm25_count"] is not None and storage_stats["bm25_count"] > 0
+    )
+    if indices_ready:
+        st.success("🟢 Toàn bộ 3 chỉ mục (JSONL, ChromaDB, BM25) đã được tải và sẵn sàng phục vụ tra cứu.")
     else:
-        for src in active_sources_list:
-            sid = src.get("source_id", "")
-            sname = src.get("file_name", "Không rõ")
-            stype = src.get("file_type", "").upper()
-            scount = src.get("record_count", 0)
-            sdate = src.get("ingested_at", "N/A")
+        st.warning("⚠️ Một hoặc nhiều tầng chỉ mục chưa sẵn sàng hoặc rỗng. Vui lòng kiểm tra lại dữ liệu.")
 
-            col_src1, col_src2, col_src3 = st.columns([3, 1, 1])
-            col_src1.markdown(f"📄 **{sname}** (`.{stype}`) — **{scount}** bản ghi • Nạp lúc: `{sdate}`")
+    st.caption(
+        "💡 *Lưu ý kỹ thuật: Số lượng bản ghi JSONL, BM25 và ChromaDB vector được quản lý độc lập theo cơ chế "
+        "khử trùng lặp và chunking của từng tầng lưu trữ và không nhất thiết phải có tỷ lệ 1:1.*"
+    )
 
-            # Nút tái lập chỉ mục nguồn (Re-index Source)
-            if col_src2.button("🔄 Reindex", key=f"reindex_{sid}", help=f"Tái lập vector ChromaDB cho {sname}"):
-                with st.spinner(f"Đang tái lập chỉ mục cho {sname}..."):
-                    res = batch_manager.reindex_source(sid)
-                    st.success(res["message"])
-                    st.rerun()
-
-            # Nút xóa nguồn (Delete Source)
-            if col_src3.button("🗑️ Xóa Nguồn", key=f"del_{sid}", help=f"Xóa hoàn toàn dữ liệu của {sname} khỏi ChromaDB và BM25"):
-                with st.spinner(f"Đang xóa nguồn {sname}..."):
-                    del_res = batch_manager.delete_source(sid)
-                    new_records = batch_manager.loader.load_from_jsonl()
-                    engine.update_knowledge_base(new_records)
-                    st.success(del_res["message"])
-                    st.toast(f"Đã xóa nguồn {sname}!", icon="🗑️")
-                    st.rerun()
+    # 4. Danh sách các nguồn dữ liệu đang hoạt động (Active Sources)
+    active_sources = batch_manager.get_active_sources()
+    if active_sources:
+        st.markdown("---")
+        st.subheader("📚 Nguồn Dữ Liệu Đang Hoạt Động (Active Sources)")
+        src_table = []
+        for s in active_sources:
+            src_table.append({
+                "Tên nguồn": s.get("source_name", "N/A"),
+                "Mã băm SHA-256": s.get("file_hash", "")[:12] + "..." if s.get("file_hash") else "N/A",
+                "Số bản ghi": s.get("record_count", 0),
+                "Thời gian nạp": s.get("ingested_at", "N/A"),
+                "Trạng thái": s.get("status", "ACTIVE"),
+            })
+        st.dataframe(src_table, use_container_width=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Chân trang chuẩn demo.png
+
+# ==============================================================================
+# TAB 3: 🛠️ CHẨN ĐOÁN & KIỂM ĐỊNH (DIAGNOSTICS & AUDIT)
+# ==============================================================================
+with tab_diagnostics:
+    st.markdown('<div class="panel-card">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-card-header">🛠️ Chẩn Đoán Hệ Thống & Kiểm Định Kỹ Thuật</div>', unsafe_allow_html=True)
+
+    # 1. Thông số phần cứng & Cấu hình Runtime động
+    st.markdown("#### 1. Thông số Phần cứng & Dịch vụ Runtime")
+    hw_info = get_hardware_runtime_info()
+
+    col_h1, col_h2, col_h3 = st.columns(3)
+    with col_h1:
+        st.markdown('<div class="metric-box">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Thiết bị Embedding</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">{hw_info["device_name"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-caption">CUDA: {hw_info["cuda_version"]} | Thiết bị: {hw_info["device_type"]}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_h2:
+        st.markdown('<div class="metric-box">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Dịch vụ Ollama Local</div>', unsafe_allow_html=True)
+        if ollama_info["online"]:
+            st.markdown('<div class="metric-value" style="color:#16A34A;">🟢 Trực tuyến</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-caption">{settings.OLLAMA_BASE_URL}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="metric-value" style="color:#DC2626;">🔴 Ngoại tuyến</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-caption">{ollama_info.get("error") or "Không thể kết nối"}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_h2 if False else col_h3:
+        st.markdown('<div class="metric-box">', unsafe_allow_html=True)
+        st.markdown('<div class="metric-label">Thuật Toán RAG</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-value">Hybrid RRF (k={settings.RRF_K})</div>', unsafe_allow_html=True)
+        st.markdown('<div class="metric-caption">BM25 Okapi + BGE-M3 (1024-d)</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # 2. Phân biệt trạng thái Ollama Models
+    st.markdown("#### 2. Trạng Thái Mô Hình LLM")
+    col_m1, col_m2, col_m3 = st.columns(3)
+
+    with col_m1:
+        st.markdown("**Mô hình được cấu hình (Configured):**")
+        st.code(settings.OLLAMA_MODEL, language="text")
+        st.caption(f"Host: {settings.OLLAMA_BASE_URL} | Nhiệt độ T: {settings.LLM_TEMPERATURE}")
+
+    with col_m2:
+        st.markdown("**Mô hình đã cài đặt cục bộ (Installed):**")
+        if ollama_info["online"] and ollama_info["installed_models"]:
+            st.code("\n".join(ollama_info["installed_models"]), language="text")
+        elif ollama_info["online"]:
+            st.info("Chưa có model nào trong danh sách /api/tags.")
+        else:
+            st.caption("Chưa thể kiểm tra do dịch vụ Ollama đang ngoại tuyến.")
+
+    with col_m3:
+        st.markdown("**Mô hình đang nạp trong VRAM/RAM (Running):**")
+        if ollama_info["online"] and ollama_info["running_models"]:
+            st.code("\n".join(ollama_info["running_models"]), language="text")
+        elif ollama_info["online"]:
+            st.info("Đang ở trạng thái chờ (Chưa nạp model vào VRAM).")
+        else:
+            st.caption("Chưa thể kiểm tra do dịch vụ Ollama đang ngoại tuyến.")
+
+    # 3. Ngưỡng Relevance Gate
+    st.markdown("#### 3. Cấu hình Ngưỡng Lọc Phù Hợp (Relevance Gate)")
+    col_g1, col_g2, col_g3 = st.columns(3)
+    col_g1.metric("Direct Match Threshold", f"≥ {settings.DIRECT_MATCH_RRF_THRESHOLD}")
+    col_g2.metric("RAG Generation Threshold", f"≥ {settings.RAG_RRF_THRESHOLD}")
+    col_g3.metric("Fallback Threshold", f"≥ {settings.FALLBACK_RRF_THRESHOLD}")
+
+    # 4. Công tắc Inspector kỹ thuật
+    st.markdown("---")
+    st.markdown("#### 4. Cấu Hình Hiển Thị Kiểm Định")
+    dev_mode_toggle = st.checkbox(
+        "Hiển thị Bảng Phân Tích Kỹ Thuật (Inspector: RRF, PhoBERT, Latency) dưới câu trả lời tại Tab Tra Cứu",
+        value=st.session_state.dev_mode,
+        key="cb_dev_mode_toggle"
+    )
+    if dev_mode_toggle != st.session_state.dev_mode:
+        st.session_state.dev_mode = dev_mode_toggle
+        st.rerun()
+
+    # 5. System Prompt thực tế (Read-only)
+    st.markdown("---")
+    st.markdown("#### 5. System Prompt Cố Định (Chống Bịa Đặt & Bảo Toàn Cấu Trúc)")
+    st.caption(f"Nguồn xác thực: `{SYSTEM_PROMPT_SOURCE}`")
+
+    if SYSTEM_PROMPT:
+        st.text_area(
+            label="System Prompt Read-only",
+            value=SYSTEM_PROMPT,
+            height=200,
+            disabled=True,
+            label_visibility="collapsed",
+            key="textarea_system_prompt_readonly"
+        )
+    else:
+        st.error("Không thể đọc System Prompt từ module src.llm.prompts.")
+
+    # 6. Nhật ký truy vấn (Audit Trace Logs)
+    st.markdown("---")
+    st.markdown("#### 6. Nhật Ký Truy Vấn Thời Gian Thực (Audit Trace Logs)")
+    st.caption("Lưu trữ chi tiết các lượt hỏi, intent, điểm số RRF và độ trễ để phục vụ kiểm toán:")
+
+    if st.session_state.audit_logs:
+        audit_table = []
+        for log in reversed(st.session_state.audit_logs):
+            audit_table.append({
+                "Thời gian": log.get("timestamp"),
+                "Câu hỏi": log.get("query"),
+                "Chế độ": log.get("mode"),
+                "Intent": log.get("intent") or "N/A",
+                "RRF Score": f"{log.get('rrf_score', 0.0):.4f}",
+                "Độ trễ": f"{log.get('latency_ms', 0.0):.1f} ms",
+                "Mã bản ghi": log.get("record_id") or "N/A",
+            })
+        st.dataframe(audit_table, use_container_width=True)
+
+        col_a1, col_a2 = st.columns([1, 1])
+        with col_a1:
+            st.download_button(
+                label="📥 Tải Nhật Ký Audit (JSON)",
+                data=json.dumps(st.session_state.audit_logs, ensure_ascii=False, indent=2),
+                file_name="chatbox2_audit_log.json",
+                mime="application/json",
+                use_container_width=True,
+                key="btn_download_audit_json"
+            )
+        with col_a2:
+            if st.button("🗑️ Xóa Lịch Sử Nhật Ký", key="btn_clear_audit_logs", use_container_width=True):
+                st.session_state.audit_logs = []
+                st.toast("Đã xóa toàn bộ nhật ký kiểm định.", icon="🧹")
+                st.rerun()
+    else:
+        st.info("Chưa có lượt truy vấn nào trong phiên làm việc hiện tại.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# --- FOOTER TỐI GIẢN CHUẨN TIẾNG VIỆT ---
 st.markdown(
     """
-    <div style="text-align: center; color: #94A3B8; font-size: 0.85rem; margin-top: 36px; margin-bottom: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-        Built with Gradio 🧡
+    <div style="text-align: center; color: #94A3B8; font-size: 0.8rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #F1F5F9;">
+        Chatbox 2.0 • Trợ lý tra cứu từ vựng tiếng Anh theo ngữ cảnh • Streamlit Local RAG Architecture
     </div>
     """,
     unsafe_allow_html=True
 )
-
