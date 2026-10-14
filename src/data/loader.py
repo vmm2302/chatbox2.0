@@ -443,6 +443,30 @@ class QALoader:
         """Tương thích ngược: tải từ tệp raw excel mặc định."""
         return self.load_from_excel(self.raw_excel_path)
 
+    def load_from_oxford_pdf(
+        self,
+        pdf_path: Optional[Union[Path, str]] = None,
+        db_path: Optional[Union[Path, str]] = None,
+    ) -> List[QARecord]:
+        """Tải toàn bộ từ vựng Oxford 3000 từ PDF và tra cứu nghĩa qua database SQLite."""
+        target_pdf = Path(pdf_path) if pdf_path else settings.OXFORD_PDF_PATH
+        target_db = Path(db_path) if db_path else settings.DICTIONARY_DB_PATH
+        if not target_pdf.exists():
+            raise DataLoadError(f"Không tìm thấy tệp Oxford PDF tại: {target_pdf}")
+        if not target_db.exists():
+            raise DataLoadError(f"Không tìm thấy tệp cơ sở dữ liệu từ điển tại: {target_db}")
+
+        from src.data.dictionary_db import DictionaryDBService
+        from src.data.loaders.oxford_pdf_loader import OxfordPDFParser
+
+        dict_service = DictionaryDBService(db_path=target_db)
+        parser = OxfordPDFParser(dict_service=dict_service)
+        try:
+            records = parser.load(target_pdf)
+            return records
+        finally:
+            dict_service.close()
+
     @classmethod
     def merge_records(
         cls,

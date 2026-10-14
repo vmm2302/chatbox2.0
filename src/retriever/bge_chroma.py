@@ -85,6 +85,18 @@ class BGEChromaRetriever:
             logger.info("ChromaDB khởi tạo ở trạng thái rỗng (0 vector).")
             return
 
+        # Khử trùng lặp ID trong self.records (giữ bản ghi xuất hiện sau cùng)
+        unique_records: List[QARecord] = []
+        seen_rec_ids: set = set()
+        for r in reversed(self.records):
+            if r.record_id:
+                if r.record_id in seen_rec_ids:
+                    continue
+                seen_rec_ids.add(r.record_id)
+            unique_records.append(r)
+        unique_records.reverse()
+        self.records = unique_records
+
         logger.info("Bắt đầu lập chỉ mục ChromaDB cho %d bản ghi bằng BGE-M3...", len(self.records))
         model = self._get_embedding_model()
 
@@ -146,13 +158,25 @@ class BGEChromaRetriever:
         # Lấy danh sách ID đã có trong ChromaDB để tránh trùng
         existing_ids = set()
         try:
-            sample_ids = [r.record_id for r in new_records]
-            existing_data = self.collection.get(ids=sample_ids, include=[])
-            existing_ids = set(existing_data.get("ids", []))
+            sample_ids = [r.record_id for r in new_records if r.record_id]
+            if sample_ids:
+                existing_data = self.collection.get(ids=sample_ids, include=[])
+                existing_ids = set(existing_data.get("ids", []))
         except Exception as err:
             logger.warning("Không thể kiểm tra ID có sẵn trong ChromaDB: %s", err)
 
-        records_to_add = [r for r in new_records if r.record_id not in existing_ids]
+        # Lọc ID đã tồn tại và khử trùng lặp nội bộ trong new_records
+        records_to_add: List[QARecord] = []
+        seen_add_ids: set = set()
+        for r in new_records:
+            if r.record_id:
+                if r.record_id in existing_ids or r.record_id in seen_add_ids:
+                    continue
+                seen_add_ids.add(r.record_id)
+                records_to_add.append(r)
+            else:
+                records_to_add.append(r)
+
         if not records_to_add:
             logger.info("Tất cả %d bản ghi đã tồn tại trong ChromaDB.", len(new_records))
             return 0
@@ -210,6 +234,19 @@ class BGEChromaRetriever:
         """Cập nhật hoặc thêm mới các bản ghi vector vào ChromaDB (hỗ trợ update/overwrite)."""
         if not records:
             return 0
+
+        # Khử trùng lặp ID (giữ bản ghi mới nhất xuất hiện sau cùng) để đảm bảo ChromaDB không bao giờ lỗi duplicate IDs
+        unique_records: List[QARecord] = []
+        seen_ids: set = set()
+        for r in reversed(records):
+            rec_id = r.record_id
+            if rec_id:
+                if rec_id in seen_ids:
+                    continue
+                seen_ids.add(rec_id)
+            unique_records.append(r)
+        unique_records.reverse()
+        records = unique_records
 
         if self.collection is None:
             self.collection = self.client.get_or_create_collection(

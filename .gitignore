@@ -20,10 +20,11 @@ venv.bak/
 
 # 3. Thư mục Scratch & Dữ liệu cache thử nghiệm
 scratch/
-temp_test_batch/
-temp_test_pdf_ingestion/
+temp_test_*/
 cached_embs.pkl
 *.log
+*.tmp
+.env
 
 # 4. Kiểm thử & Coverage
 .pytest_cache/

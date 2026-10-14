@@ -60,36 +60,29 @@ flowchart TD
 chatbox2.0/
 ├── config/
 │   ├── __init__.py
+│   ├── exception_intent.json    # Quy tắc bắt ngoại lệ và small-talk sub-millisecond
 │   └── settings.py              # Cấu hình đường dẫn, mô hình, siêu tham số RRF và ngưỡng
 ├── data/
-│   ├── raw/
-│   │   └── datahotrohoctuvungtienganhtuA1-B2fix.xlsx   # Bộ dữ liệu 4 sheet gốc (736 KB)
-│   ├── processed/
-│   │   └── qa_records.jsonl     # 3,725 bản ghi đã chuẩn hóa kèm rich metadata (2.8 MB)
-│   └── mau_nhap_lieu_tuvung.xlsx# Tệp Excel mẫu để người dùng thêm từ vựng mới
-├── assets/                      # Ảnh đại diện người dùng, chatbot và sơ đồ kiến trúc
-│   ├── bot.png
-│   ├── user.png
-│   └── demo.png
+│   ├── raw/                     # Tài liệu nguồn: Oxford 3000 PDF, Từ điển SQLite, Excel
+│   └── processed/               # qa_records.jsonl chuẩn hóa & sources_manifest.json
+├── assets/                      # Ảnh đại diện bot/user, flowchart kiến trúc RAG
+├── docs/                        # Tài liệu hướng dẫn chuyên sâu
 ├── scripts/
-│   └── download_models.py       # Tải trước PhoBERT-base-v2 và BGE-M3 vào local cache
+│   ├── download_models.py       # Tải trước PhoBERT-base-v2 và BGE-M3 vào local cache
+│   ├── sync_oxford_knowledge.py # Đồng bộ từ vựng Oxford 3000 và tra cứu SQLite
+│   └── prune_dictionary_db.py   # Thu gọn dung lượng cơ sở dữ liệu từ điển SQLite
 ├── src/
-│   ├── __init__.py
 │   ├── chat/                    # Topic Tracker & Engine điều phối pipeline
 │   ├── core/                    # DTO Models & Exceptions
-│   ├── data/                    # QALoader, IngestionManager & Batch Multi-File Loaders
+│   ├── data/                    # QALoader, IngestionManager & File Loaders (PDF, Excel...)
 │   ├── llm/                     # LangChain LCEL & Ollama Client
 │   ├── nlp/                     # PhoBERT Query Understanding & Intent Classifier
 │   ├── retriever/               # BGE-M3 ChromaDB + BM25Okapi + RRF Fusion (k=60)
-│   └── ui/                      # Gradio UI (Port 7860) & Streamlit UI (Port 8501)
-├── tests/                       # Toàn bộ 52 bài kiểm thử tự động (Unit & Integration Tests)
-├── setup.bat                    # Script cài đặt 1-Click tự động cho máy mới
-├── chay_gradio.bat              # Script khởi chạy giao diện Gradio chuẩn 100% demo.png (Port 7860)
-├── chay_streamlit.bat           # Script khởi chạy giao diện Streamlit (Port 8501)
-├── run_web.bat                  # Script khởi động Ollama + Web App
-├── run_cli.bat                  # Script chạy Terminal CLI
-├── cap_nhat_du_lieu.bat         # Script nạp bổ sung từ vựng Excel kéo thả
-├── requirements.txt             # Danh sách thư viện bắt buộc đầy đủ
+│   └── ui/                      # Streamlit UI (Port 8501), Gradio UI (Port 7860), CLI
+├── tests/                       # Toàn bộ bài kiểm thử tự động (Unit & Integration Tests)
+├── HUONG_DAN_CAI_DAT_MAY_MOI.md # Hướng dẫn chi tiết thiết lập môi trường qua Terminal
+├── ingest_data.py               # Công cụ CLI nạp và cập nhật tri thức đa định dạng
+├── requirements.txt             # Danh sách thư viện Python bắt buộc
 ├── .env.example                 # Cấu hình biến môi trường mẫu
 ├── .gitignore                   # Loại trừ file rác, venv, cache, dữ liệu tạm
 └── README.md                    # Tài liệu kỹ thuật dự án
@@ -99,33 +92,58 @@ chatbox2.0/
 
 ## 4. HƯỚNG DẪN CÀI ĐẶT & CHẠY DỰ ÁN TRÊN MÁY MỚI (QUICK START)
 
-Chỉ với **3 bước đơn giản**, bất kỳ máy tính nào clone mã nguồn về cũng có thể chạy ngay:
+> 📘 Xem hướng dẫn từng bước đầy đủ nhất tại: [HUONG_DAN_CAI_DAT_MAY_MOI.md](HUONG_DAN_CAI_DAT_MAY_MOI.md)
 
-### Bước 1: Cài đặt Ollama & Tải mô hình Qwen2.5:7B
-1. Tải và cài đặt Ollama từ trang chủ: [https://ollama.com](https://ollama.com).
-2. Mở Terminal / CMD và kéo mô hình Qwen:
-   ```bash
-   ollama pull qwen2.5:7b
-   ```
+### Bước 1: Tạo môi trường ảo & Cài đặt thư viện
+```bash
+# 1. Tạo môi trường ảo
+python -m venv .venv
 
-### Bước 2: Thiết lập môi trường tự động (1-Click Setup)
-Tại thư mục gốc `chatbox2.0`, chỉ cần **click đúp vào file `setup.bat`**.  
-File script sẽ tự động thực hiện:
-- Kiểm tra phiên bản Python trên máy.
-- Tạo môi trường ảo độc lập `.venv`.
-- Cài đặt toàn bộ thư viện từ `requirements.txt`.
-- Tải sẵn mô hình `vinai/phobert-base-v2` và `BAAI/bge-m3` vào cache máy tính.
+# 2. Kích hoạt môi trường ảo
+# Windows PowerShell:
+.\.venv\Scripts\Activate.ps1
+# Windows CMD:
+.venv\Scripts\activate.bat
+# Linux / macOS:
+source .venv/bin/activate
 
-*(Người dùng Linux / macOS có thể tạo venv thủ công: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python scripts/download_models.py`)*
+# 3. Cài đặt các thư viện bắt buộc
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-### Bước 3: Khởi chạy ứng dụng
-Bạn có thể chọn bất kỳ giao diện nào bằng cách click đúp:
-- **Giao diện Gradio (Khuyên dùng - Chuẩn rag-chatbot-main):** Click đúp `chay_gradio.bat` (Mở tại `http://localhost:7860`).
-- **Giao diện Streamlit:** Click đúp `chay_streamlit.bat` (Mở tại `http://localhost:8501`).
-- **Giao diện Dòng lệnh (CLI):** Click đúp `run_cli.bat`.
+### Bước 2: Tải mô hình cục bộ & Cấu hình
+```bash
+# Tạo file .env
+copy .env.example .env    # Windows CMD/PowerShell (hoặc cp .env.example .env trên Linux)
+
+# Tải trước mô hình PhoBERT-base-v2 và BGE-M3
+python scripts/download_models.py
+
+# Kéo mô hình Qwen2.5:7B qua Ollama
+ollama pull qwen2.5:7b
+```
+
+### Bước 3: Khởi chạy ứng dụng qua Terminal
+
+- **Khởi chạy giao diện Web Streamlit (Khuyên dùng):**
+  ```bash
+  streamlit run src/ui/app.py --server.port 8501
+  ```
+  *(Truy cập: `http://localhost:8501`)*
+
+- **Khởi chạy giao diện Gradio:**
+  ```bash
+  python src/ui/gradio_app.py
+  ```
+  *(Truy cập: `http://localhost:7860`)*
+
+- **Khởi chạy giao diện Dòng lệnh (CLI):**
+  ```bash
+  python src/ui/cli.py
+  ```
 
 ### Bước 4: Chạy kiểm thử tự động (Test Suite)
-Để kiểm tra tính toàn vẹn của toàn bộ hệ thống (52/52 tests):
 ```bash
 python -m unittest discover -s tests -p "test_*.py"
 ```
@@ -168,9 +186,8 @@ Hệ thống cho phép bạn đưa thêm từ vựng mới hoặc thay thế to�
 1. **Qua giao diện Web Streamlit (Trực quan):**
    - Mở thanh bên Sidebar -> Chọn mục **📥 Cập Nhật Dữ Liệu Excel**.
    - Kéo thả tệp `.xlsx` vào -> Chọn chế độ **Bổ sung từ mới (Append)** -> Nhấn **🚀 Bắt Đầu Nạp Dữ Liệu**.
-2. **Qua kịch bản tự động 1-Click Windows / CLI:**
-   - Kéo thả tệp `.xlsx` vào file `cap_nhat_du_lieu.bat`.
-   - Hoặc gõ lệnh:
+2. **Qua công cụ dòng lệnh (CLI Ingestion):**
+   - Chạy lệnh trực tiếp từ Terminal:
      ```bash
      python ingest_data.py --file "data/mau_nhap_lieu_tuvung.xlsx" --mode append
      ```

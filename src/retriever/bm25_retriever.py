@@ -92,10 +92,8 @@ class BM25Retriever:
         results: List[Tuple[QARecord, float, int]] = []
         for rank, idx in enumerate(ranked_indices[:top_k], 1):
             score = float(scores[idx])
-            # Lấy các bản ghi có điểm BM25 > 0, hoặc trong tập dữ liệu nhỏ nếu tài liệu chứa search tokens
+            # Chỉ lấy các bản ghi có điểm BM25 > 0
             if score > 0.0:
                 results.append((self.records[idx], round(score, 4), rank))
-            elif len(self.records) <= 3 and any(st in tokenize_for_bm25(f"{self.records[idx].word} {self.records[idx].question} {self.records[idx].answer}") for st in search_tokens):
-                results.append((self.records[idx], 1.0, rank))
 
         return results
