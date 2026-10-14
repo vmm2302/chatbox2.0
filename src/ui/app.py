@@ -202,14 +202,19 @@ with tab_interface:
                                 f.write(uf.getbuffer())
                             temp_paths.append(t_path)
 
-                        with st.spinner("Đang nạp và lập chỉ mục tài liệu vào kho tri thức..."):
-                            rep = batch_manager.ingest_batch(temp_paths)
-                            new_recs = batch_manager.loader.load_from_jsonl()
-                            engine.update_knowledge_base(new_recs)
-                            st.session_state.status = "Processing documents 📄 completed!"
-                            st.session_state.batch_report = rep
-                            st.toast(f"Đã nạp {rep.success_count} tệp thành công!", icon="✅")
-                            st.rerun()
+                        progress_bar = st.progress(0, text="Đang chuẩn bị nạp tài liệu...")
+
+                        def sidebar_callback(msg: str, pct: float, current_res: Optional[Any]):
+                            progress_bar.progress(min(max(int(pct * 100), 0), 100), text=msg)
+
+                        rep = batch_manager.ingest_batch(temp_paths, progress_callback=sidebar_callback)
+                        new_recs = batch_manager.loader.load_from_jsonl()
+                        engine.update_knowledge_base(new_recs)
+                        progress_bar.progress(100, text="Hoàn tất nạp tài liệu!")
+                        st.session_state.status = "Processing documents 📄 completed!"
+                        st.session_state.batch_report = rep
+                        st.toast(f"Đã nạp {rep.success_count} tệp thành công!", icon="✅")
+                        st.rerun()
                     else:
                         st.warning("Vui lòng chọn ít nhất 1 tệp!")
                 st.markdown('</div>', unsafe_allow_html=True)
