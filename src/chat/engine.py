@@ -95,11 +95,14 @@ class ChatEngine:
             logger.info("ChatEngine đã sẵn sàng phục vụ 100% offline.")
 
     def update_knowledge_base(self, new_records: List[QARecord]) -> None:
-        """Cập nhật dữ liệu tri thức mới cho toàn bộ pipeline mà không cần khởi động lại."""
-        self.records = new_records
-        self.retriever.reload(new_records)
-        self.tracker.load_known_words(new_records)
-        logger.info("ChatEngine đã đồng bộ thành công %d bản ghi tri thức mới.", len(new_records))
+        """Cập nhật dữ liệu tri thức mới cho toàn bộ pipeline dưới khóa ghi độc quyền an toàn."""
+        from src.resource.manager import get_resource_manager
+        with get_resource_manager().coordinator.write_lock():
+            self.records = new_records
+            self.retriever.reload(new_records)
+            self.tracker.load_known_words(new_records)
+            logger.info("ChatEngine đã đồng bộ thành công %d bản ghi tri thức mới.", len(new_records))
+
 
     def _create_and_log_response(
         self,
@@ -149,6 +152,16 @@ class ChatEngine:
                 answer="Vui lòng nhập câu hỏi.",
                 mode="NO_MATCH",
                 latency_ms=0.0
+            )
+
+        # Kiểm tra trạng thái điều phối tài nguyên
+        from src.resource.manager import ResourceState, get_resource_manager
+        rm = get_resource_manager()
+        if rm.state in (ResourceState.INDEXING_GPU, ResourceState.RESTORING_CHAT):
+            return ChatResponse(
+                answer="⚠️ Hệ thống đang đồng bộ dữ liệu chỉ mục và điều phối tài nguyên. Vui lòng thử lại sau vài giây.",
+                mode="NO_MATCH",
+                latency_ms=round((time.perf_counter() - start_time) * 1000.0, 2)
             )
 
         self.warm_up()
@@ -250,12 +263,17 @@ class ChatEngine:
                     active_word=None,
                 )
 
-        # Bước 4: Truy xuất Hybrid (BM25 + BGE-M3 + RRF)
-        mode, best_candidate, candidates = self.retriever.retrieve(
-            resolved_query,
-            top_k=settings.TOP_K_RETRIEVAL
-        )
+        # Bước 4: Truy xuất Hybrid dưới khóa đọc IndexAccessCoordinator
+        # Khóa đọc CHỈ GIỮ trong giai đoạn truy xuất dữ liệu (~150ms), cho phép nhiều người đọc đồng thời
+        with rm.coordinator.read_lock():
+            mode, best_candidate, candidates = self.retriever.retrieve(
+                resolved_query,
+                top_k=settings.TOP_K_RETRIEVAL
+            )
+            # Trích xuất ngữ cảnh bất biến ngay trong khóa đọc
+            context_str = build_context_string(candidates) if candidates else ""
 
+        # KHÓA ĐỌC ĐÃ ĐƯỢC NHẢ TẠI ĐÂY!
         # Bước 5: Kiểm tra Domain & Threshold Gate
         if not candidates or best_candidate is None or mode == "NO_MATCH":
             return self._create_and_log_response(
@@ -289,8 +307,7 @@ class ChatEngine:
                 candidates=candidates,
             )
 
-        # 6.2 Tổng hợp và diễn đạt qua LLM có căn cứ ngữ cảnh (RAG_GENERATION)
-        context_str = build_context_string(candidates)
+        # 6.2 Tổng hợp và diễn đạt qua LLM (RAG_GENERATION) hoàn toàn NGOÀI khóa dữ liệu
         try:
             llm_answer = self.llm_client.generate_with_langchain(
                 question=resolved_query,
@@ -318,6 +335,7 @@ class ChatEngine:
             candidates=candidates,
         )
 
+
     def ask_stream(
         self,
         query: str
@@ -331,6 +349,18 @@ class ChatEngine:
                 answer="Vui lòng nhập câu hỏi.",
                 mode="NO_MATCH",
                 latency_ms=0.0
+            )
+            yield resp.answer, resp
+            return
+
+        # Kiểm tra trạng thái điều phối tài nguyên
+        from src.resource.manager import ResourceState, get_resource_manager
+        rm = get_resource_manager()
+        if rm.state in (ResourceState.INDEXING_GPU, ResourceState.RESTORING_CHAT):
+            resp = ChatResponse(
+                answer="⚠️ Hệ thống đang đồng bộ dữ liệu chỉ mục và điều phối tài nguyên. Vui lòng thử lại sau vài giây.",
+                mode="NO_MATCH",
+                latency_ms=round((time.perf_counter() - start_time) * 1000.0, 2)
             )
             yield resp.answer, resp
             return
@@ -443,12 +473,16 @@ class ChatEngine:
                 yield resp.answer, resp
                 return
 
-        # Bước 4: Truy xuất
-        mode, best_candidate, candidates = self.retriever.retrieve(
-            resolved_query,
-            top_k=settings.TOP_K_RETRIEVAL
-        )
+        # Bước 4: Truy xuất Hybrid dưới khóa đọc IndexAccessCoordinator
+        # Khóa đọc CHỈ GIỮ trong giai đoạn truy xuất dữ liệu (~150ms), cho phép nhiều người đọc đồng thời
+        with rm.coordinator.read_lock():
+            mode, best_candidate, candidates = self.retriever.retrieve(
+                resolved_query,
+                top_k=settings.TOP_K_RETRIEVAL
+            )
+            messages = build_rag_prompt(resolved_query, candidates) if candidates else []
 
+        # KHÓA ĐỌC ĐÃ ĐƯỢC NHẢ TẠI ĐÂY!
         # Bước 5: Threshold Gate
         if not candidates or best_candidate is None or mode == "NO_MATCH":
             resp = self._create_and_log_response(
@@ -484,8 +518,7 @@ class ChatEngine:
             yield resp.answer, resp
             return
 
-        # 6.2 RAG_GENERATION (Streaming từ LLM)
-        messages = build_rag_prompt(resolved_query, candidates)
+        # 6.2 RAG_GENERATION (Streaming từ LLM hoàn toàn NGOÀI khóa dữ liệu)
         accumulated_text = ""
         try:
             for token in self.llm_client.stream_chat(messages):
@@ -495,6 +528,7 @@ class ChatEngine:
             error_msg = f"\n{settings.OLLAMA_OFFLINE_RESPONSE}\n({err})"
             accumulated_text += error_msg
             yield error_msg, None
+
 
         formatted_final = format_vocabulary_response(accumulated_text)
         final_resp = self._create_and_log_response(

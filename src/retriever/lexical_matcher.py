@@ -58,14 +58,19 @@ class LexicalMatcher:
 
     def _rebuild_maps(self) -> None:
         """Xây dựng lại các bản đồ ánh xạ phục vụ so khớp nhanh."""
-        # Ánh xạ câu hỏi gốc viết thường -> QARecord
-        self.exact_map: Dict[str, QARecord] = {
-            r.question.strip().lower(): r for r in self.records
-        }
+        # Ánh xạ câu hỏi gốc viết thường -> QARecord (ưu tiên bản ghi từ điển chuẩn xuất hiện trước)
+        self.exact_map: Dict[str, QARecord] = {}
+        for r in self.records:
+            q_clean = r.question.strip().lower()
+            if q_clean not in self.exact_map:
+                self.exact_map[q_clean] = r
+
         # Ánh xạ câu hỏi đã chuẩn hóa (bỏ dấu tiếng Việt) -> QARecord
-        self.normalized_map: Dict[str, QARecord] = {
-            r.normalized_question: r for r in self.records if r.normalized_question
-        }
+        self.normalized_map: Dict[str, QARecord] = {}
+        for r in self.records:
+            if r.normalized_question and r.normalized_question not in self.normalized_map:
+                self.normalized_map[r.normalized_question] = r
+
         # Chỉ mục từ tiếng Anh trong sheet danhsachtutienganhA1-B2 hoặc bản ghi từ vựng
         self.vocab_en_map: Dict[str, QARecord] = {}
         for r in self.records:
@@ -74,7 +79,8 @@ class LexicalMatcher:
                 m = re.match(r"^([a-zA-Z0-9_\s,\-]+)\s+nghĩa là gì", r.question, re.IGNORECASE)
                 if m:
                     word = m.group(1).strip().lower()
-                    self.vocab_en_map[word] = r
+                    if word not in self.vocab_en_map:
+                        self.vocab_en_map[word] = r
             if r.word and r.word.lower() not in ("list", ""):
                 w = r.word.strip().lower()
                 if w not in self.vocab_en_map:

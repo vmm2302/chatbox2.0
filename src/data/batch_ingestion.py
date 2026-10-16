@@ -405,6 +405,11 @@ class BatchIngestionManager:
         chromadb_status = "UNCHANGED"
         bm25_status = "UNCHANGED"
         rollback_needed = False
+        used_gpu = False
+        ollama_cli = None
+
+        from src.resource.manager import ResourceState, get_resource_manager
+        rm = get_resource_manager()
 
         # --- KIỂM TRA BẢO VỆ DỮ LIỆU REPLACE (REPLACE DATA SAFETY GATE) ---
         if is_replace and len(newly_accumulated_records) == 0:
@@ -440,86 +445,128 @@ class BatchIngestionManager:
 
             target_records = working_records
 
+            # Xác định thiết bị và điều phối tài nguyên
+            record_count_for_eval = len(working_records) if is_replace else len(newly_accumulated_records)
+            target_device, dev_reason = rm.determine_indexing_device(record_count_for_eval, is_replace=is_replace)
+            logger.info("Chính sách điều phối Ingestion: %s (Lý do: %s)", target_device, dev_reason)
+
+            if target_device == "cuda":
+                if progress_callback:
+                    progress_callback("Đang điều phối tài nguyên GPU (giải phóng mô hình LLM)...", 0.70, None)
+                from src.llm.client import OllamaClient
+                ollama_cli = OllamaClient()
+                success_prep, prep_msg = rm.prepare_gpu_indexing(ollama_client=ollama_cli)
+                if success_prep:
+                    used_gpu = True
+                else:
+                    logger.warning("Không thể kích hoạt GPU: %s. Chuyển sang CPU.", prep_msg)
+                    target_device = "cpu"
+                    used_gpu = False
+            else:
+                rm.state = ResourceState.INDEXING_CPU
+
+            eff_batch_size = (
+                int(getattr(settings, "INDEXING_GPU_BATCH_SIZE", 64))
+                if used_gpu
+                else int(getattr(settings, "INDEXING_CPU_BATCH_SIZE", 32))
+            )
+
             if progress_callback:
                 progress_callback(
-                    f"Đang đồng bộ cơ sở dữ liệu ({len(target_records)} bản ghi)...",
+                    f"Đang đồng bộ cơ sở dữ liệu ({len(target_records)} bản ghi, thiết bị: {target_device.upper()})...",
                     0.85,
                     None
                 )
 
             try:
-                # 3.1. Đồng bộ ChromaDB
-                bge_retriever = BGEChromaRetriever(target_records)
-                chroma_count_before = bge_retriever.collection.count() if bge_retriever.collection else 0
-                import torch
-                effective_batch_size = 64 if torch.cuda.is_available() else batch_size
-                if is_replace:
-                    bge_retriever.build_or_load_collection(force_reindex=True)
-                else:
-                    bge_retriever.upsert_records(newly_accumulated_records, batch_size=effective_batch_size)
-                chromadb_status = "UPDATED"
+                # Thực hiện cập nhật dữ liệu dưới khóa ghi IndexAccessCoordinator (độc quyền siêu ngắn)
+                with rm.coordinator.write_lock():
+                    # 3.1. Đồng bộ ChromaDB
+                    bge_retriever = BGEChromaRetriever(target_records)
+                    raw_before = bge_retriever.get_collection_count()
+                    if isinstance(raw_before, (int, float)):
+                        chroma_count_before = int(raw_before)
+                    else:
+                        try:
+                            chroma_count_before = int(bge_retriever.collection.count())
+                        except Exception:
+                            chroma_count_before = 0
 
-                # 3.2. Cập nhật qa_records.jsonl
-                self.loader.save_to_jsonl(target_records)
+                    if is_replace:
+                        bge_retriever.build_or_load_collection(force_reindex=True)
+                    else:
+                        bge_retriever.upsert_records(newly_accumulated_records, batch_size=eff_batch_size)
+                    chromadb_status = "UPDATED"
 
-                # 3.3. Tái lập chỉ mục BM25
-                bm25_retriever = BM25Retriever(target_records)
-                bm25_status = "UPDATED"
+                    # 3.2. Cập nhật qa_records.jsonl
+                    self.loader.save_to_jsonl(target_records)
 
-                # 3.4. Kiểm tra tính đồng bộ trước khi commit manifest
-                chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
-                jsonl_count = len(target_records)
-                bm25_count = len(bm25_retriever.records)
+                    # 3.3. Tái lập chỉ mục BM25
+                    bm25_retriever = BM25Retriever(target_records)
+                    bm25_status = "UPDATED"
 
-                if is_replace or (chroma_count_before == len(original_existing_records)):
-                    if not (chroma_count == jsonl_count == bm25_count):
-                        raise RuntimeError(
-                            f"Không đồng bộ giữa các thành phần sau khi index: "
-                            f"ChromaDB={chroma_count}, JSONL={jsonl_count}, BM25={bm25_count}"
-                        )
-                else:
-                    if chroma_count < chroma_count_before:
-                        raise RuntimeError(
-                            f"Lỗi thất thoát vector ChromaDB sau khi index: "
-                            f"Trước={chroma_count_before}, Sau={chroma_count}"
-                        )
-                    if jsonl_count != bm25_count:
-                        raise RuntimeError(
-                            f"Không đồng bộ giữa JSONL và BM25: JSONL={jsonl_count}, BM25={bm25_count}"
-                        )
+                    # 3.4. Kiểm tra tính đồng bộ trước khi commit manifest
+                    raw_after = bge_retriever.collection.count() if bge_retriever.collection else bge_retriever.get_collection_count()
+                    if isinstance(raw_after, (int, float)):
+                        chroma_count = int(raw_after)
+                    else:
+                        try:
+                            chroma_count = int(bge_retriever.get_collection_count())
+                        except Exception:
+                            chroma_count = 0
 
-                # 3.5. Cập nhật manifest
-                if is_replace:
-                    manifest["sources"] = {}
-                sources_dict = manifest.setdefault("sources", {})
+                    jsonl_count = len(target_records)
+                    bm25_count = len(bm25_retriever.records)
 
-                for res in file_results:
-                    if res.status == FileStatus.INDEXING:
-                        res.status = FileStatus.SUCCESS
-                        res.reason = f"Đã nạp thành công {res.records_added} bản ghi vào kho tri thức."
-                        res.action = "Sẵn sàng tra cứu."
+                    if is_replace or (chroma_count_before == len(original_existing_records)):
+                        if not (chroma_count == jsonl_count == bm25_count):
+                            raise RuntimeError(
+                                f"Không đồng bộ giữa các thành phần sau khi index: "
+                                f"ChromaDB={chroma_count}, JSONL={jsonl_count}, BM25={bm25_count}"
+                            )
+                    else:
+                        if chroma_count < chroma_count_before:
+                            raise RuntimeError(
+                                f"Lỗi thất thoát vector ChromaDB sau khi index: "
+                                f"Trước={chroma_count_before}, Sau={chroma_count}"
+                            )
+                        if jsonl_count != bm25_count:
+                            raise RuntimeError(
+                                f"Không đồng bộ giữa JSONL và BM25: JSONL={jsonl_count}, BM25={bm25_count}"
+                            )
 
-                        source_id = f"SRC_{res.file_hash[:12]}"
-                        sources_dict[source_id] = {
-                            "source_id": source_id,
-                            "file_name": res.file_name,
-                            "file_path": res.file_path,
-                            "file_hash": res.file_hash,
-                            "file_type": res.file_type,
-                            "file_size_bytes": res.file_size_bytes,
-                            "record_count": res.records_added,
-                            "record_ids": res.record_ids,
-                            "ingested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                            "status": "ACTIVE",
-                        }
+                    # 3.5. Cập nhật manifest
+                    if is_replace:
+                        manifest["sources"] = {}
+                    sources_dict = manifest.setdefault("sources", {})
 
-                self.save_manifest(manifest)
+                    for res in file_results:
+                        if res.status == FileStatus.INDEXING:
+                            res.status = FileStatus.SUCCESS
+                            res.reason = f"Đã nạp thành công {res.records_added} bản ghi vào kho tri thức."
+                            res.action = "Sẵn sàng tra cứu."
 
-                # Xóa bản sao lưu sau khi commit thành công
-                if bak_jsonl.exists():
-                    bak_jsonl.unlink(missing_ok=True)
-                if bak_manifest.exists():
-                    bak_manifest.unlink(missing_ok=True)
+                            source_id = f"SRC_{res.file_hash[:12]}"
+                            sources_dict[source_id] = {
+                                "source_id": source_id,
+                                "file_name": res.file_name,
+                                "file_path": res.file_path,
+                                "file_hash": res.file_hash,
+                                "file_type": res.file_type,
+                                "file_size_bytes": res.file_size_bytes,
+                                "record_count": res.records_added,
+                                "record_ids": res.record_ids,
+                                "ingested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "status": "ACTIVE",
+                            }
+
+                    self.save_manifest(manifest)
+
+                    # Xóa bản sao lưu sau khi commit thành công
+                    if bak_jsonl.exists():
+                        bak_jsonl.unlink(missing_ok=True)
+                    if bak_manifest.exists():
+                        bak_manifest.unlink(missing_ok=True)
 
             except Exception as err:
                 logger.error("Lỗi khi lập chỉ mục batch: %s. Đang kích hoạt ROLLBACK...", err)
@@ -527,24 +574,27 @@ class BatchIngestionManager:
                 chromadb_status = f"FAILED: {err}"
                 bm25_status = "FAILED"
 
-                # Thực hiện ROLLBACK an toàn
+                # Thực hiện ROLLBACK an toàn dưới khóa ghi
                 try:
-                    if bak_jsonl.exists():
-                        shutil.copy2(bak_jsonl, jsonl_path)
-                        bak_jsonl.unlink(missing_ok=True)
-                    elif jsonl_path.exists() and is_replace and not original_existing_records:
-                        jsonl_path.unlink(missing_ok=True)
+                    with rm.coordinator.write_lock():
+                        if bak_jsonl.exists():
+                            shutil.copy2(bak_jsonl, jsonl_path)
+                            bak_jsonl.unlink(missing_ok=True)
+                        elif jsonl_path.exists() and not original_existing_records:
+                            jsonl_path.unlink(missing_ok=True)
 
-                    if bak_manifest.exists():
-                        shutil.copy2(bak_manifest, manifest_path)
-                        bak_manifest.unlink(missing_ok=True)
+                        if bak_manifest.exists():
+                            shutil.copy2(bak_manifest, manifest_path)
+                            bak_manifest.unlink(missing_ok=True)
+                        elif manifest_path.exists() and not manifest.get("sources"):
+                            manifest_path.unlink(missing_ok=True)
 
-                    if is_replace:
-                        BGEChromaRetriever(original_existing_records).build_or_load_collection(force_reindex=True)
-                    else:
-                        added_ids = [r.record_id for r in newly_accumulated_records if r.record_id]
-                        if added_ids:
-                            BGEChromaRetriever(original_existing_records).delete_records(added_ids)
+                        if is_replace:
+                            BGEChromaRetriever(original_existing_records).build_or_load_collection(force_reindex=True)
+                        else:
+                            added_ids = [r.record_id for r in newly_accumulated_records if r.record_id]
+                            if added_ids:
+                                BGEChromaRetriever(original_existing_records).delete_records(added_ids)
                 except Exception as rb_err:
                     logger.critical("Rollback thất bại: %s", rb_err)
 
@@ -552,6 +602,11 @@ class BatchIngestionManager:
                     if res.status == FileStatus.INDEXING:
                         res.status = FileStatus.FAILED
                         res.reason = f"Lỗi lập chỉ mục: {err} (Đã phục hồi dữ liệu ban đầu)."
+
+            finally:
+                # Luôn khôi phục trạng thái tài nguyên sau khi hoàn tất hoặc lỗi
+                rm.finalize_indexing(used_gpu=used_gpu, ollama_client=ollama_cli if used_gpu else None)
+
 
         # 4. Tính toán kết quả tổng thể (Batch Status: SUCCESS / PARTIAL SUCCESS / FAILED)
         success_cnt = sum(1 for r in file_results if r.status == FileStatus.SUCCESS)

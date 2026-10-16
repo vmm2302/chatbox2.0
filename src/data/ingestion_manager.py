@@ -219,7 +219,7 @@ class IngestionManager:
             sample_words = [r.word for r in incoming_records if r.word][:10]
 
         # 3. Kiểm tra tính đồng bộ
-        chroma_count = bge_retriever.collection.count() if bge_retriever.collection else 0
+        chroma_count = bge_retriever.collection.count() if bge_retriever.collection else bge_retriever.get_collection_count()
         bm25_count = len(bm25_retriever.records)
         synced = (total_active == chroma_count == bm25_count)
 

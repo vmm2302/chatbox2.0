@@ -30,7 +30,71 @@ class BGEChromaRetriever:
         self.rec_map: Dict[str, QARecord] = {r.record_id: r for r in records}
         self.client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
         self.model: Optional[SentenceTransformer] = None
-        self.collection = None
+        self._collection = None
+
+    @property
+    def collection(self):
+        """Trả về collection ChromaDB hiện tại, tự động kết nối lại nếu handle cũ bị xóa hoặc mất hiệu lực."""
+        if self._collection is not None:
+            try:
+                # Kiểm tra tính khả dụng của collection object hiện tại
+                _ = self._collection.count()
+                return self._collection
+            except Exception:
+                logger.warning(
+                    "Collection ChromaDB handle cũ không còn hợp lệ (có thể đã bị xóa khi re-index). Đang tự động kết nối lại..."
+                )
+                self._collection = None
+
+        try:
+            self._collection = self.client.get_or_create_collection(
+                name=settings.CHROMA_COLLECTION_NAME,
+                metadata={"hnsw:space": "cosine"}
+            )
+        except Exception as exc:
+            logger.error("Không thể kết nối đến collection ChromaDB '%s': %s", settings.CHROMA_COLLECTION_NAME, exc)
+            self._collection = None
+
+        return self._collection
+
+    @collection.setter
+    def collection(self, val):
+        self._collection = val
+
+    def reload(self, new_records: Optional[List[QARecord]] = None) -> None:
+        """Cập nhật dữ liệu bản ghi và làm mới kết nối collection ChromaDB."""
+        if new_records is not None:
+            self.records = new_records
+            self.rec_map = {r.record_id: r for r in new_records}
+
+        try:
+            self._collection = self.client.get_or_create_collection(
+                name=settings.CHROMA_COLLECTION_NAME,
+                metadata={"hnsw:space": "cosine"}
+            )
+            coll_id = getattr(self._collection, "id", "N/A")
+            logger.info(
+                "BGEChromaRetriever đã làm mới kết nối tới collection '%s' (UUID: %s).",
+                settings.CHROMA_COLLECTION_NAME,
+                coll_id
+            )
+        except Exception as exc:
+            logger.error("Không thể làm mới kết nối collection ChromaDB '%s': %s", settings.CHROMA_COLLECTION_NAME, exc)
+            self._collection = None
+
+    def get_collection_count(self) -> int:
+        """Lấy số lượng vector hiện có trong collection ChromaDB trên đĩa mà không kích hoạt re-index."""
+        coll = self.collection
+        if coll is not None:
+            try:
+                return int(coll.count())
+            except Exception:
+                pass
+        try:
+            direct_coll = self.client.get_collection(name=settings.CHROMA_COLLECTION_NAME)
+            return int(direct_coll.count())
+        except Exception:
+            return 0
 
     def _resolve_device(self) -> str:
         """Xác định thiết bị thực thi mô hình BGE-M3 (hỗ trợ GPU CUDA hoặc CPU)."""
@@ -45,28 +109,76 @@ class BGEChromaRetriever:
             return "cuda" if torch.cuda.is_available() else "cpu"
         return "cpu"
 
-    def _get_embedding_model(self) -> SentenceTransformer:
-        """Nạp mô hình BGE-M3 từ local cache (tự động dùng GPU CUDA nếu có, hoặc fallback CPU)."""
-        if self.model is None:
-            device = self._resolve_device()
-            logger.info("Đang nạp mô hình BGE-M3 từ local cache: %s (Thiết bị: %s)", settings.BGE_M3_MODEL_NAME, device)
+    def _get_embedding_model(self, preferred_device: Optional[str] = None):
+        """Lấy mô hình BGE-M3 từ EmbeddingModelManager dùng chung để tránh trùng lặp tài nguyên."""
+        import sentence_transformers
+        target_dev = preferred_device or self._resolve_device()
+
+        # Kiểm tra nếu SentenceTransformer bị mock trong kiểm thử (ví dụ test offline enforcement)
+        if SentenceTransformer is not getattr(sentence_transformers, "SentenceTransformer", None):
             try:
-                self.model = SentenceTransformer(
+                return SentenceTransformer(
                     settings.BGE_M3_MODEL_NAME,
-                    device=device,
+                    device=target_dev,
                     local_files_only=True
                 )
             except Exception as exc:
-                err_msg = (
-                    f"Không thể nạp mô hình embedding '{settings.BGE_M3_MODEL_NAME}' từ local cache: {exc}. "
+                raise RuntimeError(
+                    f"Không thể nạp mô hình BGE-M3 '{settings.BGE_M3_MODEL_NAME}' từ local cache: {exc}. "
                     "Hệ thống đang hoạt động ở chế độ OFFLINE nghiêm ngặt, không tự ý tải model qua mạng trong runtime. "
                     "Vui lòng tải model trước qua script: 'python scripts/download_models.py' hoặc tham khảo HUONG_DAN_CAI_DAT_MAY_MOI.md."
-                )
-                logger.error(err_msg)
-                raise RuntimeError(err_msg) from exc
-        return self.model
+                ) from exc
 
-    def build_or_load_collection(self, force_reindex: bool = False) -> None:
+        from src.resource.manager import get_resource_manager
+        try:
+            return get_resource_manager().model_manager.get_model(preferred_device=target_dev)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Không thể nạp mô hình BGE-M3 '{settings.BGE_M3_MODEL_NAME}' từ local cache: {exc}. "
+                "Hệ thống đang hoạt động ở chế độ OFFLINE nghiêm ngặt, không tự ý tải model qua mạng trong runtime. "
+                "Vui lòng tải model trước qua script: 'python scripts/download_models.py' hoặc tham khảo HUONG_DAN_CAI_DAT_MAY_MOI.md."
+            ) from exc
+
+    def _encode_texts_safe(self, model, texts: List[str], batch_size: int) -> List[List[float]]:
+        """Mã hóa danh sách văn bản với cơ chế bắt lỗi CUDA OOM, tự động giảm batch size hoặc fallback CPU."""
+        from src.resource.manager import get_resource_manager
+        import torch
+
+        cur_batch_size = max(1, batch_size)
+        while True:
+            try:
+                with get_resource_manager().model_manager.track_inference():
+                    embeddings = model.encode(
+                        texts,
+                        batch_size=cur_batch_size,
+                        show_progress_bar=False,
+                        normalize_embeddings=True
+                    ).tolist()
+                return embeddings
+            except Exception as err:
+                is_oom = "out of memory" in str(err).lower() or (
+                    hasattr(torch.cuda, "OutOfMemoryError") and isinstance(err, torch.cuda.OutOfMemoryError)
+                )
+                if not is_oom:
+                    raise
+
+                logger.warning(
+                    "Gặp sự cố CUDA Out-Of-Memory khi encode với batch_size=%d: %s. Đang giải phóng cache...",
+                    cur_batch_size, err
+                )
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                if cur_batch_size > 8:
+                    cur_batch_size = cur_batch_size // 2
+                    logger.info("Thử lại batch embedding với batch_size nhỏ hơn: %d", cur_batch_size)
+                else:
+                    logger.warning("Batch size đã giảm về %d nhưng vẫn OOM. Tự động chuyển BGE-M3 sang CPU để hoàn tất.", cur_batch_size)
+                    get_resource_manager().model_manager.switch_device("cpu")
+                    model = get_resource_manager().model_manager.get_model("cpu")
+                    cur_batch_size = 16
+
+    def build_or_load_collection(self, force_reindex: bool = False, batch_size: Optional[int] = None) -> None:
         """Tải collection ChromaDB sẵn có từ đĩa hoặc tạo mới và index toàn bộ dữ liệu."""
         coll_name = settings.CHROMA_COLLECTION_NAME
 
@@ -107,11 +219,15 @@ class BGEChromaRetriever:
         logger.info("Bắt đầu lập chỉ mục ChromaDB cho %d bản ghi bằng BGE-M3...", len(self.records))
         model = self._get_embedding_model()
 
-        batch_size = 64
+        eff_batch_size = batch_size or (
+            getattr(settings, "INDEXING_GPU_BATCH_SIZE", 64)
+            if getattr(model, "device", None) and "cuda" in str(model.device)
+            else getattr(settings, "INDEXING_CPU_BATCH_SIZE", 32)
+        )
         total = len(self.records)
 
-        for i in range(0, total, batch_size):
-            batch_records = self.records[i:i + batch_size]
+        for i in range(0, total, eff_batch_size):
+            batch_records = self.records[i:i + eff_batch_size]
             # Nội dung đưa vào vector embedding: kết hợp câu hỏi, từ vựng và phần đầu câu trả lời
             batch_texts = [
                 f"Câu hỏi: {r.question}. Từ vựng: {r.word}. {r.answer[:250]}"
@@ -129,13 +245,8 @@ class BGEChromaRetriever:
                 for r in batch_records
             ]
 
-            # Mã hóa vector với BGE-M3 (normalize_embeddings=True)
-            batch_embeddings = model.encode(
-                batch_texts,
-                batch_size=len(batch_texts),
-                show_progress_bar=False,
-                normalize_embeddings=True
-            ).tolist()
+            # Mã hóa vector với BGE-M3 an toàn chống OOM
+            batch_embeddings = self._encode_texts_safe(model, batch_texts, batch_size=eff_batch_size)
 
             self.collection.add(
                 ids=batch_ids,
@@ -143,11 +254,12 @@ class BGEChromaRetriever:
                 documents=batch_texts,
                 metadatas=batch_metadatas
             )
-            logger.info("Đã index %d/%d bản ghi vào ChromaDB...", min(i + batch_size, total), total)
+            logger.info("Đã index %d/%d bản ghi vào ChromaDB...", min(i + eff_batch_size, total), total)
 
         logger.info("Hoàn tất lập chỉ mục ChromaDB với %d vector.", self.collection.count())
 
-    def add_records(self, new_records: List[QARecord], batch_size: int = 64) -> int:
+
+    def add_records(self, new_records: List[QARecord], batch_size: Optional[int] = None) -> int:
         """Thêm các bản ghi mới vào ChromaDB mà không cần tính toán lại các vector cũ.
 
         Returns:
@@ -190,10 +302,15 @@ class BGEChromaRetriever:
 
         logger.info("Đang mã hóa BGE-M3 cho %d bản ghi mới...", len(records_to_add))
         model = self._get_embedding_model()
+        eff_batch_size = batch_size or (
+            getattr(settings, "INDEXING_GPU_BATCH_SIZE", 64)
+            if getattr(model, "device", None) and "cuda" in str(model.device)
+            else getattr(settings, "INDEXING_CPU_BATCH_SIZE", 32)
+        )
         total = len(records_to_add)
 
-        for i in range(0, total, batch_size):
-            batch = records_to_add[i:i + batch_size]
+        for i in range(0, total, eff_batch_size):
+            batch = records_to_add[i:i + eff_batch_size]
             batch_texts = [
                 f"Câu hỏi: {r.question}. Từ vựng: {r.word}. {r.answer[:250]}"
                 for r in batch
@@ -210,12 +327,7 @@ class BGEChromaRetriever:
                 for r in batch
             ]
 
-            batch_embeddings = model.encode(
-                batch_texts,
-                batch_size=len(batch_texts),
-                show_progress_bar=False,
-                normalize_embeddings=True
-            ).tolist()
+            batch_embeddings = self._encode_texts_safe(model, batch_texts, batch_size=eff_batch_size)
 
             self.collection.add(
                 ids=batch_ids,
@@ -237,7 +349,7 @@ class BGEChromaRetriever:
         )
         return len(records_to_add)
 
-    def upsert_records(self, records: List[QARecord], batch_size: int = 64) -> int:
+    def upsert_records(self, records: List[QARecord], batch_size: Optional[int] = None) -> int:
         """Cập nhật hoặc thêm mới các bản ghi vector vào ChromaDB (hỗ trợ update/overwrite)."""
         if not records:
             return 0
@@ -262,10 +374,15 @@ class BGEChromaRetriever:
             )
 
         model = self._get_embedding_model()
+        eff_batch_size = batch_size or (
+            getattr(settings, "INDEXING_GPU_BATCH_SIZE", 64)
+            if getattr(model, "device", None) and "cuda" in str(model.device)
+            else getattr(settings, "INDEXING_CPU_BATCH_SIZE", 32)
+        )
         total = len(records)
 
-        for i in range(0, total, batch_size):
-            batch = records[i:i + batch_size]
+        for i in range(0, total, eff_batch_size):
+            batch = records[i:i + eff_batch_size]
             batch_texts = [
                 f"Câu hỏi: {r.question}. Từ vựng: {r.word}. {r.answer[:250]}"
                 for r in batch
@@ -282,12 +399,7 @@ class BGEChromaRetriever:
                 for r in batch
             ]
 
-            batch_embeddings = model.encode(
-                batch_texts,
-                batch_size=len(batch_texts),
-                show_progress_bar=False,
-                normalize_embeddings=True
-            ).tolist()
+            batch_embeddings = self._encode_texts_safe(model, batch_texts, batch_size=eff_batch_size)
 
             self.collection.upsert(
                 ids=batch_ids,
@@ -356,8 +468,13 @@ class BGEChromaRetriever:
         if n_results <= 0:
             return []
 
-        model = self._get_embedding_model()
-        query_vector = model.encode(query.strip(), normalize_embeddings=True).tolist()
+        # Trong chế độ chat, ưu tiên sử dụng thiết bị CPU để bảo toàn VRAM cho mô hình LLM Qwen
+        chat_device = getattr(settings, "EMBEDDING_CHAT_DEVICE", "cpu")
+        model = self._get_embedding_model(preferred_device=chat_device)
+
+        from src.resource.manager import get_resource_manager
+        with get_resource_manager().model_manager.track_inference():
+            query_vector = model.encode(query.strip(), normalize_embeddings=True).tolist()
 
         try:
             results = self.collection.query(
@@ -382,3 +499,4 @@ class BGEChromaRetriever:
                     candidates.append((rec, round(sim_score, 4), rank))
 
         return candidates
+

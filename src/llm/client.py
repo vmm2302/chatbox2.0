@@ -7,7 +7,7 @@ xử lý lỗi kết nối, timeout và hỗ trợ sinh chuỗi phản hồi (st
 import json
 import logging
 import re
-from typing import Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import requests
 
@@ -45,6 +45,19 @@ class OllamaClient:
         self.timeout = timeout or settings.OLLAMA_TIMEOUT_SECONDS
         self.chat_endpoint = f"{self.base_url}/api/chat"
 
+    def _build_options(self, temperature: Optional[float] = None) -> Dict[str, Any]:
+        """Tạo từ điển tham số cấu hình đồng bộ cho Ollama."""
+        opts: Dict[str, Any] = {
+            "temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE
+        }
+        if getattr(settings, "OLLAMA_NUM_CTX", None):
+            opts["num_ctx"] = int(settings.OLLAMA_NUM_CTX)
+        if getattr(settings, "OLLAMA_NUM_PREDICT", None):
+            opts["num_predict"] = int(settings.OLLAMA_NUM_PREDICT)
+        if getattr(settings, "OLLAMA_NUM_THREAD", None):
+            opts["num_thread"] = int(settings.OLLAMA_NUM_THREAD)
+        return opts
+
     def is_service_ready(self) -> bool:
         """Kiểm tra dịch vụ Ollama có đang hoạt động trên máy tính không."""
         try:
@@ -53,15 +66,61 @@ class OllamaClient:
         except Exception:
             return False
 
+    def get_running_models(self) -> List[Dict[str, Any]]:
+        """Lấy danh sách các model hiện đang được nạp trong VRAM/RAM qua endpoint /api/ps."""
+        try:
+            resp = requests.get(f"{self.base_url}/api/ps", timeout=3.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("models", [])
+        except Exception as exc:
+            logger.warning("Không thể truy vấn danh sách model đang chạy từ Ollama: %s", exc)
+        return []
+
+    def unload_model(self, model_name: Optional[str] = None) -> bool:
+        """Giải phóng hoàn toàn model khỏi VRAM/RAM bằng cơ chế keep_alive=0 chuẩn của Ollama."""
+        target_model = model_name or self.model
+        try:
+            resp = requests.post(
+                f"{self.base_url}/api/generate",
+                json={"model": target_model, "keep_alive": 0},
+                timeout=10.0
+            )
+            if resp.status_code == 200:
+                logger.info("Đã gửi yêu cầu giải phóng model '%s' khỏi VRAM Ollama thành công.", target_model)
+                return True
+            logger.warning("Ollama trả về mã %d khi giải phóng model '%s'", resp.status_code, target_model)
+            return False
+        except Exception as exc:
+            logger.error("Lỗi khi giải phóng model '%s' khỏi Ollama: %s", target_model, exc)
+            return False
+
+    def ping_model(self, model_name: Optional[str] = None, timeout: float = 20.0) -> bool:
+        """Kiểm tra sức khỏe và khả năng sinh từ thực tế của model (warm-up ping)."""
+        target_model = model_name or self.model
+        try:
+            resp = requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": target_model,
+                    "prompt": "ok",
+                    "stream": False,
+                    "options": {"num_predict": 1}
+                },
+                timeout=timeout
+            )
+            return resp.status_code == 200
+        except Exception as exc:
+            logger.warning("Ping kiểm tra model '%s' thất bại: %s", target_model, exc)
+            return False
+
     def chat(self, messages: List[Dict[str, str]], temperature: Optional[float] = None) -> str:
         """Gửi yêu cầu chat đồng bộ và nhận kết quả hoàn chỉnh."""
         payload = {
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "options": {
-                "temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE
-            }
+            "options": self._build_options(temperature=temperature)
         }
 
         try:
@@ -108,9 +167,7 @@ class OllamaClient:
             "model": self.model,
             "messages": messages,
             "stream": True,
-            "options": {
-                "temperature": temperature if temperature is not None else settings.LLM_TEMPERATURE
-            }
+            "options": self._build_options(temperature=temperature)
         }
 
         try:
@@ -146,7 +203,10 @@ class OllamaClient:
         return ChatOllama(
             model=self.model,
             base_url=self.base_url,
-            temperature=settings.LLM_TEMPERATURE
+            temperature=settings.LLM_TEMPERATURE,
+            num_ctx=getattr(settings, "OLLAMA_NUM_CTX", 4096),
+            num_predict=getattr(settings, "OLLAMA_NUM_PREDICT", 1024),
+            num_thread=getattr(settings, "OLLAMA_NUM_THREAD", 4),
         )
 
     def generate_with_langchain(self, question: str, context: str) -> str:
@@ -160,4 +220,5 @@ class OllamaClient:
         except Exception as err:
             logger.error("Lỗi khi thực thi LangChain LCEL RAG chain: %s", err)
             raise OllamaResponseError(f"Lỗi LangChain: {err}") from err
+
 

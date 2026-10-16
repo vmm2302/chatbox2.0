@@ -28,11 +28,12 @@ class ExcelLoader(BaseFileLoader):
         f_hash = file_hash or compute_file_hash(file_path)
         records = self.qa_loader.load_from_excel(file_path)
 
-        from src.data.loaders.base import generate_stable_record_id
+        from src.data.loaders.base import clean_source_name, generate_stable_record_id
+        clean_name = clean_source_name(file_path.name)
         for idx, r in enumerate(records, start_index):
-            r.source = file_path.name
+            r.source = clean_name
             if not r.record_id or r.record_id.startswith("APPEND_"):
-                r.record_id = generate_stable_record_id(file_path.name, r.question)
+                r.record_id = generate_stable_record_id(clean_name, r.question)
 
         logger.info("ExcelLoader: Nạp thành công %d bản ghi từ %s", len(records), file_path.name)
         return records

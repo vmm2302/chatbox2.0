@@ -149,6 +149,48 @@ class TestIndexConsistencyRollback(unittest.TestCase):
                 self.assertEqual(res.status, "FAILED")
                 self.assertIn("không đồng bộ", res.message)
 
+    @patch("src.data.batch_ingestion.BGEChromaRetriever")
+    @patch("src.data.batch_ingestion.BM25Retriever")
+    def test_ingest_batch_rollback_cleans_jsonl_when_initially_nonexistent(self, mock_bm25, mock_bge_cls):
+        """Khi JSONL ban đầu chưa tồn tại và batch gặp lỗi, file JSONL mới tạo phải được xóa bỏ trong rollback."""
+        if self.jsonl_path.exists():
+            self.jsonl_path.unlink()
+
+        mock_retriever = MagicMock()
+        mock_retriever.collection.count.return_value = 0
+        mock_retriever.get_collection_count.return_value = 0
+        mock_bge_cls.return_value = mock_retriever
+        mock_bm25.return_value.records = [MagicMock()]
+
+        incoming_file = self.temp_dir / "new_record3.txt"
+        incoming_file.write_text("delta: kí tự thứ tư\n", encoding="utf-8")
+
+        report = self.manager.ingest_batch(files=[incoming_file], mode="add")
+
+        self.assertEqual(report.batch_status, BatchStatus.FAILED)
+        self.assertFalse(
+            self.jsonl_path.exists(),
+            "qa_records.jsonl phải được xóa sạch hoàn toàn nếu trước đó chưa tồn tại và batch thất bại!"
+        )
+
+    def test_stable_record_id_ignores_ephemeral_upload_prefix(self):
+        """Mã record_id và nguồn dữ liệu phải ổn định, không bị phụ thuộc vào tiền tố UUID tạm thời của upload."""
+        from src.data.loaders.base import clean_source_name, generate_stable_record_id
+
+        src_raw = "batch_f6894b0a_du_lieu_tu_vung.xlsx"
+        src_clean = "du_lieu_tu_vung.xlsx"
+        src_another_batch = "upload_99aa11bb_du_lieu_tu_vung.xlsx"
+
+        self.assertEqual(clean_source_name(src_raw), src_clean)
+        self.assertEqual(clean_source_name(src_another_batch), src_clean)
+
+        id1 = generate_stable_record_id(src_raw, "apple nghĩa là gì?")
+        id2 = generate_stable_record_id(src_clean, "apple nghĩa là gì?")
+        id3 = generate_stable_record_id(src_another_batch, "apple nghĩa là gì?")
+
+        self.assertEqual(id1, id2)
+        self.assertEqual(id2, id3)
+
 
 if __name__ == "__main__":
     unittest.main()

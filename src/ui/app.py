@@ -37,7 +37,7 @@ if str(project_root) not in sys.path:
 
 # Ép buộc Streamlit Theme luôn ở chế độ Light Theme (chống browser/OS dark mode làm đen canvas st.dataframe và checkbox)
 os.environ["STREAMLIT_THEME_BASE"] = "light"
-os.environ["STREAMLIT_THEME_PRIMARY_COLOR"] = "#0F172A"
+os.environ["STREAMLIT_THEME_PRIMARY_COLOR"] = "#2563EB"
 os.environ["STREAMLIT_THEME_BACKGROUND_COLOR"] = "#FFFFFF"
 os.environ["STREAMLIT_THEME_SECONDARY_BACKGROUND_COLOR"] = "#F8FAFC"
 os.environ["STREAMLIT_THEME_TEXT_COLOR"] = "#0F172A"
@@ -192,16 +192,12 @@ def inspect_storage_metrics(engine: ChatEngine) -> Dict[str, Any]:
     # 3. Đọc số vector ChromaDB
     try:
         if hasattr(engine, "bge_retriever") and engine.bge_retriever:
-            coll = engine.bge_retriever.collection
-            if coll is not None:
-                results["chroma_count"] = coll.count()
-            else:
-                import chromadb
-                client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
-                coll = client.get_collection(name=settings.CHROMA_COLLECTION_NAME)
-                results["chroma_count"] = coll.count()
+            results["chroma_count"] = engine.bge_retriever.get_collection_count()
         else:
-            results["chroma_error"] = "Không tìm thấy bge_retriever"
+            import chromadb
+            client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
+            coll = client.get_or_create_collection(name=settings.CHROMA_COLLECTION_NAME)
+            results["chroma_count"] = coll.count()
     except Exception as exc:
         results["chroma_error"] = str(exc)
 
@@ -552,14 +548,22 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
                 if not can_proceed:
                     st.caption("🔒 Nút xử lý bị khóa cho đến khi bạn tích chọn xác nhận bên trên.")
 
+            # Kiểm tra trạng thái điều phối tài nguyên để chống xung đột thao tác
+            from src.resource.manager import ResourceState, get_resource_manager
+            rm = get_resource_manager()
+            is_indexing_now = rm.state in (ResourceState.INDEXING_CPU, ResourceState.INDEXING_GPU, ResourceState.RESTORING_CHAT)
+            if is_indexing_now:
+                st.warning("⏳ Hệ thống đang có một tiến trình lập chỉ mục đang chạy. Vui lòng đợi hoàn tất trước khi nạp thêm.")
+
             # Nút bấm bắt đầu xử lý
             if st.button(
                 "🚀 Bắt Đầu Xử Lý Batch Tệp",
                 key="btn_process_batch_all",
                 type="primary",
-                disabled=not can_proceed,
+                disabled=(not can_proceed) or is_indexing_now,
                 use_container_width=True
             ):
+
                 settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
                 saved_paths: List[Path] = []
                 for uf in uploaded_batch_files:
@@ -741,17 +745,87 @@ elif st.session_state.nav_page == "📈 Chẩn đoán":
     with st.container(border=True):
         st.markdown('<div class="panel-card-header">📈 Chẩn Đoán Hệ Thống & Kiểm Định Kỹ Thuật</div>', unsafe_allow_html=True)
 
-        # 1. Thông số phần cứng & Dịch vụ Runtime động
-        st.markdown("#### 1. Thông số Phần cứng & Dịch vụ Runtime")
+        # 1. Bộ điều phối tài nguyên & Telemetry thời gian thực
+        st.markdown("#### 1. Bộ Điều Phối Tài Nguyên & Telemetry Thời Gian Thực (Resource Manager)")
+        from src.resource.manager import ResourceState, get_resource_manager
+        rm = get_resource_manager()
+        vram_data = rm.telemetry.get_vram_info()
+        ram_data = rm.telemetry.get_ram_info()
+        cpu_data = rm.telemetry.get_cpu_info()
+
+        # Hiển thị trạng thái hệ thống bằng màu sắc trực quan
+        state_colors = {
+            ResourceState.CHAT_READY: ("🟢 Sẵn Sàng (CHAT_READY)", "#16A34A", "Qwen ưu tiên GPU, BGE chạy CPU"),
+            ResourceState.INDEXING_CPU: ("🟡 Nạp CPU (INDEXING_CPU)", "#CA8A04", "Nạp dữ liệu trên CPU, Chat an toàn"),
+            ResourceState.INDEXING_GPU: ("🔵 Tăng Tốc GPU (INDEXING_GPU)", "#2563EB", "BGE chạy CUDA, Qwen tạm giải phóng"),
+            ResourceState.RESTORING_CHAT: ("🟠 Khôi Phục (RESTORING_CHAT)", "#EA580C", "Đang nạp lại Qwen vào VRAM"),
+            ResourceState.RECOVERY_FAILED: ("🔴 Lỗi Khôi Phục (RECOVERY_FAILED)", "#DC2626", "Cần kiểm tra dịch vụ Ollama"),
+        }
+        state_label, state_color, state_desc = state_colors.get(
+            rm.state, (f"⚪ {rm.state.value}", "#475569", "Trạng thái không xác định")
+        )
+
+        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+        with col_r1:
+            with st.container(border=True):
+                st.markdown(
+                    f'<div class="stat-card-label">Trạng Thái Hệ Thống</div>'
+                    f'<div class="stat-card-value" style="color:{state_color}; font-size:1.05rem;">{state_label}</div>'
+                    f'<div class="stat-card-caption">{state_desc}</div>',
+                    unsafe_allow_html=True
+                )
+
+        with col_r2:
+            with st.container(border=True):
+                if vram_data["available"]:
+                    vram_val = f"{vram_data['free_mb']:,.0f} MB Trống"
+                    vram_sub = f"Đã dùng: {vram_data['used_mb']:,.0f} / {vram_data['total_mb']:,.0f} MB ({vram_data['used_pct']}%)"
+                else:
+                    vram_val = "N/A (Chỉ có CPU)"
+                    vram_sub = "Không tìm thấy GPU NVIDIA CUDA"
+                st.markdown(
+                    f'<div class="stat-card-label">VRAM Động (GPU)</div>'
+                    f'<div class="stat-card-value">{vram_val}</div>'
+                    f'<div class="stat-card-caption">{vram_sub}</div>',
+                    unsafe_allow_html=True
+                )
+
+        with col_r3:
+            with st.container(border=True):
+                if ram_data["total_mb"] > 0:
+                    ram_val = f"{ram_data['free_mb'] / 1024:.1f} GB Trống"
+                    ram_sub = f"Đã dùng: {ram_data['used_mb'] / 1024:.1f} / {ram_data['total_mb'] / 1024:.1f} GB ({ram_data['load_pct']}%)"
+                else:
+                    ram_val = "Đang đọc..."
+                    ram_sub = "RAM hệ thống"
+                st.markdown(
+                    f'<div class="stat-card-label">RAM Hệ Thống</div>'
+                    f'<div class="stat-card-value">{ram_val}</div>'
+                    f'<div class="stat-card-caption">{ram_sub}</div>',
+                    unsafe_allow_html=True
+                )
+
+        with col_r4:
+            with st.container(border=True):
+                st.markdown(
+                    f'<div class="stat-card-label">CPU & PyTorch Threads</div>'
+                    f'<div class="stat-card-value">{cpu_data["torch_threads"]} Luồng Torch</div>'
+                    f'<div class="stat-card-caption">{cpu_data["logical_cores"]} logical cores (Giới hạn chống nghẽn)</div>',
+                    unsafe_allow_html=True
+                )
+
+        # 2. Thông số phần cứng & Dịch vụ Runtime động
+        st.markdown("#### 2. Cấu Hình Phần Cứng & Dịch Vụ Runtime")
         hw_info = get_hardware_runtime_info()
 
         col_h1, col_h2, col_h3 = st.columns(3)
         with col_h1:
             with st.container(border=True):
+                bge_active_dev = rm.model_manager.current_device.upper()
                 st.markdown(
-                    f'<div class="stat-card-label">Thiết bị Embedding</div>'
-                    f'<div class="stat-card-value">{hw_info["device_name"]}</div>'
-                    f'<div class="stat-card-caption">CUDA: {hw_info["cuda_version"]} | Thiết bị: {hw_info["device_type"]}</div>',
+                    f'<div class="stat-card-label">Thiết Bị BGE-M3 Đang Chạy</div>'
+                    f'<div class="stat-card-value">{bge_active_dev}</div>'
+                    f'<div class="stat-card-caption">Chat: {settings.EMBEDDING_CHAT_DEVICE.upper()} | Batch Max: {settings.INDEXING_GPU_BATCH_SIZE if bge_active_dev == "CUDA" else settings.INDEXING_CPU_BATCH_SIZE}</div>',
                     unsafe_allow_html=True
                 )
 
@@ -779,8 +853,9 @@ elif st.session_state.nav_page == "📈 Chẩn đoán":
                     unsafe_allow_html=True
                 )
 
-        # 2. Phân biệt trạng thái Ollama Models
-        st.markdown("#### 2. Trạng Thái Mô Hình LLM")
+        # 3. Phân biệt trạng thái Ollama Models
+        st.markdown("#### 3. Trạng Thái Mô Hình LLM")
+
         col_m1, col_m2, col_m3 = st.columns(3)
 
         with col_m1:

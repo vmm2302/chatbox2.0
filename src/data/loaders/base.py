@@ -2,6 +2,7 @@
 
 import abc
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,11 +31,20 @@ def compute_file_hash(file_path: Path) -> str:
     return sha.hexdigest()
 
 
+def clean_source_name(source: str) -> str:
+    """Loại bỏ tiền tố tạm thời như batch_xxxxxxxx_, raw_xxxxxxxx_, v.v. khỏi tên nguồn."""
+    if not source:
+        return ""
+    m = re.match(r"^(?:raw|batch|doc|upload)_[0-9a-f]{8}_(.+)$", str(source))
+    return m.group(1) if m else str(source)
+
+
 def generate_stable_record_id(source: str, question: str, custom_id: Optional[str] = None) -> str:
-    """Tạo stable ID cho bản ghi. Nếu có custom_id thì dùng, ngược lại hash nguồn và câu hỏi."""
+    """Tạo stable ID cho bản ghi. Nếu có custom_id thì dùng, ngược lại hash nguồn (đã làm sạch) và câu hỏi."""
     if custom_id and str(custom_id).strip():
         return str(custom_id).strip()
-    raw = f"{source}:{question.strip().lower()}"
+    clean_src = clean_source_name(source)
+    raw = f"{clean_src}:{question.strip().lower()}"
     h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     return f"REC_{h}"
 

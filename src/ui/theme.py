@@ -229,6 +229,10 @@ div[data-testid="stSidebarResizeHandle"],
     transition: all 0.15s ease-in-out !important;
 }
 
+[data-testid="stSidebar"] div[data-testid="stButton"] > button * {
+    color: #0F172A !important;
+}
+
 [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
     background-color: #F1F5F9 !important;
     border-color: #CBD5E1 !important;
@@ -811,9 +815,9 @@ div[data-testid="stSidebarResizeHandle"],
 [data-testid="stCheckbox"] div[aria-checked="true"],
 [data-testid="stCheckbox"] input[type="checkbox"]:checked ~ div,
 [data-testid="stCheckbox"] input[type="checkbox"]:checked + div {
-    background-color: #0F172A !important;
-    background: #0F172A !important;
-    border-color: #0F172A !important;
+    background-color: #2563EB !important;
+    background: #2563EB !important;
+    border-color: #2563EB !important;
 }
 
 /* Biểu tượng dấu kiểm (Checkmark polyline / svg) */
@@ -825,6 +829,7 @@ div[data-testid="stSidebarResizeHandle"],
 }
 
 /* Nút bấm (Buttons) */
+/* Nút phụ / Mặc định (Secondary) */
 [data-testid="stMain"] div[data-testid="stButton"] > button:not([kind="primary"]),
 [data-testid="stMain"] div[data-testid="stDownloadButton"] > button {
     background-color: #FFFFFF !important;
@@ -838,6 +843,11 @@ div[data-testid="stSidebarResizeHandle"],
     transition: all 0.15s ease !important;
 }
 
+[data-testid="stMain"] div[data-testid="stButton"] > button:not([kind="primary"]) *,
+[data-testid="stMain"] div[data-testid="stDownloadButton"] > button * {
+    color: #0F172A !important;
+}
+
 [data-testid="stMain"] div[data-testid="stButton"] > button:not([kind="primary"]):hover,
 [data-testid="stMain"] div[data-testid="stDownloadButton"] > button:hover {
     background-color: #F1F5F9 !important;
@@ -845,23 +855,38 @@ div[data-testid="stSidebarResizeHandle"],
     color: #0F172A !important;
 }
 
+/* Nút chính (Primary) - Đồng bộ màu Accent Blue #2563EB, chữ trắng sắc nét không bị chìm */
 [data-testid="stMain"] div[data-testid="stButton"] > button[kind="primary"],
 [data-testid="stMain"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"] {
-    background-color: #0F172A !important;
+    background-color: #2563EB !important;
     color: #FFFFFF !important;
-    border: 1px solid #0F172A !important;
+    border: 1px solid #1D4ED8 !important;
     border-radius: 8px !important;
     font-weight: 600 !important;
     font-size: 0.95rem !important;
     padding: 9px 18px !important;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15) !important;
+    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2) !important;
     transition: all 0.15s ease !important;
+}
+
+[data-testid="stMain"] div[data-testid="stButton"] > button[kind="primary"] *,
+[data-testid="stMain"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"] *,
+[data-testid="stMain"] div[data-testid="stButton"] > button[kind="primary"] p,
+[data-testid="stMain"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"] p {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
 }
 
 [data-testid="stMain"] div[data-testid="stButton"] > button[kind="primary"]:hover,
 [data-testid="stMain"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"]:hover {
-    background-color: #1E293B !important;
-    border-color: #1E293B !important;
+    background-color: #1D4ED8 !important;
+    border-color: #1E40AF !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 2px 5px rgba(37, 99, 235, 0.3) !important;
+}
+
+[data-testid="stMain"] div[data-testid="stButton"] > button[kind="primary"]:hover *,
+[data-testid="stMain"] div[data-testid="stButton"] > button[data-testid="stBaseButton-primary"]:hover * {
     color: #FFFFFF !important;
 }
 
@@ -872,6 +897,11 @@ div[data-testid="stSidebarResizeHandle"],
     color: #94A3B8 !important;
     cursor: not-allowed !important;
     box-shadow: none !important;
+}
+
+[data-testid="stMain"] div[data-testid="stButton"] > button:disabled *,
+[data-testid="stMain"] div[data-testid="stButton"] > button[disabled] * {
+    color: #94A3B8 !important;
 }
 
 /* Khối Code (st.code) - Xóa bỏ nền đen mặc định, áp dụng nền sáng Soft Slate */

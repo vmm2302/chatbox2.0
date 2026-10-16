@@ -96,8 +96,7 @@ class HybridRetriever:
         self.rec_map = {r.record_id: r for r in new_records}
         self.bm25_retriever.reload(new_records)
         self.lexical_matcher.reload(new_records)
-        self.bge_chroma.records = new_records
-        self.bge_chroma.rec_map = self.rec_map
+        self.bge_chroma.reload(new_records)
         self.english_vocab_words = {
             r.word.lower() for r in new_records if r.word and r.word.lower() != "list"
         }

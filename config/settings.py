@@ -100,6 +100,19 @@ class Settings:
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
     EMBEDDING_DEVICE: str = field(default_factory=lambda: os.getenv("EMBEDDING_DEVICE", "auto"))
 
+    # Cấu hình Điều phối Tài nguyên (CPU / GPU / RAM / PyTorch / Ollama)
+    CPU_NUM_THREADS: int = field(default_factory=lambda: int(os.getenv("CPU_NUM_THREADS", "4")))
+    EMBEDDING_CHAT_DEVICE: str = field(default_factory=lambda: os.getenv("EMBEDDING_CHAT_DEVICE", "cpu"))
+    INDEXING_CPU_BATCH_SIZE: int = field(default_factory=lambda: int(os.getenv("INDEXING_CPU_BATCH_SIZE", "32")))
+    INDEXING_GPU_BATCH_SIZE: int = field(default_factory=lambda: int(os.getenv("INDEXING_GPU_BATCH_SIZE", "64")))
+    ENABLE_GPU_INDEXING: bool = field(default_factory=lambda: os.getenv("ENABLE_GPU_INDEXING", "true").lower() in ("true", "1", "yes"))
+    GPU_INDEXING_MIN_RECORDS: int = field(default_factory=lambda: int(os.getenv("GPU_INDEXING_MIN_RECORDS", "300")))
+    MIN_VRAM_GPU_INDEXING_MB: int = field(default_factory=lambda: int(os.getenv("MIN_VRAM_GPU_INDEXING_MB", "3500")))
+    OLLAMA_NUM_CTX: int = field(default_factory=lambda: int(os.getenv("OLLAMA_NUM_CTX", "4096")))
+    OLLAMA_NUM_PREDICT: int = field(default_factory=lambda: int(os.getenv("OLLAMA_NUM_PREDICT", "1024")))
+    OLLAMA_NUM_THREAD: int = field(default_factory=lambda: int(os.getenv("OLLAMA_NUM_THREAD", "4")))
+    STATE_TRANSITION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("STATE_TRANSITION_TIMEOUT", "30.0")))
+
 
 
     # Câu phản hồi chuẩn khi ngoài phạm vi tri thức hoặc lỗi
