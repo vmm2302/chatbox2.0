@@ -35,6 +35,13 @@ project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# Ép buộc Streamlit Theme luôn ở chế độ Light Theme (chống browser/OS dark mode làm đen canvas st.dataframe và checkbox)
+os.environ["STREAMLIT_THEME_BASE"] = "light"
+os.environ["STREAMLIT_THEME_PRIMARY_COLOR"] = "#0F172A"
+os.environ["STREAMLIT_THEME_BACKGROUND_COLOR"] = "#FFFFFF"
+os.environ["STREAMLIT_THEME_SECONDARY_BACKGROUND_COLOR"] = "#F8FAFC"
+os.environ["STREAMLIT_THEME_TEXT_COLOR"] = "#0F172A"
+
 import requests
 import streamlit as st
 
@@ -79,30 +86,7 @@ st.set_page_config(
 # Áp dụng CSS Theme đồng bộ
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# Tự động bảo đảm thanh điều hướng bên trái luôn được mở mặc định khi tải trang
-import streamlit.components.v1 as components
-components.html(
-    """
-    <script>
-    (function() {
-        function checkAndOpenSidebar() {
-            try {
-                const parentDoc = window.parent.document;
-                const expandBtn = parentDoc.querySelector('[data-testid="stExpandSidebarButton"]');
-                if (expandBtn) {
-                    expandBtn.click();
-                }
-            } catch (e) {}
-        }
-        checkAndOpenSidebar();
-        setTimeout(checkAndOpenSidebar, 200);
-        setTimeout(checkAndOpenSidebar, 600);
-    })();
-    </script>
-    """,
-    height=0,
-    width=0
-)
+
 
 
 # --- CÁC HÀM XÁC MINH & CHẨN ĐOÁN RUNTIME (CACHED AN TOÀN) ---
@@ -386,61 +370,63 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
                             unsafe_allow_html=True
                         )
             else:
-                # Lỗi A: Lượt tin nhắn Chatbot - Dùng container thật có viền nhẹ bao trọn nội dung
+                # Lượt tin nhắn Chatbot - Căn trái bằng st.columns([4, 1]), bọc trong container có viền nhẹ
                 with st.chat_message("assistant", avatar=BOT_AVATAR):
-                    with st.container(border=True):
-                        # Khung thẻ Card chứa tiêu đề Chatbox và nội dung Markdown
-                        st.markdown(
-                            """
-                            <div class="bot-card-header">
-                                <span class="bot-card-icon">🤖</span>
-                                <span class="bot-card-title">Chatbox</span>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-                        # Render nội dung Markdown nguyên bản (phiên âm, từ loại, phân dòng, ví dụ in nghiêng)
-                        st.markdown(content)
+                    col_bot, col_spacer = st.columns([4, 1])
+                    with col_bot:
+                        with st.container(border=True):
+                            # Khung thẻ Card chứa tiêu đề Chatbox và nội dung Markdown
+                            st.markdown(
+                                """
+                                <div class="bot-card-header">
+                                    <span class="bot-card-icon">🤖</span>
+                                    <span class="bot-card-title">Chatbox</span>
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                            # Render nội dung Markdown nguyên bản (phiên âm, từ loại, phân dòng, ví dụ in nghiêng)
+                            st.markdown(content)
 
-                        # Hiển thị Expander Nguồn dữ liệu (Provenance) - Chỉ hiển thị metadata có thật
-                        if meta is not None:
-                            source_file = getattr(meta, "source", None)
-                            rec_id = getattr(meta, "record_id", None)
-                            word_val = getattr(meta, "word", None)
-                            sheet_val = None
+                            # Hiển thị Expander Nguồn dữ liệu (Provenance) - Chỉ hiển thị metadata có thật
+                            if meta is not None:
+                                source_file = getattr(meta, "source", None)
+                                rec_id = getattr(meta, "record_id", None)
+                                word_val = getattr(meta, "word", None)
+                                sheet_val = None
 
-                            if getattr(meta, "candidates", None) and len(meta.candidates) > 0:
-                                top_candidate = meta.candidates[0].record
-                                if not source_file:
-                                    source_file = getattr(top_candidate, "source", None) or getattr(top_candidate, "source_file", None)
-                                if not rec_id:
-                                    rec_id = getattr(top_candidate, "record_id", None) or getattr(top_candidate, "id", None)
-                                if not word_val:
-                                    word_val = getattr(top_candidate, "word", None)
-                                sheet_val = getattr(top_candidate, "sheet", None)
+                                if getattr(meta, "candidates", None) and len(meta.candidates) > 0:
+                                    top_candidate = meta.candidates[0].record
+                                    if not source_file:
+                                        source_file = getattr(top_candidate, "source", None) or getattr(top_candidate, "source_file", None)
+                                    if not rec_id:
+                                        rec_id = getattr(top_candidate, "record_id", None) or getattr(top_candidate, "id", None)
+                                    if not word_val:
+                                        word_val = getattr(top_candidate, "word", None)
+                                    sheet_val = getattr(top_candidate, "sheet", None)
 
-                            has_provenance = any([rec_id, source_file, word_val, sheet_val])
-                            if has_provenance:
-                                with st.expander("📄 Nguồn dữ liệu · Mở rộng", expanded=False):
-                                    prov_html = []
-                                    if rec_id:
-                                        prov_html.append(f'<span class="source-badge">Mã: <b>{html.escape(str(rec_id))}</b></span>')
-                                    if word_val:
-                                        prov_html.append(f'<span class="source-badge">Từ: <b>{html.escape(str(word_val))}</b></span>')
-                                    if source_file:
-                                        prov_html.append(f'<span class="source-badge">Tệp: <b>{html.escape(str(source_file))}</b></span>')
-                                    if sheet_val:
-                                        prov_html.append(f'<span class="source-badge">Sheet/Phần: <b>{html.escape(str(sheet_val))}</b></span>')
-                                    st.markdown("".join(prov_html), unsafe_allow_html=True)
+                                has_provenance = any([rec_id, source_file, word_val, sheet_val])
+                                if has_provenance:
+                                    with st.expander("📄 Nguồn dữ liệu · Mở rộng", expanded=False):
+                                        prov_html = []
+                                        if rec_id:
+                                            prov_html.append(f'<span class="source-badge">Mã: <b>{html.escape(str(rec_id))}</b></span>')
+                                        if word_val:
+                                            prov_html.append(f'<span class="source-badge">Từ: <b>{html.escape(str(word_val))}</b></span>')
+                                        if source_file:
+                                            prov_html.append(f'<span class="source-badge">Tệp: <b>{html.escape(str(source_file))}</b></span>')
+                                        if sheet_val:
+                                            prov_html.append(f'<span class="source-badge">Sheet/Phần: <b>{html.escape(str(sheet_val))}</b></span>')
+                                        st.markdown("".join(prov_html), unsafe_allow_html=True)
 
-                            # Bảng phân tích kỹ thuật (Inspector) - Mặc định TẮT, chỉ mở khi bật ở Chẩn đoán
-                            if st.session_state.dev_mode:
-                                with st.expander("🔬 Bảng phân tích kỹ thuật (Inspector)", expanded=False):
-                                    ic1, ic2, ic3, ic4 = st.columns(4)
-                                    ic1.metric("Response Mode", str(getattr(meta, "mode", "N/A")))
-                                    ic2.metric("PhoBERT Intent", str(getattr(meta, "intent", "N/A") or "N/A"))
-                                    ic3.metric("RRF Score", f"{getattr(meta, 'rrf_score', 0.0):.4f}")
-                                    ic4.metric("Độ trễ", f"{getattr(meta, 'latency_ms', 0.0):.1f} ms")
+                                # Bảng phân tích kỹ thuật (Inspector) - Mặc định TẮT, chỉ mở khi bật ở Chẩn đoán
+                                if st.session_state.dev_mode:
+                                    with st.expander("🔬 Bảng phân tích kỹ thuật (Inspector)", expanded=False):
+                                        ic1, ic2, ic3, ic4 = st.columns(4)
+                                        ic1.metric("Response Mode", str(getattr(meta, "mode", "N/A")))
+                                        ic2.metric("PhoBERT Intent", str(getattr(meta, "intent", "N/A") or "N/A"))
+                                        ic3.metric("RRF Score", f"{getattr(meta, 'rrf_score', 0.0):.4f}")
+                                        ic4.metric("Độ trễ", f"{getattr(meta, 'latency_ms', 0.0):.1f} ms")
 
     # Dòng trạng thái chân khung chat
     st.markdown(
@@ -664,44 +650,56 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
         col_k1, col_k2, col_k3, col_k4 = st.columns(4)
 
         with col_k1:
-            st.markdown('<div class="metric-box">', unsafe_allow_html=True)
-            st.markdown('<div class="metric-label">Tệp JSONL Trên Đĩa</div>', unsafe_allow_html=True)
-            if storage_stats["jsonl_disk_count"] is not None:
-                st.markdown(f'<div class="metric-value">{storage_stats["jsonl_disk_count"]:,} dòng</div>', unsafe_allow_html=True)
-                st.markdown('<div class="metric-caption">data/processed/qa_records.jsonl</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="metric-value" style="color:#DC2626;font-size:0.9rem;">⚠️ {storage_stats["jsonl_disk_error"]}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                val_html = (
+                    f'<div class="stat-card-value">{storage_stats["jsonl_disk_count"]:,} dòng</div>'
+                    f'<div class="stat-card-caption">data/processed/qa_records.jsonl</div>'
+                    if storage_stats["jsonl_disk_count"] is not None
+                    else f'<div class="stat-card-error">⚠️ {storage_stats["jsonl_disk_error"]}</div>'
+                )
+                st.markdown(
+                    f'<div class="stat-card-label">Tệp JSONL Trên Đĩa</div>{val_html}',
+                    unsafe_allow_html=True
+                )
 
         with col_k2:
-            st.markdown('<div class="metric-box">', unsafe_allow_html=True)
-            st.markdown('<div class="metric-label">Bộ Nhớ ChatEngine</div>', unsafe_allow_html=True)
-            if storage_stats["engine_records_count"] is not None:
-                st.markdown(f'<div class="metric-value">{storage_stats["engine_records_count"]:,} bản ghi</div>', unsafe_allow_html=True)
-                st.markdown('<div class="metric-caption">QARecord nạp trong RAM</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="metric-value" style="color:#DC2626;font-size:0.9rem;">⚠️ {storage_stats["engine_records_error"]}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                val_html = (
+                    f'<div class="stat-card-value">{storage_stats["engine_records_count"]:,} bản ghi</div>'
+                    f'<div class="stat-card-caption">QARecord nạp trong RAM</div>'
+                    if storage_stats["engine_records_count"] is not None
+                    else f'<div class="stat-card-error">⚠️ {storage_stats["engine_records_error"]}</div>'
+                )
+                st.markdown(
+                    f'<div class="stat-card-label">Bộ Nhớ ChatEngine</div>{val_html}',
+                    unsafe_allow_html=True
+                )
 
         with col_k3:
-            st.markdown('<div class="metric-box">', unsafe_allow_html=True)
-            st.markdown('<div class="metric-label">ChromaDB Vector</div>', unsafe_allow_html=True)
-            if storage_stats["chroma_count"] is not None:
-                st.markdown(f'<div class="metric-value">{storage_stats["chroma_count"]:,} vectors</div>', unsafe_allow_html=True)
-                st.markdown('<div class="metric-caption">Chỉ mục BGE-M3 (1024-d)</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="metric-value" style="color:#DC2626;font-size:0.9rem;">⚠️ {storage_stats["chroma_error"]}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                val_html = (
+                    f'<div class="stat-card-value">{storage_stats["chroma_count"]:,} vectors</div>'
+                    f'<div class="stat-card-caption">Chỉ mục BGE-M3 (1024-d)</div>'
+                    if storage_stats["chroma_count"] is not None
+                    else f'<div class="stat-card-error">⚠️ {storage_stats["chroma_error"]}</div>'
+                )
+                st.markdown(
+                    f'<div class="stat-card-label">ChromaDB Vector</div>{val_html}',
+                    unsafe_allow_html=True
+                )
 
         with col_k4:
-            st.markdown('<div class="metric-box">', unsafe_allow_html=True)
-            st.markdown('<div class="metric-label">BM25 Lexical Index</div>', unsafe_allow_html=True)
-            if storage_stats["bm25_count"] is not None:
-                st.markdown(f'<div class="metric-value">{storage_stats["bm25_count"]:,} mục</div>', unsafe_allow_html=True)
-                st.markdown('<div class="metric-caption">Inverted Index từ khóa</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="metric-value" style="color:#DC2626;font-size:0.9rem;">⚠️ {storage_stats["bm25_error"]}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                val_html = (
+                    f'<div class="stat-card-value">{storage_stats["bm25_count"]:,} mục</div>'
+                    f'<div class="stat-card-caption">Inverted Index từ khóa</div>'
+                    if storage_stats["bm25_count"] is not None
+                    else f'<div class="stat-card-error">⚠️ {storage_stats["bm25_error"]}</div>'
+                )
+                st.markdown(
+                    f'<div class="stat-card-label">BM25 Lexical Index</div>{val_html}',
+                    unsafe_allow_html=True
+                )
 
         indices_ready = (
             storage_stats["engine_records_count"] is not None and storage_stats["engine_records_count"] > 0 and
@@ -749,56 +747,67 @@ elif st.session_state.nav_page == "📈 Chẩn đoán":
 
         col_h1, col_h2, col_h3 = st.columns(3)
         with col_h1:
-            st.markdown('<div class="metric-box">', unsafe_allow_html=True)
-            st.markdown('<div class="metric-label">Thiết bị Embedding</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-value">{hw_info["device_name"]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-caption">CUDA: {hw_info["cuda_version"]} | Thiết bị: {hw_info["device_type"]}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                st.markdown(
+                    f'<div class="stat-card-label">Thiết bị Embedding</div>'
+                    f'<div class="stat-card-value">{hw_info["device_name"]}</div>'
+                    f'<div class="stat-card-caption">CUDA: {hw_info["cuda_version"]} | Thiết bị: {hw_info["device_type"]}</div>',
+                    unsafe_allow_html=True
+                )
 
         with col_h2:
-            st.markdown('<div class="metric-box">', unsafe_allow_html=True)
-            st.markdown('<div class="metric-label">Dịch vụ Ollama Local</div>', unsafe_allow_html=True)
-            if ollama_info["online"]:
-                st.markdown('<div class="metric-value" style="color:#16A34A;">🟢 Trực tuyến</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="metric-caption">{settings.OLLAMA_BASE_URL}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown('<div class="metric-value" style="color:#DC2626;">🔴 Ngoại tuyến</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="metric-caption">{ollama_info.get("error") or "Không thể kết nối"}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                status_val_html = (
+                    f'<div class="stat-card-value" style="color:#16A34A;">🟢 Trực tuyến</div>'
+                    f'<div class="stat-card-caption">{settings.OLLAMA_BASE_URL}</div>'
+                    if ollama_info["online"]
+                    else
+                    f'<div class="stat-card-value" style="color:#DC2626;">🔴 Ngoại tuyến</div>'
+                    f'<div class="stat-card-caption">{ollama_info.get("error") or "Không thể kết nối"}</div>'
+                )
+                st.markdown(
+                    f'<div class="stat-card-label">Dịch vụ Ollama Local</div>{status_val_html}',
+                    unsafe_allow_html=True
+                )
 
         with col_h3:
-            st.markdown('<div class="metric-box">', unsafe_allow_html=True)
-            st.markdown('<div class="metric-label">Thuật Toán RAG</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="metric-value">Hybrid RRF (k={settings.RRF_K})</div>', unsafe_allow_html=True)
-            st.markdown('<div class="metric-caption">BM25 Okapi + BGE-M3 (1024-d)</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            with st.container(border=True):
+                st.markdown(
+                    f'<div class="stat-card-label">Thuật Toán RAG</div>'
+                    f'<div class="stat-card-value">Hybrid RRF (k={settings.RRF_K})</div>'
+                    f'<div class="stat-card-caption">BM25 Okapi + BGE-M3 (1024-d)</div>',
+                    unsafe_allow_html=True
+                )
 
         # 2. Phân biệt trạng thái Ollama Models
         st.markdown("#### 2. Trạng Thái Mô Hình LLM")
         col_m1, col_m2, col_m3 = st.columns(3)
 
         with col_m1:
-            st.markdown("**Mô hình được cấu hình (Configured):**")
-            st.code(settings.OLLAMA_MODEL, language="text")
-            st.caption(f"Host: {settings.OLLAMA_BASE_URL} | Nhiệt độ T: {settings.LLM_TEMPERATURE}")
+            with st.container(border=True):
+                st.markdown("**Mô hình được cấu hình (Configured):**")
+                st.code(settings.OLLAMA_MODEL, language="text")
+                st.caption(f"Host: {settings.OLLAMA_BASE_URL} | Nhiệt độ T: {settings.LLM_TEMPERATURE}")
 
         with col_m2:
-            st.markdown("**Mô hình đã cài đặt cục bộ (Installed):**")
-            if ollama_info["online"] and ollama_info["installed_models"]:
-                st.code("\n".join(ollama_info["installed_models"]), language="text")
-            elif ollama_info["online"]:
-                st.info("Chưa có model nào trong danh sách /api/tags.")
-            else:
-                st.caption("Chưa thể kiểm tra do dịch vụ Ollama đang ngoại tuyến.")
+            with st.container(border=True):
+                st.markdown("**Mô hình đã cài đặt cục bộ (Installed):**")
+                if ollama_info["online"] and ollama_info["installed_models"]:
+                    st.code("\n".join(ollama_info["installed_models"]), language="text")
+                elif ollama_info["online"]:
+                    st.info("Chưa có model nào trong danh sách /api/tags.")
+                else:
+                    st.caption("Chưa thể kiểm tra do dịch vụ Ollama đang ngoại tuyến.")
 
         with col_m3:
-            st.markdown("**Mô hình đang nạp trong VRAM/RAM (Running):**")
-            if ollama_info["online"] and ollama_info["running_models"]:
-                st.code("\n".join(ollama_info["running_models"]), language="text")
-            elif ollama_info["online"]:
-                st.info("Đang ở trạng thái chờ (Chưa nạp model vào VRAM).")
-            else:
-                st.caption("Chưa thể kiểm tra do dịch vụ Ollama đang ngoại tuyến.")
+            with st.container(border=True):
+                st.markdown("**Mô hình đang nạp trong VRAM/RAM (Running):**")
+                if ollama_info["online"] and ollama_info["running_models"]:
+                    st.code("\n".join(ollama_info["running_models"]), language="text")
+                elif ollama_info["online"]:
+                    st.info("Đang ở trạng thái chờ (Chưa nạp model vào VRAM).")
+                else:
+                    st.caption("Chưa thể kiểm tra do dịch vụ Ollama đang ngoại tuyến.")
 
     # 3. Ngưỡng Relevance Gate & Inspector
     with st.container(border=True):
