@@ -52,10 +52,31 @@ if __name__ == "__main__":
         sys.argv = ["streamlit", "run", __file__]
         sys.exit(stcli.main())
 
+import importlib
+# Tự động nạp lại các module lõi nếu tiến trình Streamlit đang chạy từ trước khi cập nhật mã nguồn
+for _mod in [
+    "src.data.batch_ingestion",
+    "src.chat.engine",
+    "src.retriever.bge_chroma",
+    "src.resource.manager",
+    "src.data.loader",
+]:
+    if _mod in sys.modules:
+        try:
+            importlib.reload(sys.modules[_mod])
+        except Exception:
+            pass
+
 from config.settings import settings
 from src.chat.engine import ChatEngine
 from src.core.models import ChatResponse
 from src.data.batch_ingestion import BatchIngestionManager, BatchStatus, FileStatus
+from src.data.loaders.sqlite_loader import (
+    SQLiteLoader,
+    SQLiteMappingConfig,
+    SQLiteMappingMode,
+    SQLiteSchemaInfo,
+)
 from src.ui.theme import CUSTOM_CSS
 
 logger = logging.getLogger(__name__)
@@ -242,6 +263,14 @@ if "batch_report" not in st.session_state:
     st.session_state.batch_report = None
 if "nav_page" not in st.session_state:
     st.session_state.nav_page = "💬 Tra cứu từ vựng"
+if "uploader_generation" not in st.session_state:
+    st.session_state.uploader_generation = 0
+if "is_ingesting" not in st.session_state:
+    st.session_state.is_ingesting = False
+if "sqlite_configs" not in st.session_state:
+    st.session_state.sqlite_configs = {}
+if "show_clear_kb_confirm" not in st.session_state:
+    st.session_state.show_clear_kb_confirm = False
 
 # Lấy trạng thái runtime
 ollama_info = get_ollama_runtime_status(settings.OLLAMA_BASE_URL, settings.OLLAMA_MODEL)
@@ -490,17 +519,18 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
     with st.container(border=True):
         st.markdown('<div class="panel-card-header">🗄️ Quản Trị & Cập Nhật Kho Tri Thức</div>', unsafe_allow_html=True)
         st.markdown(
-            "Hỗ trợ tải lên cùng lúc nhiều tệp dữ liệu thuộc **8 định dạng tài liệu** "
+            "Hỗ trợ tải lên cùng lúc nhiều tệp dữ liệu thuộc **các định dạng tài liệu** (PDF, DOCX, XLSX, CSV, JSON, TXT, MD, DB, SQLITE) "
             "để tự động trích xuất, khử trùng lặp và cập nhật cơ sở dữ liệu vector mà không cần khởi động lại ứng dụng."
         )
 
         # 1. Khung Uploader Đa Tệp
+        uploader_key = f"uploader_batch_multi_files_{st.session_state.uploader_generation}"
         uploaded_batch_files = st.file_uploader(
             label="Chọn một hoặc nhiều tệp để nạp vào Knowledge Base:",
-            type=["pdf", "docx", "txt", "csv", "xlsx", "json", "jsonl", "md"],
+            type=["pdf", "docx", "txt", "csv", "xlsx", "json", "jsonl", "md", "db", "sqlite"],
             accept_multiple_files=True,
-            help="Hỗ trợ: PDF, Word (.docx), Excel (.xlsx), CSV (.csv), JSON (.json, .jsonl), Text (.txt, .md).",
-            key="uploader_batch_multi_files"
+            help="Hỗ trợ: PDF, Word (.docx), Excel (.xlsx), CSV (.csv), JSON (.json, .jsonl), Text (.txt, .md), SQLite Database (.db, .sqlite).",
+            key=uploader_key
         )
 
         if uploaded_batch_files:
@@ -514,6 +544,275 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
                     "Trạng thái": "Sẵn sàng (QUEUED)"
                 })
             st.dataframe(file_preview_data, use_container_width=True)
+
+            # --- QUY TRÌNH 5 BƯỚC KHÁM PHÁ & ÁNH XẠ CƠ SỞ DỮ LIỆU SQLITE ---
+            sqlite_files = [uf for uf in uploaded_batch_files if uf.name.lower().endswith((".db", ".sqlite"))]
+            if sqlite_files:
+                with st.container(border=True):
+                    st.markdown("### 🗄️ Khám Phá & Ánh Xạ Cơ Sở Dữ Liệu SQLite (.db, .sqlite)")
+                    st.caption(
+                        "Hệ thống hỗ trợ nạp cơ sở dữ liệu SQLite từ nhiều nguồn (từ điển, hỏi-đáp, danh mục). "
+                        "Vui lòng thực hiện các bước dưới đây để kiểm tra cấu trúc và ánh xạ sang schema chuẩn hóa."
+                    )
+
+                    # Chọn tệp SQLite cần cấu hình nếu có nhiều hơn 1 tệp
+                    if len(sqlite_files) > 1:
+                        target_uf = st.selectbox(
+                            "Chọn tệp SQLite để cấu hình:",
+                            options=sqlite_files,
+                            format_func=lambda x: f"{x.name} ({round(x.size / 1024, 2)} KB)",
+                            key="sb_select_active_sqlite_file"
+                        )
+                    else:
+                        target_uf = sqlite_files[0]
+
+                    # Ghi tạm vào thư mục raw để inspect cấu trúc
+                    import hashlib
+                    target_bytes = target_uf.getvalue()
+                    target_hash = hashlib.sha256(target_bytes).hexdigest()
+                    inspect_temp_path = settings.RAW_DATA_DIR / f"inspect_{target_hash[:8]}_{target_uf.name}"
+                    settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+                    if not inspect_temp_path.exists() or inspect_temp_path.stat().st_size != len(target_bytes):
+                        with open(inspect_temp_path, "wb") as f_tmp:
+                            f_tmp.write(target_bytes)
+
+                    sqlite_loader = SQLiteLoader()
+                    schema_info = sqlite_loader.inspect_schema(inspect_temp_path)
+
+                    # BƯỚC 1: KIỂM TRA TỆP
+                    st.markdown("#### 1️⃣ Bước 1 — Kiểm Tra Tính Toàn Vẹn Tệp")
+                    if not schema_info.is_valid:
+                        st.error(f"❌ Tệp SQLite không hợp lệ hoặc bị hỏng: {schema_info.error_message}")
+                    else:
+                        col_v1, col_v2, col_v3 = st.columns(3)
+                        col_v1.metric("Tên tệp", target_uf.name)
+                        col_v2.metric("Dung lượng", f"{round(target_uf.size / 1024, 2)} KB")
+                        col_v3.metric("Số bảng dữ liệu", len(schema_info.tables))
+                        st.success(
+                            f"✅ **Kiểm tra thành công**: Tệp SQLite hợp lệ (Header chuẩn, PRAGMA quick_check: OK, Chế độ: Chỉ đọc). "
+                            f"Mã băm SHA-256: `{target_hash[:16]}...`"
+                        )
+
+                        # BƯỚC 2: KHÁM PHÁ CẤU TRÚC
+                        st.markdown("#### 2️⃣ Bước 2 — Khám Phá Cấu Trúc Bảng & Cột")
+                        table_names = list(schema_info.tables.keys())
+                        selected_table_name = st.selectbox(
+                            "Chọn bảng dữ liệu chính để kiểm tra / nạp:",
+                            options=table_names,
+                            key=f"sb_table_{target_hash[:8]}"
+                        )
+                        selected_table = schema_info.tables[selected_table_name]
+
+                        col_t1, col_t2 = st.columns([1, 1])
+                        with col_t1:
+                            st.write(f"**Danh sách cột của bảng `{selected_table_name}` ({len(selected_table.columns)} cột):**")
+                            col_display = []
+                            for c in selected_table.columns:
+                                col_display.append({
+                                    "Tên cột": c.name,
+                                    "Kiểu dữ liệu": c.data_type,
+                                    "Khóa chính (PK)": "Có" if c.is_pk else "Không",
+                                    "NOT NULL": "Có" if c.not_null else "Không"
+                                })
+                            st.dataframe(col_display, use_container_width=True, height=180)
+
+                        with col_t2:
+                            st.write(f"**Tổng số dòng:** {selected_table.row_count:,} dòng")
+                            if selected_table.foreign_keys:
+                                st.info(
+                                    "🔗 **Khóa ngoại (Foreign Keys):**\n" +
+                                    "\n".join([f"- Cột `{fk.from_col}` ➔ Bảng `{fk.table}` (`{fk.to_col}`)" for fk in selected_table.foreign_keys])
+                                )
+                            else:
+                                st.caption("Bảng này không có khai báo khóa ngoại trực tiếp.")
+
+                        if selected_table.sample_rows:
+                            with st.expander(f"👀 Xem trước dữ liệu gốc bảng `{selected_table_name}` (5 dòng đầu)", expanded=False):
+                                st.dataframe(selected_table.sample_rows, use_container_width=True)
+
+                        # BƯỚC 3: CHỌN CÁCH NHẬP DỮ LIỆU & ÁNH XẠ CỘT
+                        st.markdown("#### 3️⃣ Bước 3 — Chọn Cách Nhập & Ánh Xạ Cột Sang QARecord")
+
+                        # Gợi ý mapping tự động từ schema
+                        auto_cfg = sqlite_loader.auto_detect_mapping(schema_info)
+                        auto_mode_idx = 0
+                        if auto_cfg:
+                            if auto_cfg.mode == SQLiteMappingMode.VOCAB:
+                                auto_mode_idx = 0
+                            elif auto_cfg.mode == SQLiteMappingMode.QA:
+                                auto_mode_idx = 1
+                            elif auto_cfg.mode == SQLiteMappingMode.RELATIONAL:
+                                auto_mode_idx = 2
+
+                        map_mode_label = st.radio(
+                            "Chọn dạng cấu trúc dữ liệu của database:",
+                            options=[
+                                "📚 Dữ liệu Từ vựng (Vocabulary: Từ, Nghĩa, IPA, Từ loại, Ví dụ)",
+                                "💬 Dữ liệu Hỏi - Đáp (Q&A: Câu hỏi, Câu trả lời, Trình độ)",
+                                "🔗 Dữ liệu Quan hệ nhiều bảng (Relational: Ghép bảng cha - con qua khóa ngoại)"
+                            ],
+                            index=auto_mode_idx,
+                            key=f"rb_mode_{target_hash[:8]}"
+                        )
+
+                        col_options = ["(Bỏ qua / Không có)"] + [c.name for c in selected_table.columns]
+                        chosen_config = None
+
+                        def _match_col_name(candidates, cols):
+                            for cand in candidates:
+                                for c in cols:
+                                    if c.lower() == cand.lower():
+                                        return c
+                            return None
+
+                        if "Dữ liệu Từ vựng" in map_mode_label:
+                            st.caption("Ánh xạ các cột trong bảng sang trường từ vựng. Cột Từ vựng và Nghĩa là bắt buộc.")
+                            col_v1, col_v2, col_v3 = st.columns(3)
+
+                            default_w = _match_col_name(["word", "tu_vung", "vocab", "term", "english"], [c.name for c in selected_table.columns])
+                            default_def = _match_col_name(["definition", "dinh_nghia", "meaning", "nghia", "vietnamese"], [c.name for c in selected_table.columns])
+                            default_ipa = _match_col_name(["ipa", "phien_am", "pronunciation"], [c.name for c in selected_table.columns])
+                            default_pos = _match_col_name(["pos", "tu_loai", "part_of_speech", "type"], [c.name for c in selected_table.columns])
+                            default_ex = _match_col_name(["example", "vi_du", "sentence"], [c.name for c in selected_table.columns])
+                            default_lvl = _match_col_name(["level", "trinh_do", "cefr"], [c.name for c in selected_table.columns])
+
+                            with col_v1:
+                                w_idx = col_options.index(default_w) if default_w in col_options else 1
+                                sel_w = st.selectbox("Từ tiếng Anh (Word) *:", options=col_options[1:], index=max(0, w_idx - 1), key=f"sel_w_{target_hash[:8]}")
+                                ipa_idx = col_options.index(default_ipa) if default_ipa in col_options else 0
+                                sel_ipa = st.selectbox("Phiên âm (IPA):", options=col_options, index=ipa_idx, key=f"sel_ipa_{target_hash[:8]}")
+
+                            with col_v2:
+                                def_idx = col_options.index(default_def) if default_def in col_options else 1
+                                sel_def = st.selectbox("Nghĩa tiếng Việt (Definition) *:", options=col_options[1:], index=max(0, def_idx - 1), key=f"sel_def_{target_hash[:8]}")
+                                pos_idx = col_options.index(default_pos) if default_pos in col_options else 0
+                                sel_pos = st.selectbox("Từ loại (Part of Speech):", options=col_options, index=pos_idx, key=f"sel_pos_{target_hash[:8]}")
+
+                            with col_v3:
+                                ex_idx = col_options.index(default_ex) if default_ex in col_options else 0
+                                sel_ex = st.selectbox("Ví dụ minh họa (Example):", options=col_options, index=ex_idx, key=f"sel_ex_{target_hash[:8]}")
+                                lvl_idx = col_options.index(default_lvl) if default_lvl in col_options else 0
+                                sel_lvl = st.selectbox("Trình độ (Level/CEFR):", options=col_options, index=lvl_idx, key=f"sel_lvl_{target_hash[:8]}")
+
+                            chosen_config = SQLiteMappingConfig(
+                                mode=SQLiteMappingMode.VOCAB,
+                                primary_table=selected_table_name,
+                                word_col=sel_w,
+                                definition_col=sel_def,
+                                ipa_col=sel_ipa if sel_ipa != "(Bỏ qua / Không có)" else None,
+                                pos_col=sel_pos if sel_pos != "(Bỏ qua / Không có)" else None,
+                                example_col=sel_ex if sel_ex != "(Bỏ qua / Không có)" else None,
+                                level_col=sel_lvl if sel_lvl != "(Bỏ qua / Không có)" else None,
+                            )
+
+                        elif "Dữ liệu Hỏi - Đáp" in map_mode_label:
+                            st.caption("Ánh xạ cột Câu hỏi và Câu trả lời trực tiếp sang QARecord.")
+                            col_q1, col_q2 = st.columns(2)
+
+                            default_q = _match_col_name(["question", "cau_hoi", "query", "prompt"], [c.name for c in selected_table.columns])
+                            default_a = _match_col_name(["answer", "cau_tra_loi", "tra_loi", "response", "content"], [c.name for c in selected_table.columns])
+                            default_w = _match_col_name(["word", "tu_vung", "vocab", "term"], [c.name for c in selected_table.columns])
+                            default_lvl = _match_col_name(["level", "trinh_do", "cefr"], [c.name for c in selected_table.columns])
+
+                            with col_q1:
+                                q_idx = col_options.index(default_q) if default_q in col_options else 1
+                                sel_q = st.selectbox("Cột Câu hỏi (Question) *:", options=col_options[1:], index=max(0, q_idx - 1), key=f"sel_q_{target_hash[:8]}")
+                                w_idx = col_options.index(default_w) if default_w in col_options else 0
+                                sel_qw = st.selectbox("Cột Từ vựng/Chủ đề (Word):", options=col_options, index=w_idx, key=f"sel_qw_{target_hash[:8]}")
+
+                            with col_q2:
+                                a_idx = col_options.index(default_a) if default_a in col_options else 1
+                                sel_a = st.selectbox("Cột Câu trả lời (Answer) *:", options=col_options[1:], index=max(0, a_idx - 1), key=f"sel_a_{target_hash[:8]}")
+                                lvl_idx = col_options.index(default_lvl) if default_lvl in col_options else 0
+                                sel_qlvl = st.selectbox("Cột Trình độ (Level):", options=col_options, index=lvl_idx, key=f"sel_qlvl_{target_hash[:8]}")
+
+                            chosen_config = SQLiteMappingConfig(
+                                mode=SQLiteMappingMode.QA,
+                                primary_table=selected_table_name,
+                                question_col=sel_q,
+                                answer_col=sel_a,
+                                word_col=sel_qw if sel_qw != "(Bỏ qua / Không có)" else None,
+                                level_col=sel_qlvl if sel_qlvl != "(Bỏ qua / Không có)" else None,
+                            )
+
+                        else:
+                            # Chế độ RELATIONAL
+                            st.caption("Kết hợp bảng chính (ví dụ words) và bảng liên kết (ví dụ definitions) qua khóa ngoại an toàn.")
+                            other_tables = [t for t in table_names if t != selected_table_name]
+                            if not other_tables:
+                                st.warning("Database chỉ có 1 bảng duy nhất. Vui lòng chọn chế độ Từ vựng hoặc Hỏi - Đáp.")
+                            else:
+                                col_r1, col_r2 = st.columns(2)
+                                with col_r1:
+                                    sel_related_table = st.selectbox(
+                                        "Bảng liên kết chứa định nghĩa (Child table):",
+                                        options=other_tables,
+                                        key=f"sel_rel_t_{target_hash[:8]}"
+                                    )
+                                    rel_table_info = schema_info.tables[sel_related_table]
+
+                                with col_r2:
+                                    # Tìm khóa ngoại gợi ý
+                                    suggested_fk = None
+                                    for fk in rel_table_info.foreign_keys:
+                                        if fk.table.lower() == selected_table_name.lower():
+                                            suggested_fk = fk.from_col
+                                            break
+                                    rel_cols = [c.name for c in rel_table_info.columns]
+                                    fk_idx = rel_cols.index(suggested_fk) if suggested_fk in rel_cols else 0
+                                    sel_fk_col = st.selectbox(
+                                        f"Khóa ngoại trong bảng `{sel_related_table}` trỏ tới `{selected_table_name}`:",
+                                        options=rel_cols,
+                                        index=fk_idx,
+                                        key=f"sel_fk_{target_hash[:8]}"
+                                    )
+
+                                col_p1, col_p2 = st.columns(2)
+                                with col_p1:
+                                    p_word_cols = [c.name for c in selected_table.columns]
+                                    sel_rel_w = st.selectbox(f"Cột Từ tiếng Anh trong bảng `{selected_table_name}` *:", options=p_word_cols, key=f"sel_rel_w_{target_hash[:8]}")
+                                with col_p2:
+                                    r_def_cols = [c.name for c in rel_table_info.columns]
+                                    sel_rel_def = st.selectbox(f"Cột Định nghĩa trong bảng `{sel_related_table}` *:", options=r_def_cols, key=f"sel_rel_def_{target_hash[:8]}")
+
+                                chosen_config = SQLiteMappingConfig(
+                                    mode=SQLiteMappingMode.RELATIONAL,
+                                    primary_table=selected_table_name,
+                                    related_table=sel_related_table,
+                                    foreign_key_parent_col="id",
+                                    foreign_key_child_col=sel_fk_col,
+                                    word_col=sel_rel_w,
+                                    definition_col=sel_rel_def,
+                                )
+
+                        # BƯỚC 4: XEM TRƯỚC DỮ LIỆU CHUẨN HÓA (QARECORD PREVIEW)
+                        if chosen_config:
+                            st.markdown("#### 4️⃣ Bước 4 — Xem Trước Dữ Liệu Sau Chuẩn Hóa (QARecord Preview)")
+                            try:
+                                preview_recs = sqlite_loader.preview_records(inspect_temp_path, chosen_config, limit=5)
+                                if preview_recs:
+                                    preview_table = []
+                                    for pr in preview_recs:
+                                        preview_table.append({
+                                            "Mã bản ghi": pr.record_id,
+                                            "Từ vựng": pr.word,
+                                            "Câu hỏi": pr.question,
+                                            "Câu trả lời chuẩn hóa": (pr.answer[:120] + "...") if len(pr.answer) > 120 else pr.answer,
+                                            "Trình độ": pr.level or "N/A",
+                                            "Bảng / Nguồn": f"{pr.sheet} ({pr.source})"
+                                        })
+                                    st.dataframe(preview_table, use_container_width=True)
+                                    st.success(
+                                        f"✅ Đã trích xuất thử nghiệm thành công {len(preview_recs)} bản ghi mẫu. "
+                                        f"Dữ liệu đã sẵn sàng để nạp vào Knowledge Base ở Bước 5 bên dưới."
+                                    )
+                                    # Lưu cấu hình vào session_state để dùng khi nạp
+                                    st.session_state.sqlite_configs[target_hash] = chosen_config
+                                    st.session_state.sqlite_configs[target_uf.name] = chosen_config
+                                else:
+                                    st.warning("⚠️ Không tìm thấy bản ghi hợp lệ nào với cấu hình ánh xạ hiện tại.")
+                            except Exception as prev_err:
+                                st.error(f"❌ Lỗi khi xem trước dữ liệu: {prev_err}")
 
             col_m1, col_m2 = st.columns([1, 1])
             with col_m1:
@@ -552,7 +851,7 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
             from src.resource.manager import ResourceState, get_resource_manager
             rm = get_resource_manager()
             is_indexing_now = rm.state in (ResourceState.INDEXING_CPU, ResourceState.INDEXING_GPU, ResourceState.RESTORING_CHAT)
-            if is_indexing_now:
+            if is_indexing_now or st.session_state.is_ingesting:
                 st.warning("⏳ Hệ thống đang có một tiến trình lập chỉ mục đang chạy. Vui lòng đợi hoàn tất trước khi nạp thêm.")
 
             # Nút bấm bắt đầu xử lý
@@ -560,18 +859,41 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
                 "🚀 Bắt Đầu Xử Lý Batch Tệp",
                 key="btn_process_batch_all",
                 type="primary",
-                disabled=(not can_proceed) or is_indexing_now,
+                disabled=(not can_proceed) or is_indexing_now or st.session_state.is_ingesting,
                 use_container_width=True
             ):
-
+                st.session_state.is_ingesting = True
                 settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
                 saved_paths: List[Path] = []
+                seen_upload_hashes: Dict[str, Path] = {}
+
                 for uf in uploaded_batch_files:
-                    safe_name = f"batch_{uuid4().hex[:8]}_{uf.name}"
-                    target_path = settings.RAW_DATA_DIR / safe_name
+                    content_bytes = uf.getvalue()
+                    import hashlib
+                    uf_hash = hashlib.sha256(content_bytes).hexdigest()
+
+                    # Lưu trữ an toàn, tránh tạo thêm bản sao vật lý dư thừa
+                    if uf_hash in seen_upload_hashes:
+                        # Trùng nội dung với tệp khác trong cùng đợt: tạo bản sao tạm để phân tích
+                        tmp_name = f"tmp_{uuid4().hex[:8]}_{uf.name}"
+                        target_path = settings.RAW_DATA_DIR / tmp_name
+                    elif not is_replace_mode and batch_manager.is_duplicate_file(uf_hash):
+                        # Trùng nội dung với tệp đã có trong manifest: tạo bản sao tạm để phân tích
+                        tmp_name = f"tmp_{uuid4().hex[:8]}_{uf.name}"
+                        target_path = settings.RAW_DATA_DIR / tmp_name
+                    else:
+                        # Tệp mới: lưu với tên gốc nếu chưa tồn tại
+                        candidate_path = settings.RAW_DATA_DIR / uf.name
+                        if candidate_path.exists():
+                            target_path = settings.RAW_DATA_DIR / f"raw_{uf_hash[:8]}_{uf.name}"
+                        else:
+                            target_path = candidate_path
+
                     with open(target_path, "wb") as f:
-                        f.write(uf.getbuffer())
+                        f.write(content_bytes)
                     saved_paths.append(target_path)
+                    if uf_hash not in seen_upload_hashes:
+                        seen_upload_hashes[uf_hash] = target_path
 
                 progress_bar = st.progress(0, text="Đang khởi tạo tiến trình nạp...")
 
@@ -585,7 +907,8 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
                     report = batch_manager.ingest_batch(
                         files=saved_paths,
                         mode=selected_mode_str,
-                        progress_callback=ui_batch_callback
+                        progress_callback=ui_batch_callback,
+                        sqlite_mappings=st.session_state.get("sqlite_configs", {})
                     )
                     st.session_state.batch_report = report
 
@@ -598,21 +921,35 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
                         progress_bar.progress(100, text="Hoàn tất xử lý batch thành công!")
                         st.success("Đã hoàn tất xử lý và cập nhật kho tri thức thành công!")
                         st.toast("Hoàn tất xử lý Batch!", icon="🎉")
+                        # Làm mới uploader khi thành công hoàn toàn
+                        st.session_state.sqlite_configs = {}
+                        st.session_state.uploader_generation += 1
                     elif status_val == BatchStatus.PARTIAL_SUCCESS.value:
                         new_records = batch_manager.loader.load_from_jsonl()
                         engine.update_knowledge_base(new_records)
                         progress_bar.progress(100, text="Xử lý hoàn tất một phần (Có tệp bị bỏ qua hoặc lỗi).")
                         st.warning("Hoàn tất xử lý một phần: Một số tệp đã được thêm, một số tệp bị bỏ qua hoặc lỗi.")
                         st.toast("Xử lý hoàn tất một phần!", icon="⚠️")
+                        # Làm mới uploader để người dùng có thể nạp tệp mới
+                        st.session_state.sqlite_configs = {}
+                        st.session_state.uploader_generation += 1
                     else:
                         progress_bar.progress(100, text="Xử lý batch thất bại. Dữ liệu cũ được bảo toàn.")
                         st.error(
                             "Batch ingestion thất bại hoặc thao tác thay thế bị hủy bỏ. "
                             "Kho tri thức cũ được bảo toàn nguyên vẹn."
                         )
+                        # Khi FAILED: giữ nguyên uploader_generation để người dùng thử lại danh sách tệp
                 except Exception as batch_err:
                     logger.error("Lỗi trong quá trình thực thi batch ingestion: %s", batch_err, exc_info=True)
-                    st.error(f"Đã xảy ra sự cố nghiêm trọng khi nạp dữ liệu: {batch_err}")
+                    st.error(f"Đã xảy ra sự sự cố nghiêm trọng khi nạp dữ liệu: {batch_err}")
+                finally:
+                    st.session_state.is_ingesting = False
+                    for tmp_inspect in settings.RAW_DATA_DIR.glob("inspect_*"):
+                        try:
+                            tmp_inspect.unlink(missing_ok=True)
+                        except Exception:
+                            pass
 
                 st.rerun()
 
@@ -710,8 +1047,16 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
             storage_stats["chroma_count"] is not None and storage_stats["chroma_count"] > 0 and
             storage_stats["bm25_count"] is not None and storage_stats["bm25_count"] > 0
         )
+        indices_empty = (
+            storage_stats["jsonl_disk_count"] == 0 and
+            storage_stats["engine_records_count"] == 0 and
+            storage_stats["chroma_count"] == 0 and
+            storage_stats["bm25_count"] == 0
+        )
         if indices_ready:
             st.success("🟢 Toàn bộ 3 chỉ mục (JSONL, ChromaDB, BM25) đã được tải và sẵn sàng phục vụ tra cứu.")
+        elif indices_empty:
+            st.info("ℹ️ Trạng thái Knowledge Base: Trống (Empty) — Toàn bộ dữ liệu đã được làm sạch hoặc chưa có tài liệu nào được nạp.")
         else:
             st.warning("⚠️ Một hoặc nhiều tầng chỉ mục chưa sẵn sàng hoặc rỗng. Vui lòng kiểm tra lại dữ liệu.")
 
@@ -722,19 +1067,157 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
 
     # 4. Danh sách các nguồn dữ liệu đang hoạt động (Active Sources)
     active_sources = batch_manager.get_active_sources()
-    if active_sources:
-        with st.container(border=True):
-            st.subheader("📚 Nguồn Dữ Liệu Đang Hoạt Động (Active Sources)")
+    with st.container(border=True):
+        st.subheader("📚 Nguồn Dữ Liệu Đang Hoạt Động (Active Sources)")
+        if active_sources:
             src_table = []
             for s in active_sources:
+                display_name = s.get("source_name") or s.get("file_name") or "Chưa rõ tên nguồn (Thiếu metadata)"
                 src_table.append({
-                    "Tên nguồn": s.get("source_name", "N/A"),
-                    "Mã băm SHA-256": s.get("file_hash", "")[:12] + "..." if s.get("file_hash") else "N/A",
+                    "Tên nguồn": display_name,
+                    "Mã băm SHA-256": s.get("file_hash", "")[:12] + "..." if s.get("file_hash") else "Không có mã băm",
                     "Số bản ghi": s.get("record_count", 0),
-                    "Thời gian nạp": s.get("ingested_at", "N/A"),
+                    "Thời gian nạp": s.get("ingested_at", "Không rõ"),
                     "Trạng thái": s.get("status", "ACTIVE"),
                 })
             st.dataframe(src_table, use_container_width=True)
+        else:
+            st.info("ℹ️ Không có nguồn dữ liệu nào đang hoạt động trong Knowledge Base.")
+
+    # 5. Xóa toàn bộ dữ liệu Knowledge Base (Danger Zone)
+    with st.container(border=True):
+        st.subheader("🗑️ Xóa Toàn Bộ Dữ Liệu Knowledge Base")
+        st.markdown(
+            """
+            Khu vực này cho phép người quản trị xóa toàn bộ dữ liệu tri thức đã nạp và đưa Knowledge Base về trạng thái rỗng ban đầu để nạp bộ dữ liệu hoàn toàn mới.
+
+            **Hậu quả khi thực hiện thao tác xóa:**
+            - **Xóa toàn bộ dữ liệu từ vựng đã nạp** trong tệp chuẩn hóa `data/processed/qa_records.jsonl`.
+            - **Xóa các chỉ mục tìm kiếm tương ứng**: Giải phóng collection vector trong ChromaDB và đặt lại chỉ mục từ khóa BM25 / Lexical Matcher.
+            - **Xóa manifest và danh sách nguồn dữ liệu đang hoạt động** trong `sources_manifest.json`.
+            - **Xóa các bản sao tệp nguồn** được tải lên và quản lý riêng bởi Knowledge Base.
+            - **Sau khi hoàn tất, chatbot không còn tra cứu được dữ liệu đã xóa** cho đến khi bạn nạp bộ dữ liệu mới.
+
+            *(Tuyệt đối bảo vệ: Cơ sở dữ liệu từ điển hệ thống `dictionary_en_vi.db`, mô hình AI PhoBERT/BGE-M3/Qwen và mã nguồn ứng dụng sẽ được giữ nguyên 100%.)*
+            """
+        )
+
+        from src.resource.manager import ResourceState, get_resource_manager
+        rm = get_resource_manager()
+        is_indexing_now = rm.state in (ResourceState.INDEXING_CPU, ResourceState.INDEXING_GPU, ResourceState.RESTORING_CHAT)
+
+        if not st.session_state.get("show_clear_kb_confirm", False):
+            if st.button(
+                "🗑️ Bắt Đầu Quy Trình Xóa Toàn Bộ Knowledge Base",
+                key="btn_open_clear_kb_confirm",
+                type="secondary",
+                disabled=is_indexing_now or st.session_state.is_ingesting,
+                help="Nhấn để mở các bước xác nhận bảo mật trước khi xóa."
+            ):
+                if is_indexing_now or st.session_state.is_ingesting:
+                    st.error("⏳ Hệ thống đang có tiến trình lập chỉ mục/nạp dữ liệu đang chạy. Vui lòng đợi hoàn tất trước khi xóa.")
+                else:
+                    st.session_state.show_clear_kb_confirm = True
+                    st.rerun()
+        else:
+            # HỘP XÁC NHẬN BẢO MẬT NHIỀU BƯỚC
+            with st.container(border=True):
+                st.error(
+                    "⚠️ **CẢNH BÁO NGUY HIỂM — THAO TÁC XÓA DỮ LIỆU TRÊN Ổ ĐĨA**\n\n"
+                    "Thao tác này sẽ xóa vĩnh viễn dữ liệu tri thức trên ổ đĩa vật lý và **không thể khôi phục** nếu bạn không có bản sao lưu bên ngoài. "
+                    "Vui lòng thực hiện tuần tự 3 bước sau:"
+                )
+
+                st.markdown(
+                    "**Bước 1:** Đọc kỹ cảnh báo hậu quả xóa dữ liệu ở trên.\n\n"
+                    "**Bước 2:** Tích vào ô xác nhận bên dưới để mở khóa thao tác xóa vĩnh viễn:"
+                )
+
+                confirm_cb = st.checkbox(
+                    "⚠️ Tôi xác nhận hiểu rõ hậu quả và đồng ý XÓA TOÀN BỘ dữ liệu Knowledge Base trên ổ đĩa.",
+                    key="cb_confirm_clear_kb"
+                )
+
+                st.markdown("**Bước 3:** Nhấn nút xác nhận xóa lần cuối hoặc hủy bỏ:")
+
+                col_c1, col_c2 = st.columns([1, 1])
+                with col_c1:
+                    btn_execute_clear = st.button(
+                        "💥 XÁC NHẬN XÓA TOÀN BỘ KNOWLEDGE BASE",
+                        key="btn_execute_clear_kb_final",
+                        type="primary",
+                        disabled=(not confirm_cb) or is_indexing_now or st.session_state.is_ingesting,
+                        use_container_width=True
+                    )
+                with col_c2:
+                    if st.button("❌ Hủy Bỏ Thao Tác", key="btn_cancel_clear_kb", use_container_width=True):
+                        st.session_state.show_clear_kb_confirm = False
+                        st.rerun()
+
+                if btn_execute_clear:
+                    if is_indexing_now or st.session_state.is_ingesting:
+                        st.error("⏳ Không thể thực hiện: Hệ thống đang có tiến trình lập chỉ mục đang chạy. Vui lòng đợi hoàn tất.")
+                    else:
+                        with st.spinner("Đang thực hiện xóa toàn bộ dữ liệu Knowledge Base và đồng bộ các chỉ mục..."):
+                            # Đảm bảo batch_manager luôn có hàm clear_knowledge_base ngay cả khi tiến trình Streamlit chưa khởi động lại
+                            if not hasattr(batch_manager, "clear_knowledge_base"):
+                                import importlib
+                                import src.data.batch_ingestion as _bmi_mod
+                                importlib.reload(_bmi_mod)
+                                batch_manager = _bmi_mod.BatchIngestionManager()
+
+                            result = batch_manager.clear_knowledge_base(engine=engine)
+
+                        if result.get("success", False) or result.get("status") == "SUCCESS":
+                            # Cập nhật RAM và trạng thái ChatEngine
+                            if hasattr(engine, "clear_knowledge_base"):
+                                engine.clear_knowledge_base()
+                            else:
+                                engine.update_knowledge_base([])
+                                if hasattr(engine, "tracker") and hasattr(engine.tracker, "clear"):
+                                    engine.tracker.clear()
+
+                            # Làm mới cache_resource nếu cần
+                            try:
+                                get_chatbot_engine.clear()
+                            except Exception:
+                                pass
+
+                            # Đưa session state về trạng thái sẵn sàng nhận dữ liệu mới
+                            st.session_state.messages = []
+                            st.session_state.batch_report = None
+                            st.session_state.sqlite_configs = {}
+                            st.session_state.uploader_generation += 1
+                            st.session_state.show_clear_kb_confirm = False
+                            st.session_state.status = "Knowledge Base đã được làm sạch hoàn toàn!"
+
+                            # Ghi nhận vào nhật ký kiểm toán (Audit Log)
+                            import time as _time
+                            audit_entry = {
+                                "timestamp": _time.strftime("%Y-%m-%d %H:%M:%S"),
+                                "action": "CLEAR_KNOWLEDGE_BASE",
+                                "detail": (
+                                    f"Đã xóa toàn bộ Knowledge Base: {result.get('deleted_records', 0)} bản ghi, "
+                                    f"{result.get('deleted_sources', 0)} nguồn, "
+                                    f"{len(result.get('deleted_raw_files', []))} tệp nguồn. Tất cả chỉ mục về 0."
+                                ),
+                                "status": "SUCCESS"
+                            }
+                            st.session_state.audit_logs.append(audit_entry)
+
+                            st.success(
+                                f"✅ {result.get('message', 'Đã xóa toàn bộ dữ liệu Knowledge Base thành công.')} "
+                                f"(Đã xóa: {result.get('deleted_records', 0)} bản ghi, "
+                                f"{result.get('deleted_sources', 0)} nguồn dữ liệu)."
+                            )
+                            st.toast("Đã xóa toàn bộ dữ liệu Knowledge Base!", icon="🗑️")
+                            _time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.error(
+                                f"❌ Thao tác xóa thất bại: {result.get('message', 'Lỗi không xác định')}. "
+                                f"Dữ liệu đã được rollback bảo vệ an toàn."
+                            )
 
 
 elif st.session_state.nav_page == "📈 Chẩn đoán":

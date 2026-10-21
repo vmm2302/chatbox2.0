@@ -23,7 +23,7 @@ from config.settings import settings
 from src.core.exceptions import DataLoadError
 from src.core.models import QARecord
 from src.data.loader import QALoader
-from src.data.loaders.base import compute_file_hash
+from src.data.loaders.base import clean_source_name, compute_file_hash
 from src.data.loaders.router import FileLoaderRouter
 from src.retriever.bge_chroma import BGEChromaRetriever
 from src.retriever.bm25_retriever import BM25Retriever
@@ -163,12 +163,27 @@ class BatchIngestionManager:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
 
     def get_active_sources(self) -> List[Dict[str, Any]]:
-        """Lấy danh sách các nguồn dữ liệu đang hoạt động."""
+        """Lấy danh sách các nguồn dữ liệu đang hoạt động.
+        
+        Tự động đồng bộ chuẩn hóa file_name và source_name, loại bỏ tiền tố tạm
+        (batch_..., raw_...) và xử lý tương thích ngược cho manifest cũ.
+        """
         manifest = self.load_manifest()
-        return [
-            s for s in manifest.get("sources", {}).values()
-            if s.get("status") == "ACTIVE"
-        ]
+        active_list = []
+        for s in manifest.get("sources", {}).values():
+            if s.get("status") == "ACTIVE":
+                src_copy = dict(s)
+                raw_name = s.get("file_name") or s.get("source_name")
+                if not raw_name and s.get("file_path"):
+                    raw_name = Path(s["file_path"]).name
+
+                clean_name = clean_source_name(str(raw_name).strip()) if raw_name else ""
+                display_name = clean_name or "Chưa rõ tên nguồn (Thiếu metadata)"
+
+                src_copy["file_name"] = display_name
+                src_copy["source_name"] = display_name
+                active_list.append(src_copy)
+        return active_list
 
     def is_duplicate_file(self, file_hash: str) -> Optional[Dict[str, Any]]:
         """Kiểm tra mã băm SHA-256 đã tồn tại trong manifest nguồn đang hoạt động chưa."""
@@ -178,6 +193,127 @@ class BatchIngestionManager:
                 return src
         return None
 
+    def _cleanup_batch_duplicate_files(
+        self,
+        file_results: List[FileIngestionResult],
+        seen_batch_hashes: Dict[str, Tuple[str, Path]],
+        manifest: Dict[str, Any],
+    ) -> None:
+        """Xóa an toàn các bản sao vật lý dư thừa của các tệp bị bỏ qua do trùng lặp nội dung."""
+        for res in file_results:
+            if res.status != FileStatus.SKIPPED or not res.reason or "Duplicate file" not in res.reason:
+                continue
+
+            dup_path = Path(res.file_path)
+            if not dup_path.exists() or not dup_path.is_file():
+                continue
+
+            # Xác định đường dẫn tệp gốc canonical
+            canonical_path: Optional[Path] = None
+            if res.file_hash in seen_batch_hashes:
+                _, first_p = seen_batch_hashes[res.file_hash]
+                canonical_path = Path(first_p)
+
+            if not canonical_path or not canonical_path.exists():
+                active_src = self.is_duplicate_file(res.file_hash)
+                if active_src and active_src.get("file_path"):
+                    canonical_path = Path(active_src["file_path"])
+
+            # Kiểm tra an toàn nghiêm ngặt:
+            # 1. Tệp gốc phải tồn tại và là tệp tin thật
+            # 2. Mã băm SHA-256 của tệp gốc phải khớp chính xác với file_hash
+            # 3. Bản sao phải khác vị trí vật lý với bản gốc (resolve path)
+            # 4. Bản sao phải là tệp tạm hoặc tệp trong raw/tmp (không xóa nhầm tệp ngoài phạm vi)
+            if (
+                canonical_path
+                and canonical_path.exists()
+                and canonical_path.is_file()
+                and dup_path.resolve() != canonical_path.resolve()
+            ):
+                try:
+                    if compute_file_hash(canonical_path) == res.file_hash:
+                        is_managed_copy = (
+                            bool(re.match(r"^(?:raw|batch|doc|upload|tmp|temp)_[0-9a-fA-F\-]{6,36}_", dup_path.name))
+                            or dup_path.parent == settings.RAW_DATA_DIR
+                            or "temp" in str(dup_path.parent).lower()
+                        )
+                        if is_managed_copy:
+                            dup_path.unlink(missing_ok=True)
+                            logger.info(
+                                "Deduplication: Đã xóa bản sao vật lý dư thừa '%s'. Giữ bản gốc '%s'.",
+                                dup_path.name, canonical_path.name
+                            )
+                            res.action = f"Đã loại bỏ bản sao dư thừa, giữ bản gốc duy nhất: {canonical_path.name}"
+                except Exception as err:
+                    logger.warning("Không thể dọn dẹp bản sao dư thừa '%s': %s", dup_path, err)
+
+    def cleanup_redundant_raw_files(self, raw_dir: Optional[Path] = None) -> Dict[str, Any]:
+        """Quét và tự động dọn dẹp các bản sao vật lý dư thừa trong thư mục raw data.
+        
+        Đảm bảo mỗi nội dung tệp (xác định qua SHA-256) chỉ giữ lại một bản gốc duy nhất.
+        Không xóa các tệp hệ thống (.gitkeep, .db, .backup) hoặc tệp đang được tham chiếu
+        bởi manifest active sources.
+        """
+        target_dir = Path(raw_dir or settings.RAW_DATA_DIR)
+        if not target_dir.exists():
+            return {"scanned": 0, "deleted": [], "preserved": []}
+
+        manifest = self.load_manifest()
+        active_sources = manifest.get("sources", {})
+        canonical_by_hash: Dict[str, Path] = {}
+        for sinfo in active_sources.values():
+            if sinfo.get("status") == "ACTIVE" and sinfo.get("file_hash") and sinfo.get("file_path"):
+                p = Path(sinfo["file_path"])
+                if p.exists() and p.is_file():
+                    canonical_by_hash[sinfo["file_hash"]] = p
+
+        files_by_hash: Dict[str, List[Path]] = {}
+        skipped_system_files: List[str] = []
+
+        for fpath in target_dir.iterdir():
+            if not fpath.is_file():
+                continue
+            if fpath.name.startswith(".git") or fpath.suffix.lower() in [".backup", ".sqlite3"] or fpath.name == "dictionary_en_vi.db":
+                skipped_system_files.append(fpath.name)
+                continue
+
+            try:
+                f_hash = compute_file_hash(fpath)
+                files_by_hash.setdefault(f_hash, []).append(fpath)
+            except Exception as err:
+                logger.warning("Không thể đọc mã băm tệp '%s': %s", fpath, err)
+
+        deleted_files: List[str] = []
+        preserved_files: List[str] = []
+
+        for f_hash, flist in files_by_hash.items():
+            canonical = canonical_by_hash.get(f_hash)
+            if canonical and any(p.resolve() == canonical.resolve() for p in flist):
+                kept = canonical
+            else:
+                sorted_flist = sorted(flist, key=lambda p: (len(p.name), p.name))
+                kept = sorted_flist[0]
+
+            preserved_files.append(kept.name)
+
+            for p in flist:
+                if p.resolve() == kept.resolve():
+                    continue
+                try:
+                    if compute_file_hash(kept) == f_hash:
+                        p.unlink(missing_ok=True)
+                        deleted_files.append(p.name)
+                        logger.info("Đã dọn dẹp bản sao dư thừa: %s (Bản gốc giữ: %s)", p.name, kept.name)
+                except Exception as err:
+                    logger.warning("Không thể dọn dẹp bản sao '%s': %s", p.name, err)
+
+        return {
+            "scanned": sum(len(fl) for fl in files_by_hash.values()) + len(skipped_system_files),
+            "deleted": deleted_files,
+            "preserved": preserved_files,
+            "skipped_system": skipped_system_files
+        }
+
     # --- PIPELINE NẠP BATCH ĐA TỆP ---
 
     def ingest_batch(
@@ -186,6 +322,7 @@ class BatchIngestionManager:
         mode: str = "add",
         progress_callback: Optional[Callable[[str, float, FileIngestionResult], None]] = None,
         batch_size: int = 16,
+        sqlite_mappings: Optional[Dict[str, Any]] = None,
     ) -> BatchIngestionReport:
         """Thực thi pipeline Batch Multi-File Ingestion với xử lý độc lập từng tệp.
 
@@ -194,6 +331,7 @@ class BatchIngestionManager:
             mode: "add" (bổ sung / update theo ID) hoặc "replace" (xóa làm mới toàn bộ).
             progress_callback: Hàm nhận callback (thông_điệp, tiến_độ_0_đến_1, kết_quả_tệp_hiện_tại).
             batch_size: Kích thước batch embedding BGE-M3 (an toàn cho CPU/RAM).
+            sqlite_mappings: Ánh xạ cấu hình SQLite mapping tùy chọn theo file_hash hoặc tên tệp.
 
         Returns:
             BatchIngestionReport: Báo cáo tổng thể toàn bộ batch.
@@ -230,15 +368,14 @@ class BatchIngestionManager:
 
         newly_accumulated_records: List[QARecord] = []
         sources_dict = manifest.setdefault("sources", {})
-        seen_batch_hashes: Dict[str, str] = {}
+        seen_batch_hashes: Dict[str, Tuple[str, Path]] = {}
 
         # 2. Xử lý tuần tự từng tệp một cách độc lập
         for file_idx, file_path in enumerate(files, 1):
             file_start = time.perf_counter()
 
             # Phục hồi tên tệp hiển thị gốc nếu tệp được lưu với prefix tránh trùng lặp
-            clean_name_match = re.match(r"^(?:raw|batch|doc|upload)_[0-9a-f]{8}_(.+)$", file_path.name)
-            display_file_name = clean_name_match.group(1) if clean_name_match else file_path.name
+            display_file_name = clean_source_name(file_path.name)
 
             f_res = FileIngestionResult(
                 file_name=display_file_name,
@@ -270,33 +407,47 @@ class BatchIngestionManager:
             f_res.file_hash = val_res.file_hash
             f_res.file_size_bytes = val_res.file_size_bytes
 
-            # Bước 2.2: Kiểm tra tệp trùng lặp (Duplicate File Check) - chỉ áp dụng khi không phải replace
-            if not is_replace:
-                duplicate_src_name = seen_batch_hashes.get(val_res.file_hash)
-                if not duplicate_src_name:
-                    duplicate_src = self.is_duplicate_file(val_res.file_hash)
-                    if duplicate_src:
-                        duplicate_src_name = duplicate_src.get("file_name")
+            # Bước 2.2: Kiểm tra tệp trùng lặp (Duplicate File Check)
+            duplicate_src_name: Optional[str] = None
+            dup_origin: str = ""
+            if val_res.file_hash in seen_batch_hashes:
+                prev_name, _ = seen_batch_hashes[val_res.file_hash]
+                duplicate_src_name = prev_name
+                dup_origin = "trong cùng đợt nạp"
+            elif not is_replace:
+                duplicate_src = self.is_duplicate_file(val_res.file_hash)
+                if duplicate_src:
+                    duplicate_src_name = clean_source_name(duplicate_src.get("file_name") or duplicate_src.get("source_name") or "")
+                    dup_origin = "đã nạp trước đó"
 
-                if duplicate_src_name:
-                    f_res.status = FileStatus.SKIPPED
-                    f_res.reason = f"Duplicate file: Trùng nội dung với tệp '{duplicate_src_name}' đã nạp."
-                    f_res.action = "Bỏ qua tệp để tránh nhân bản dữ liệu."
-                    f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
-                    file_results.append(f_res)
-                    if progress_callback:
-                        progress_callback(f"Bỏ qua {display_file_name} (Trùng tệp)", pct, f_res)
-                    continue
+            if duplicate_src_name:
+                f_res.status = FileStatus.SKIPPED
+                f_res.reason = f"Duplicate file: Trùng nội dung với tệp '{duplicate_src_name}' ({dup_origin})."
+                f_res.action = "Bỏ qua tệp để tránh nhân bản dữ liệu."
+                f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
+                file_results.append(f_res)
+                if progress_callback:
+                    progress_callback(f"Bỏ qua {display_file_name} (Trùng tệp)", pct, f_res)
+                continue
 
-            seen_batch_hashes[val_res.file_hash] = display_file_name
+            seen_batch_hashes[val_res.file_hash] = (display_file_name, file_path)
 
             # Bước 2.3: Phân tích & Trích xuất nội dung (Processing)
             f_res.status = FileStatus.PROCESSING
+            f_mapping = None
+            if sqlite_mappings:
+                f_mapping = (
+                    sqlite_mappings.get(val_res.file_hash)
+                    or sqlite_mappings.get(file_path.name)
+                    or sqlite_mappings.get(display_file_name)
+                )
+
             try:
                 raw_extracted = self.router.load_file(
                     file_path=file_path,
                     file_hash=val_res.file_hash,
-                    start_index=len(working_records) + 1
+                    start_index=len(working_records) + 1,
+                    mapping_config=f_mapping
                 )
             except Exception as err:
                 f_res.status = FileStatus.FAILED
@@ -550,6 +701,7 @@ class BatchIngestionManager:
                             sources_dict[source_id] = {
                                 "source_id": source_id,
                                 "file_name": res.file_name,
+                                "source_name": res.file_name,
                                 "file_path": res.file_path,
                                 "file_hash": res.file_hash,
                                 "file_type": res.file_type,
@@ -607,6 +759,10 @@ class BatchIngestionManager:
                 # Luôn khôi phục trạng thái tài nguyên sau khi hoàn tất hoặc lỗi
                 rm.finalize_indexing(used_gpu=used_gpu, ollama_client=ollama_cli if used_gpu else None)
 
+
+        # 3.6. Dọn dẹp an toàn các bản sao vật lý dư thừa của tệp trùng lặp khi không có rollback
+        if not rollback_needed:
+            self._cleanup_batch_duplicate_files(file_results, seen_batch_hashes, manifest)
 
         # 4. Tính toán kết quả tổng thể (Batch Status: SUCCESS / PARTIAL SUCCESS / FAILED)
         success_cnt = sum(1 for r in file_results if r.status == FileStatus.SUCCESS)
@@ -955,3 +1111,218 @@ class BatchIngestionManager:
             "bm25_count": bm25_count,
             "status": "IN_SYNC" if synced else "OUT_OF_SYNC"
         }
+
+    # --- XÓA TOÀN BỘ KNOWLEDGE BASE (CLEAR KNOWLEDGE BASE) ---
+
+    def clear_knowledge_base(
+        self,
+        engine: Optional[Any] = None,
+        delete_managed_raw_files: bool = True,
+    ) -> Dict[str, Any]:
+        """Xóa toàn bộ dữ liệu Knowledge Base và đồng bộ toàn bộ pipeline RAG về trạng thái rỗng an toàn.
+
+        Quy trình:
+        1. Kiểm tra trạng thái hệ thống: từ chối nếu có tác vụ ingestion đang chạy.
+        2. Khóa độc quyền qua IndexAccessCoordinator write_lock.
+        3. Tạo snapshot backup (qa_records.jsonl.bak, sources_manifest.json.bak).
+        4. Xóa/làm sạch ChromaDB collection.
+        5. Làm sạch qa_records.jsonl (0 bản ghi).
+        6. Xóa cache embeddings.npy nếu có.
+        7. Xóa sạch danh sách Active Sources trong manifest (giữ {"sources": {}}).
+        8. Xóa an toàn các bản sao tệp nguồn được quản lý bởi KB (bảo vệ tuyệt đối dictionary_en_vi.db, .gitkeep, v.v.).
+        9. Đồng bộ in-memory và ChatEngine về trạng thái rỗng.
+        10. Xác minh toàn bộ các thành phần đều phản ánh số lượng = 0.
+        11. Tự động rollback nếu xảy ra bất kỳ lỗi nào.
+        """
+        from src.resource.manager import ResourceState, get_resource_manager
+        rm = get_resource_manager()
+
+        # 1. Từ chối nếu đang có tiến trình lập chỉ mục / ingestion đang chạy
+        if rm.state in (ResourceState.INDEXING_CPU, ResourceState.INDEXING_GPU, ResourceState.RESTORING_CHAT):
+            return {
+                "status": "REJECTED",
+                "message": "Không thể thực hiện xóa: Hệ thống đang có tiến trình lập chỉ mục/nạp dữ liệu đang chạy. Vui lòng đợi cho đến khi tác vụ hoàn tất hoặc được dừng an toàn.",
+                "success": False,
+                "deleted_records": 0,
+                "deleted_sources": 0,
+            }
+
+        # 2. Khóa ghi độc quyền
+        with rm.coordinator.write_lock(timeout=30.0) as acquired:
+            if not acquired:
+                return {
+                    "status": "FAILED",
+                    "message": "Không thể xin khóa độc quyền dữ liệu (Timeout). Vui lòng thử lại sau.",
+                    "success": False,
+                    "deleted_records": 0,
+                    "deleted_sources": 0,
+                }
+
+            jsonl_path = self.loader.processed_jsonl_path
+            manifest_path = self.manifest_path
+            bak_jsonl = jsonl_path.with_suffix(".jsonl.bak")
+            bak_manifest = manifest_path.with_suffix(".json.bak")
+
+            original_records: List[QARecord] = []
+            if jsonl_path.exists():
+                try:
+                    original_records = self.loader.load_from_jsonl()
+                except Exception as e:
+                    logger.warning("Không thể đọc qa_records.jsonl cũ: %s", e)
+
+            original_manifest = self.load_manifest()
+            deleted_raw_files: List[str] = []
+
+            # 3. Tạo snapshot backup trước khi xóa
+            try:
+                if jsonl_path.exists():
+                    shutil.copy2(jsonl_path, bak_jsonl)
+                if manifest_path.exists():
+                    shutil.copy2(manifest_path, bak_manifest)
+            except Exception as bak_err:
+                logger.warning("Không thể tạo snapshot backup trước khi xóa KB: %s", bak_err)
+
+            try:
+                # 4. Xóa ChromaDB collection & tạo lại collection rỗng
+                bge_retriever = BGEChromaRetriever([])
+                bge_retriever.clear_collection()
+
+                # 5. Làm sạch qa_records.jsonl (ghi danh sách rỗng [])
+                self.loader.save_to_jsonl([])
+
+                # 6. Xóa cache embeddings.npy nếu có
+                embeddings_path = getattr(settings, "EMBEDDINGS_PATH", None)
+                if embeddings_path and Path(embeddings_path).exists():
+                    try:
+                        Path(embeddings_path).unlink(missing_ok=True)
+                    except Exception as emb_err:
+                        logger.warning("Không thể xóa embeddings.npy: %s", emb_err)
+
+                # 7. Xóa sạch manifest
+                empty_manifest = {"sources": {}}
+                self.save_manifest(empty_manifest)
+
+                # 8. Xóa an toàn các bản sao tệp nguồn do KB quản lý
+                if delete_managed_raw_files:
+                    protected_exact_names = {
+                        "dictionary_en_vi.db",
+                        "dictionary_en_vi.db.backup",
+                        ".gitkeep",
+                        ".gitignore",
+                        "mau_nhap_lieu_tuvung.xlsx"
+                    }
+                    if hasattr(settings, "DICTIONARY_DB_PATH") and settings.DICTIONARY_DB_PATH:
+                        protected_exact_names.add(Path(settings.DICTIONARY_DB_PATH).name)
+
+                    # Thu thập các tệp nguồn được ghi nhận trong manifest
+                    source_paths_to_consider: List[Path] = []
+                    for sinfo in original_manifest.get("sources", {}).values():
+                        fpath_str = sinfo.get("file_path")
+                        if fpath_str:
+                            p = Path(fpath_str)
+                            if p.exists() and p.is_file():
+                                source_paths_to_consider.append(p)
+
+                    # Thu thập các tệp tạm/managed trong data/raw/
+                    target_raw_dir = Path(settings.RAW_DATA_DIR)
+                    if target_raw_dir.exists():
+                        for p in target_raw_dir.iterdir():
+                            if p.is_file() and p not in source_paths_to_consider:
+                                is_managed = bool(re.match(r"^(?:raw|batch|doc|upload|tmp|temp|inspect)_[0-9a-fA-F\-]{6,36}_", p.name))
+                                if is_managed:
+                                    source_paths_to_consider.append(p)
+
+                    # Thực hiện xóa an toàn
+                    for p in source_paths_to_consider:
+                        # Kiểm tra an toàn tuyệt đối
+                        if p.name in protected_exact_names:
+                            continue
+                        if p.suffix.lower() in [".db", ".sqlite", ".sqlite3", ".backup"]:
+                            continue
+                        if p.name.startswith(".git"):
+                            continue
+                        # Phải nằm trong thư mục data hoặc temp của dự án
+                        try:
+                            resolved_p = p.resolve()
+                            resolved_raw = target_raw_dir.resolve()
+                            p_str = str(resolved_p).lower()
+                            if "\\src\\" in p_str or "/src/" in p_str or "\\.venv\\" in p_str or "/.venv/" in p_str:
+                                continue
+                            if resolved_raw in resolved_p.parents or "temp" in p_str:
+                                p.unlink(missing_ok=True)
+                                deleted_raw_files.append(p.name)
+                                logger.info("Clear KB: Đã xóa bản sao tệp nguồn '%s'.", p.name)
+                        except Exception as del_err:
+                            logger.warning("Không thể xóa tệp nguồn '%s': %s", p, del_err)
+
+                # 9. Làm sạch ChatEngine trong RAM nếu được cung cấp
+                if engine is not None:
+                    if hasattr(engine, "clear_knowledge_base"):
+                        engine.clear_knowledge_base()
+                    else:
+                        engine.update_knowledge_base([])
+                        if hasattr(engine, "tracker") and hasattr(engine.tracker, "clear"):
+                            engine.tracker.clear()
+
+                # 10. Xác minh tính đồng bộ tuyệt đối về 0
+                chroma_count = bge_retriever.get_collection_count()
+                jsonl_count = len(self.loader.load_from_jsonl()) if jsonl_path.exists() else 0
+                active_sources_count = len(self.get_active_sources())
+                bm25_count = len(BM25Retriever([]).records)
+
+                if chroma_count != 0 or jsonl_count != 0 or active_sources_count != 0 or bm25_count != 0:
+                    raise RuntimeError(
+                        f"Xác minh sau khi xóa thất bại: ChromaDB={chroma_count}, JSONL={jsonl_count}, "
+                        f"ActiveSources={active_sources_count}, BM25={bm25_count}"
+                    )
+
+                # 11. Xóa snapshot backups sau khi thành công
+                if bak_jsonl.exists():
+                    bak_jsonl.unlink(missing_ok=True)
+                if bak_manifest.exists():
+                    bak_manifest.unlink(missing_ok=True)
+
+                logger.info(
+                    "Clear KB thành công: Đã xóa %d bản ghi, %d nguồn, %d tệp nguồn. Tất cả chỉ mục về 0.",
+                    len(original_records), len(original_manifest.get("sources", {})), len(deleted_raw_files)
+                )
+
+                return {
+                    "status": "SUCCESS",
+                    "message": "Đã xóa toàn bộ dữ liệu Knowledge Base và đồng bộ các chỉ mục về trạng thái rỗng thành công.",
+                    "success": True,
+                    "deleted_records": len(original_records),
+                    "deleted_sources": len(original_manifest.get("sources", {})),
+                    "deleted_raw_files": deleted_raw_files,
+                    "jsonl_count": 0,
+                    "chromadb_count": 0,
+                    "bm25_count": 0,
+                    "active_sources_count": 0,
+                }
+
+            except Exception as err:
+                logger.error("Lỗi khi xóa Knowledge Base: %s. Đang kích hoạt ROLLBACK...", err)
+                # ROLLBACK phục hồi dữ liệu ban đầu
+                try:
+                    if bak_jsonl.exists():
+                        shutil.copy2(bak_jsonl, jsonl_path)
+                        bak_jsonl.unlink(missing_ok=True)
+                    if bak_manifest.exists():
+                        shutil.copy2(bak_manifest, manifest_path)
+                        bak_manifest.unlink(missing_ok=True)
+
+                    if original_records:
+                        BGEChromaRetriever(original_records).build_or_load_collection(force_reindex=True)
+                    if engine is not None:
+                        engine.update_knowledge_base(original_records)
+                except Exception as rb_err:
+                    logger.critical("Rollback sau lỗi xóa Knowledge Base thất bại: %s", rb_err)
+
+                return {
+                    "status": "FAILED",
+                    "message": f"Lỗi xóa Knowledge Base: {err}. Hệ thống đã khôi phục dữ liệu ban đầu an toàn.",
+                    "success": False,
+                    "deleted_records": 0,
+                    "deleted_sources": 0,
+                    "error_detail": str(err),
+                }

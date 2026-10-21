@@ -8,6 +8,16 @@ from src.data.loaders.json_loader import JSONLoader
 from src.data.loaders.oxford_pdf_loader import OxfordPDFParser
 from src.data.loaders.pdf_loader import PDFLoader
 from src.data.loaders.router import FileLoaderRouter
+from src.data.loaders.sqlite_loader import (
+    SQLiteColumnInfo,
+    SQLiteForeignKeyInfo,
+    SQLiteIngestionStats,
+    SQLiteLoader,
+    SQLiteMappingConfig,
+    SQLiteMappingMode,
+    SQLiteSchemaInfo,
+    SQLiteTableInfo,
+)
 from src.data.loaders.text_loader import TextLoader
 
 __all__ = [
@@ -22,4 +32,12 @@ __all__ = [
     "DocxLoader",
     "PDFLoader",
     "OxfordPDFParser",
+    "SQLiteLoader",
+    "SQLiteMappingConfig",
+    "SQLiteMappingMode",
+    "SQLiteSchemaInfo",
+    "SQLiteTableInfo",
+    "SQLiteColumnInfo",
+    "SQLiteForeignKeyInfo",
+    "SQLiteIngestionStats",
 ]

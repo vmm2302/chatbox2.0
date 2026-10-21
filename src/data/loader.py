@@ -301,8 +301,8 @@ class QALoader:
             if "record_id" in col_map and col_map["record_id"] < len(row):
                 custom_id = row[col_map["record_id"]].strip()
 
-            from src.data.loaders.base import generate_stable_record_id
-            rec_id = generate_stable_record_id(source_default, question, custom_id=custom_id or None)
+            from src.data.loaders.base import clean_source_name, generate_stable_record_id
+            rec_id = generate_stable_record_id(clean_source_name(source_default), question, custom_id=custom_id or None)
             records.append(QARecord(
                 record_id=rec_id,
                 word=word,
@@ -425,10 +425,11 @@ class QALoader:
 
                     # 5. Sheet tùy chỉnh do người dùng đưa vào
                     else:
+                        from src.data.loaders.base import clean_source_name
                         custom_recs = self._parse_custom_sheet(
                             rows=rows,
                             sheet_name=sheet_name,
-                            source_default=f"Tệp tải lên: {target_path.name}",
+                            source_default=clean_source_name(target_path.name),
                             start_index=len(records)
                         )
                         records.extend(custom_recs)
@@ -558,11 +559,9 @@ class QALoader:
     def get_or_create_records(self, force_refresh: bool = False) -> List[QARecord]:
         """Lấy dữ liệu từ JSONL hoặc trích xuất từ Excel thô (nếu có). An toàn khi rỗng."""
         if not force_refresh and self.processed_jsonl_path.exists():
-            records = self.load_from_jsonl()
-            if records:
-                return records
+            return self.load_from_jsonl()
 
-        if self.raw_excel_path.exists():
+        if (force_refresh or not self.processed_jsonl_path.exists()) and self.raw_excel_path.exists():
             logger.info("Bắt đầu trích xuất từ Excel thô: %s...", self.raw_excel_path)
             try:
                 records = self.load_from_excel(self.raw_excel_path)

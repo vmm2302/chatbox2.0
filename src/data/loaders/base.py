@@ -35,8 +35,11 @@ def clean_source_name(source: str) -> str:
     """Loại bỏ tiền tố tạm thời như batch_xxxxxxxx_, raw_xxxxxxxx_, v.v. khỏi tên nguồn."""
     if not source:
         return ""
-    m = re.match(r"^(?:raw|batch|doc|upload)_[0-9a-f]{8}_(.+)$", str(source))
-    return m.group(1) if m else str(source)
+    src_str = str(source).strip()
+    src_str = re.sub(r"^(?:Tệp tải lên:\s*|\s*)+", "", src_str, flags=re.IGNORECASE)
+    src_str = Path(src_str.strip()).name
+    m = re.match(r"^(?:raw|batch|doc|upload|tmp|temp)_[0-9a-fA-F\-]{6,36}_(.+)$", src_str)
+    return m.group(1) if m else src_str
 
 
 def generate_stable_record_id(source: str, question: str, custom_id: Optional[str] = None) -> str:

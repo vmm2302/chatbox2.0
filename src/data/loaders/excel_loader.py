@@ -32,7 +32,7 @@ class ExcelLoader(BaseFileLoader):
         clean_name = clean_source_name(file_path.name)
         for idx, r in enumerate(records, start_index):
             r.source = clean_name
-            if not r.record_id or r.record_id.startswith("APPEND_"):
+            if not r.record_id or r.record_id.startswith("APPEND_") or r.record_id.startswith("REC_") or r.record_id.startswith("CUSTOM_"):
                 r.record_id = generate_stable_record_id(clean_name, r.question)
 
         logger.info("ExcelLoader: Nạp thành công %d bản ghi từ %s", len(records), file_path.name)

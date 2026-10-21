@@ -101,7 +101,19 @@ class ChatEngine:
             self.records = new_records
             self.retriever.reload(new_records)
             self.tracker.load_known_words(new_records)
+            if not new_records:
+                self.tracker.clear()
             logger.info("ChatEngine đã đồng bộ thành công %d bản ghi tri thức mới.", len(new_records))
+
+    def clear_knowledge_base(self) -> None:
+        """Đưa ChatEngine và toàn bộ pipeline RAG về trạng thái rỗng an toàn."""
+        from src.resource.manager import get_resource_manager
+        with get_resource_manager().coordinator.write_lock():
+            self.records = []
+            self.retriever.reload([])
+            self.tracker.load_known_words([])
+            self.tracker.clear()
+            logger.info("ChatEngine: Đã làm sạch toàn bộ tri thức và ngữ cảnh hội thoại.")
 
 
     def _create_and_log_response(

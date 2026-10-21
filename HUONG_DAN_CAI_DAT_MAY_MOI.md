@@ -33,44 +33,21 @@ cd chatbox2.0
 
 ---
 
-### Bước 2: Tạo và kích hoạt môi trường ảo Python (`.venv`)
+### Bước 2: Cài đặt các thư viện bắt buộc (Dependencies)
 
-Tạo môi trường ảo độc lập để không ảnh hưởng đến các gói phần mềm hệ thống:
+> [!WARNING]
+> **LƯU Ý QUAN TRỌNG VỀ MÔI TRƯỜNG ẢO VÀ LỆNH NÂNG CẤP PIP TRÊN WINDOWS:**  
+> - **Không tạo môi trường ảo `.venv`:** Khuyến nghị cài đặt trực tiếp vào môi trường Python của hệ thống.
+> - **Tuyệt đối KHÔNG chạy lệnh `python -m pip install --upgrade pip`:** Trên hệ điều hành Windows, khi pip tự cập nhật (đặc biệt trong môi trường ảo `.venv`), cơ chế khóa tệp (file locking) của Windows sẽ chặn tiến trình ghi đè. Pip tự động đổi tên thư mục chính của nó thành `~ip` để chuẩn bị thay thế nhưng bị ngắt quãng.
+> - **Hậu quả:** Thư mục `pip` bị mất (chỉ còn thư mục lỗi `~ip`), khiến tất cả các lệnh `pip` hoặc `python -m pip` sau đó đều lập tức báo lỗi: `No module named pip` và không thể tiếp tục cài đặt bất kỳ thư viện nào.
+> - Cài đặt trực tiếp không qua `.venv` vừa loại bỏ hoàn toàn rủi ro này, vừa giúp bạn không gặp lỗi chính sách chặn script (`ExecutionPolicy`) của Windows PowerShell.
 
-```bash
-python -m venv .venv
-```
-
-Kích hoạt môi trường ảo:
-
-- **Trên Windows PowerShell:**
-  ```powershell
-  .\.venv\Scripts\Activate.ps1
-  ```
-  *(Nếu gặp lỗi `Execution_Policies`, mở PowerShell với quyền Administrator và chạy: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`)*
-
-- **Trên Windows Command Prompt (CMD):**
-  ```cmd
-  .venv\Scripts\activate.bat
-  ```
-
-- **Trên macOS / Linux:**
-  ```bash
-  source .venv/bin/activate
-  ```
-
-> Khi kích hoạt thành công, bạn sẽ thấy tiền tố `(.venv)` xuất hiện ở đầu dòng lệnh Terminal.
-
----
-
-### Bước 3: Cài đặt các thư viện bắt buộc (Dependencies)
-
-Nâng cấp `pip` và cài đặt toàn bộ danh sách thư viện từ `requirements.txt`:
+Cài đặt toàn bộ danh sách thư viện từ `requirements.txt`:
 
 ```bash
-python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
+*(Hoặc `python -m pip install -r requirements.txt`)*
 
 > [!TIP]
 > **Kích hoạt GPU cho BGE-M3 (Khuyên dùng nếu máy có card NVIDIA RTX / GTX):**  
@@ -89,7 +66,7 @@ Danh sách các thư viện chính bao gồm:
 
 ---
 
-### Bước 4: Thiết lập tệp cấu hình biến môi trường (`.env`)
+### Bước 3: Thiết lập tệp cấu hình biến môi trường (`.env`)
 
 Tạo tệp cấu hình `.env` từ tệp mẫu `.env.example`:
 
@@ -108,7 +85,7 @@ Tạo tệp cấu hình `.env` từ tệp mẫu `.env.example`:
 
 ---
 
-### Bước 5: Cài đặt Ollama & Tải mô hình LLM Qwen2.5:7B
+### Bước 4: Cài đặt Ollama & Tải mô hình LLM Qwen2.5:7B
 
 1. Tải và cài đặt Ollama từ [https://ollama.com](https://ollama.com).
 2. Khởi động dịch vụ Ollama trong Terminal (hoặc mở ứng dụng Ollama):
@@ -123,7 +100,7 @@ Tạo tệp cấu hình `.env` từ tệp mẫu `.env.example`:
 
 ---
 
-### Bước 6: Tải trước các mô hình NLP cục bộ (PhoBERT & BGE-M3)
+### Bước 5: Tải trước các mô hình NLP cục bộ (PhoBERT & BGE-M3)
 
 Chạy script tải tự động các trọng số mô hình vào bộ nhớ đệm máy tính (hỗ trợ chạy 100% offline):
 
@@ -137,7 +114,7 @@ Script này sẽ tải:
 
 ---
 
-### Bước 7: Đồng bộ & Khởi tạo Chỉ mục Kho Tri Thức (ChromaDB & BM25)
+### Bước 6: Đồng bộ & Khởi tạo Chỉ mục Kho Tri Thức (ChromaDB & BM25)
 
 Sau khi clone repo mới, cơ sở dữ liệu vector ChromaDB chưa được tạo sẵn để tiết kiệm dung lượng repo.
 
@@ -164,7 +141,7 @@ Sau khi clone repo mới, cơ sở dữ liệu vector ChromaDB chưa được t�
 
 ## 3. KHỞI CHẠY ỨNG DỤNG TỪ TERMINAL (RUN APPLICATION)
 
-Đảm bảo môi trường ảo `.venv` đã được kích hoạt trước khi chạy các lệnh sau:
+Mở Terminal tại thư mục gốc của dự án (`chatbox2.0`) và thực thi các lệnh sau:
 
 ### 1. Giao diện Web Streamlit (Khuyên dùng cho trải nghiệm Chatbox hiện đại)
 
@@ -207,12 +184,17 @@ python -m unittest tests.test_safety_gate tests.test_query_router tests.test_sma
 
 ## 5. XỬ LÝ SỰ CỐ THƯỜNG GẶP (TROUBLESHOOTING)
 
-### 1. Lỗi PowerShell `running scripts is disabled on this system`
-- **Nguyên nhân:** Chính sách bảo mật ExecutionPolicy mặc định của Windows PowerShell ngăn chặn script kích hoạt `.ps1`.
-- **Cách khắc phục:** Mở PowerShell và chạy lệnh:
-  ```powershell
-  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-  ```
+### 1. Lỗi `No module named pip` hoặc xuất hiện thư mục lỗi `~ip`
+- **Nguyên nhân:** Lỗi kinh điển trên Windows khi chạy lệnh `python -m pip install --upgrade pip` (đặc biệt trong môi trường ảo `.venv`). Cơ chế khóa tệp (file locking) của Windows chặn tiến trình ghi đè tập tin đang chạy, pip tự đổi tên thư mục chính thành `~ip` để chuẩn bị thay thế nhưng bị ngắt quãng giữa chừng, làm mất module `pip`.
+- **Cách khắc phục:**
+  - **Nếu gặp trong thư mục `.venv`:** Xóa sạch thư mục `.venv` bị lỗi:
+    - CMD: `rmdir /s /q .venv`
+    - PowerShell: `Remove-Item -Recurse -Force .venv`  
+    Sau đó cài đặt trực tiếp vào Python máy: `pip install -r requirements.txt` (không cần và không nên tạo lại `.venv`).
+  - **Nếu gặp trên Python hệ thống của máy:** Truy cập thư mục `site-packages` (ví dụ `C:\Python311\Lib\site-packages`), tìm thư mục `~ip` và đổi tên lại thành `pip`, hoặc chạy lệnh khôi phục:
+    ```bash
+    python -m ensurepip --default-pip
+    ```
 
 ### 2. Lỗi `ConnectionRefusedError: [WinError 10061]` khi gọi Ollama
 - **Nguyên nhân:** Dịch vụ Ollama chưa được khởi động trên máy tính.

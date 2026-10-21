@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.core.exceptions import DataLoadError
 from src.core.models import QARecord
@@ -12,6 +12,7 @@ from src.data.loaders.docx_loader import DocxLoader
 from src.data.loaders.excel_loader import ExcelLoader
 from src.data.loaders.json_loader import JSONLoader
 from src.data.loaders.pdf_loader import PDFLoader
+from src.data.loaders.sqlite_loader import SQLiteLoader
 from src.data.loaders.text_loader import TextLoader
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class FileLoaderRouter:
         text = TextLoader()
         docx = DocxLoader()
         pdf = PDFLoader()
+        sqlite = SQLiteLoader()
 
         for ext in excel.SUPPORTED_EXTENSIONS:
             self.loaders[ext.lower()] = excel
@@ -44,6 +46,8 @@ class FileLoaderRouter:
             self.loaders[ext.lower()] = docx
         for ext in pdf.SUPPORTED_EXTENSIONS:
             self.loaders[ext.lower()] = pdf
+        for ext in sqlite.SUPPORTED_EXTENSIONS:
+            self.loaders[ext.lower()] = sqlite
 
     @property
     def supported_extensions(self) -> List[str]:
@@ -82,8 +86,14 @@ class FileLoaderRouter:
         self,
         file_path: Path,
         file_hash: Optional[str] = None,
-        start_index: int = 1
+        start_index: int = 1,
+        mapping_config: Optional[Any] = None,
     ) -> List[QARecord]:
         """Tải và trích xuất dữ liệu từ tệp thông qua loader thích hợp."""
         loader = self.get_loader(file_path)
+        if mapping_config is not None and hasattr(loader, "load"):
+            try:
+                return loader.load(file_path, file_hash=file_hash, start_index=start_index, mapping_config=mapping_config)
+            except TypeError:
+                pass
         return loader.load(file_path, file_hash=file_hash, start_index=start_index)

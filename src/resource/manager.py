@@ -53,12 +53,20 @@ class IndexAccessCoordinator:
         self._condition = threading.Condition(self._lock)
         self._readers: int = 0
         self._writer: bool = False
+        self._writer_thread: Optional[int] = None
+        self._writer_recursion: int = 0
         self._waiting_writers: int = 0
 
     def acquire_read(self, timeout: float = 10.0) -> bool:
         """Xin khóa đọc (cho phép đọc đồng thời). Trả về True nếu thành công, False nếu timeout."""
+        current_thread = threading.get_ident()
         deadline = time.time() + timeout
         with self._lock:
+            # Nếu chính luồng writer đang giữ khóa ghi, cho phép đọc đệ quy
+            if self._writer and self._writer_thread == current_thread:
+                self._readers += 1
+                return True
+
             while self._writer or self._waiting_writers > 0:
                 remaining = deadline - time.time()
                 if remaining <= 0:
@@ -76,9 +84,15 @@ class IndexAccessCoordinator:
                     self._condition.notify_all()
 
     def acquire_write(self, timeout: float = 30.0) -> bool:
-        """Xin khóa ghi độc quyền. Trả về True nếu thành công, False nếu timeout."""
+        """Xin khóa ghi độc quyền. Hỗ trợ re-entrant cho cùng một luồng ghi. Trả về True nếu thành công, False nếu timeout."""
+        current_thread = threading.get_ident()
         deadline = time.time() + timeout
         with self._lock:
+            # Nếu chính luồng này đã giữ khóa ghi, tăng biến đếm đệ quy và cho qua
+            if self._writer and self._writer_thread == current_thread:
+                self._writer_recursion += 1
+                return True
+
             self._waiting_writers += 1
             try:
                 while self._writer or self._readers > 0:
@@ -87,15 +101,23 @@ class IndexAccessCoordinator:
                         return False
                     self._condition.wait(timeout=remaining)
                 self._writer = True
+                self._writer_thread = current_thread
+                self._writer_recursion = 1
                 return True
             finally:
                 self._waiting_writers -= 1
 
     def release_write(self) -> None:
         """Nhả khóa ghi độc quyền."""
+        current_thread = threading.get_ident()
         with self._lock:
-            self._writer = False
-            self._condition.notify_all()
+            if self._writer and self._writer_thread == current_thread:
+                self._writer_recursion -= 1
+                if self._writer_recursion <= 0:
+                    self._writer = False
+                    self._writer_thread = None
+                    self._writer_recursion = 0
+                    self._condition.notify_all()
 
     @contextmanager
     def read_lock(self, timeout: float = 10.0) -> Generator[bool, None, None]:

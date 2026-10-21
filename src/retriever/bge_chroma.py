@@ -455,6 +455,23 @@ class BGEChromaRetriever:
 
         return len(record_ids)
 
+    def clear_collection(self) -> None:
+        """Xóa toàn bộ vector trong collection ChromaDB và tái tạo collection ở trạng thái rỗng."""
+        coll_name = settings.CHROMA_COLLECTION_NAME
+        try:
+            self.client.delete_collection(name=coll_name)
+            logger.info("BGEChromaRetriever: Đã xóa collection '%s'.", coll_name)
+        except Exception as exc:
+            logger.warning("BGEChromaRetriever: delete_collection '%s' ghi nhận: %s", coll_name, exc)
+
+        self._collection = self.client.get_or_create_collection(
+            name=coll_name,
+            metadata={"hnsw:space": "cosine"}
+        )
+        self.records = []
+        self.rec_map = {}
+        logger.info("BGEChromaRetriever: Đã khởi tạo lại collection rỗng '%s' (count=0).", coll_name)
+
     def search(self, query: str, top_k: int = 15) -> List[Tuple[QARecord, float, int]]:
         """Tìm kiếm top_k văn bản tương đồng ngữ nghĩa bằng BGE-M3 trên ChromaDB.
 
