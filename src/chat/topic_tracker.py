@@ -23,7 +23,10 @@ VIETNAMESE_STOPWORDS = {
     "giup", "xem", "biet", "voi", "xin", "cam", "on", "va", "nhung", "cac",
     "duoc", "co", "the", "con", "the", "vay", "sao", "dang", "loai", "mot",
     "hai", "ba", "bon", "nam", "trong", "ngoai", "khi", "luc", "neu", "thi",
-    "se", "da", "dang", "nhu", "ra", "vao", "lai", "chua", "roi", "khong"
+    "se", "da", "dang", "nhu", "ra", "vao", "lai", "chua", "roi", "khong",
+    "danh", "tinh", "dong", "trang", "gioi", "pho", "lien", "than",
+    "nghia", "vi", "du", "phat", "am", "cau", "hoi", "tra", "cuu",
+    "ban", "minh", "em", "anh", "chi", "giai", "thich", "giup", "doc"
 }
 
 # Các cụm từ chỉ đại từ tham chiếu đến từ vựng ở lượt trước
@@ -97,14 +100,6 @@ class TopicTracker:
 
         clean_lower = clean.lower()
 
-        # 0. Ưu tiên kiểm tra các mẫu câu định nghĩa phổ biến
-        # Ví dụ: "nghĩa của [word]?", "nghĩa từ [word]?"
-        meaning_match = re.search(r"(?:nghĩa của|nghĩa từ|nghĩa của từ)\s+([a-zA-Z0-9_\-]+)", clean_lower)
-        if meaning_match:
-            cand = meaning_match.group(1).strip()
-            if cand not in VIETNAMESE_STOPWORDS:
-                return cand
-
         # 1. Ưu tiên kiểm tra với tập từ vựng tiếng Anh chuẩn trong Dataset (vocab_words)
         # Sắp xếp theo độ dài giảm dần để ưu tiên từ ghép như 'hard-working', 'give up'
         if self.vocab_words:
@@ -118,8 +113,16 @@ class TopicTracker:
         quote_match = re.search(r"[\"'\u201c\u2018]([a-zA-Z\s\-]{2,})[\"'\u201d\u2019]", clean)
         if quote_match:
             candidate = quote_match.group(1).strip().lower()
-            if candidate not in VIETNAMESE_STOPWORDS:
+            if candidate not in VIETNAMESE_STOPWORDS and len(candidate) >= 2:
                 return candidate
+
+        # 3. Kiểm tra các mẫu câu định nghĩa phổ biến
+        # Ví dụ: "nghĩa của [word]?", "nghĩa từ [word]?", "nghĩa của từ [word]?"
+        meaning_match = re.search(r"(?:nghĩa của từ|nghĩa từ|nghĩa của)\s+(?:từ\s+|chữ\s+)?([a-zA-Z0-9_\-]{2,})", clean_lower)
+        if meaning_match:
+            cand = meaning_match.group(1).strip()
+            if cand not in VIETNAMESE_STOPWORDS and len(cand) >= 2:
+                return cand
 
         # 3. Phân rã theo khoảng trắng và kiểm tra token thuần tiếng Anh (re.fullmatch)
         # Bỏ qua các token chứa ký tự tiếng Việt hoặc dấu câu
@@ -146,9 +149,14 @@ class TopicTracker:
             return valid_en_tokens[0]
 
         # 5. Token tiếng Anh hợp lệ đầu tiên nếu dài >= 3 ký tự và không phải stopword
-        for t in valid_en_tokens:
-            if len(t) >= 3 and t not in VIETNAMESE_STOPWORDS:
-                return t
+        if self.vocab_words:
+            for t in valid_en_tokens:
+                if t in self.vocab_words:
+                    return t
+        else:
+            for t in valid_en_tokens:
+                if len(t) >= 3 and t not in VIETNAMESE_STOPWORDS:
+                    return t
 
         return None
 
@@ -208,8 +216,8 @@ class TopicTracker:
                 for pattern in REFERENTIAL_PATTERNS:
                     resolved = re.sub(pattern, f"từ {self.active_word}", resolved, flags=re.IGNORECASE)
 
-                # Nếu câu hỏi quá ngắn (ví dụ: "còn ví dụ?", "còn danh từ?"), bổ sung chủ ngữ
-                if resolved.lower().startswith("còn ") or resolved.lower().startswith("thế còn "):
+                # Nếu câu hỏi quá ngắn (ví dụ: "còn ví dụ?", "còn danh từ?"), bổ sung chủ ngữ nếu chưa có
+                if (resolved.lower().startswith("còn ") or resolved.lower().startswith("thế còn ")) and f"từ {self.active_word}" not in resolved.lower():
                     resolved = f"{resolved} của từ {self.active_word}"
 
                 logger.info("Phục hồi câu hỏi nối tiếp: '%s' -> '%s' (active_word=%s)", query, resolved, self.active_word)

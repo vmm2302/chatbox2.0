@@ -4,7 +4,7 @@ Hệ thống tra cứu từ vựng tiếng Anh bằng tiếng Việt chuẩn ki�
 - Sidebar bên trái: Logo Chatbox 2.0, Nút '+ Cuộc trò chuyện mới', Menu điều hướng 3 trang.
 - Khung chính:
   1. Trang 'Tra cứu từ vựng': Tiêu đề kèm badge 'Local', vùng tin nhắn cuộn tự nhiên theo viewport,
-     lượt người dùng (BẠN) căn phải trong bong bóng xám nhạt, lượt chatbot đóng khung trong card có viền nhẹ,
+     lượt người dùng căn phải kèm icon trong bong bóng xám nhạt, lượt chatbot đóng khung trong card có viền nhẹ,
      expander nguồn dữ liệu thật, ô nhập st.chat_input ở đáy.
   2. Trang 'Quản lý dữ liệu': Nạp đa tệp (8 định dạng), phân tách ADD/REPLACE kèm xác nhận an toàn, thống kê lưu trữ.
   3. Trang 'Chẩn đoán': Thông số động GPU/CUDA, phân biệt model Ollama, System Prompt read-only, công tắc Inspector, audit log.
@@ -95,6 +95,22 @@ bot_img_path = project_root / "assets" / "bot.png"
 
 USER_AVATAR = str(user_img_path) if user_img_path.exists() else "👤"
 BOT_AVATAR = str(bot_img_path) if bot_img_path.exists() else "🤖"
+
+
+def _get_user_avatar_html() -> str:
+    """Tái sử dụng icon người dùng có sẵn trong dự án (assets/user.png) chuẩn kích thước 32x32 px."""
+    if user_img_path.exists():
+        encoded = base64.b64encode(user_img_path.read_bytes()).decode("utf-8")
+        return (
+            f'<img src="data:image/png;base64,{encoded}" '
+            f'width="32" height="32" '
+            f'style="width: 32px !important; height: 32px !important; max-width: 32px !important; max-height: 32px !important; object-fit: contain; display: inline-block;" '
+            f'class="user-turn-avatar" alt="User" />'
+        )
+    return f'<span class="user-turn-avatar" style="font-size: 32px; line-height: 32px; display: inline-block;">{USER_AVATAR}</span>'
+
+
+USER_AVATAR_HTML = _get_user_avatar_html()
 
 # Cấu hình trang Streamlit chuẩn Web Chatbox Desktop-style
 st.set_page_config(
@@ -271,6 +287,8 @@ if "sqlite_configs" not in st.session_state:
     st.session_state.sqlite_configs = {}
 if "show_clear_kb_confirm" not in st.session_state:
     st.session_state.show_clear_kb_confirm = False
+if "is_processing" not in st.session_state:
+    st.session_state.is_processing = False
 
 # Lấy trạng thái runtime
 ollama_info = get_ollama_runtime_status(settings.OLLAMA_BASE_URL, settings.OLLAMA_MODEL)
@@ -298,6 +316,7 @@ with st.sidebar:
         if hasattr(engine, "tracker") and hasattr(engine.tracker, "clear"):
             engine.tracker.clear()
         st.session_state.status = "Sẵn sàng!"
+        st.session_state.is_processing = False
         st.session_state.nav_page = "💬 Tra cứu từ vựng"
         st.toast("Đã bắt đầu cuộc trò chuyện mới.", icon="✨")
         st.rerun()
@@ -339,6 +358,217 @@ with st.sidebar:
 # KHUNG CHÍNH (MAIN AREA)
 # ==============================================================================
 
+# ==============================================================================
+# CÁC HÀM RENDER & XỬ LÝ HỘI THOẠI CHUẨN MODERN STREAMLIT CHAT UI
+# ==============================================================================
+
+def render_user_turn(content: str) -> None:
+    """Hiển thị lượt tin nhắn của người dùng: căn phải, icon người dùng có sẵn, bong bóng xám nhạt."""
+    with st.chat_message("user", avatar=USER_AVATAR):
+        col_spacer, col_user = st.columns([1, 4])
+        with col_user:
+            st.markdown(
+                f"""
+                <div class="user-turn-wrapper">
+                    <div class="user-turn-author">{USER_AVATAR_HTML}</div>
+                    <div class="user-turn-body">{html.escape(content)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+
+def render_bot_card_header() -> None:
+    """Hiển thị tiêu đề thẻ Card của Chatbox kèm biểu tượng robot."""
+    st.markdown(
+        """
+        <div class="bot-card-header">
+            <span class="bot-card-icon">🤖</span>
+            <span class="bot-card-title">Chatbox</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def render_provenance_and_inspector(meta: Optional[ChatResponse]) -> None:
+    """Hiển thị thông tin xuất xứ dữ liệu (Provenance) và bảng kỹ thuật (Inspector)."""
+    if meta is None:
+        return
+
+    source_file = getattr(meta, "source", None)
+    rec_id = getattr(meta, "record_id", None)
+    word_val = getattr(meta, "word", None)
+    sheet_val = None
+
+    if getattr(meta, "candidates", None) and len(meta.candidates) > 0:
+        top_candidate = meta.candidates[0].record
+        if not source_file:
+            source_file = getattr(top_candidate, "source", None) or getattr(top_candidate, "source_file", None)
+        if not rec_id:
+            rec_id = getattr(top_candidate, "record_id", None) or getattr(top_candidate, "id", None)
+        if not word_val:
+            word_val = getattr(top_candidate, "word", None)
+        sheet_val = getattr(top_candidate, "sheet", None)
+
+    has_provenance = any([rec_id, source_file, word_val, sheet_val])
+    if has_provenance:
+        with st.expander("📄 Nguồn dữ liệu · Mở rộng", expanded=False):
+            prov_html = []
+            if rec_id:
+                prov_html.append(f'<span class="source-badge">Mã: <b>{html.escape(str(rec_id))}</b></span>')
+            if word_val:
+                prov_html.append(f'<span class="source-badge">Từ: <b>{html.escape(str(word_val))}</b></span>')
+            if source_file:
+                prov_html.append(f'<span class="source-badge">Tệp: <b>{html.escape(str(source_file))}</b></span>')
+            if sheet_val:
+                prov_html.append(f'<span class="source-badge">Sheet/Phần: <b>{html.escape(str(sheet_val))}</b></span>')
+            st.markdown("".join(prov_html), unsafe_allow_html=True)
+
+    if st.session_state.get("dev_mode", False):
+        with st.expander("🔬 Bảng phân tích kỹ thuật (Inspector)", expanded=False):
+            ic1, ic2, ic3, ic4 = st.columns(4)
+            ic1.metric("Response Mode", str(getattr(meta, "mode", "N/A")))
+            ic2.metric("PhoBERT Intent", str(getattr(meta, "intent", "N/A") or "N/A"))
+            ic3.metric("RRF Score", f"{getattr(meta, 'rrf_score', 0.0):.4f}")
+            ic4.metric("Độ trễ", f"{getattr(meta, 'latency_ms', 0.0):.1f} ms")
+
+
+def render_assistant_turn(content: str, meta: Optional[ChatResponse] = None) -> None:
+    """Hiển thị lượt tin nhắn chatbot hoàn chỉnh trong lịch sử hội thoại."""
+    with st.chat_message("assistant", avatar=BOT_AVATAR):
+        col_bot, col_spacer = st.columns([4, 1])
+        with col_bot:
+            with st.container(border=True):
+                render_bot_card_header()
+                st.markdown(content)
+                render_provenance_and_inspector(meta)
+
+
+def process_user_query(
+    clean_input: str,
+    chat_engine: ChatEngine,
+    messages_container=None,
+    empty_state_placeholder=None,
+) -> Optional[ChatResponse]:
+    """Quy trình xử lý một câu hỏi của người dùng chuẩn luồng hiện đại:
+    1. Cập nhật câu hỏi vào st.session_state.messages ngay lập tức.
+    2. Render bubble người dùng ngay lập tức trên UI trước khi bắt đầu backend.
+    3. Render bubble assistant cùng placeholder trạng thái 'Đang phân tích câu hỏi & tìm kiếm dữ liệu...'.
+    4. Gọi ChatEngine.ask_stream() để sinh câu trả lời theo luồng (streaming).
+    5. Cập nhật các chunk phản hồi thay thế placeholder trạng thái.
+    6. Lưu câu trả lời hoàn chỉnh cùng metadata vào st.session_state.messages.
+    7. Ghi nhận nhật ký kiểm toán (audit log).
+    """
+    if not clean_input:
+        return None
+
+    st.session_state.is_processing = True
+    try:
+        # Bước 1: Lưu câu hỏi người dùng vào lịch sử ngay
+        st.session_state.messages.append({
+            "role": "user",
+            "content": clean_input
+        })
+        st.session_state.status = "Đang xử lý..."
+
+        # Bước 2: Xóa empty state nếu có
+        if empty_state_placeholder is not None:
+            empty_state_placeholder.empty()
+
+        # Bước 3: Render trong container tin nhắn
+        render_ctx = messages_container if messages_container is not None else st.container()
+        with render_ctx:
+            # 3A. Hiện bubble user ngay
+            render_user_turn(clean_input)
+
+            # 3B. Hiện bubble assistant với placeholder trạng thái đang xử lý
+            with st.chat_message("assistant", avatar=BOT_AVATAR):
+                col_bot, col_spacer = st.columns([4, 1])
+                with col_bot:
+                    with st.container(border=True):
+                        render_bot_card_header()
+
+                        status_placeholder = st.empty()
+                        status_placeholder.markdown(
+                            '<div class="bot-status-indicator">'
+                            '<span class="status-spinner">⏳</span> '
+                            '<span>Đang phân tích câu hỏi & tìm kiếm dữ liệu...</span>'
+                            '</div>',
+                            unsafe_allow_html=True
+                        )
+
+                        response_holder: Dict[str, Any] = {"meta": None}
+
+                        def stream_adapter():
+                            first_chunk = True
+                            try:
+                                for token, meta in chat_engine.ask_stream(clean_input):
+                                    if meta is not None:
+                                        response_holder["meta"] = meta
+                                    if token:
+                                        if first_chunk:
+                                            status_placeholder.empty()
+                                            first_chunk = False
+                                        yield token
+                            finally:
+                                if first_chunk:
+                                    status_placeholder.empty()
+
+                        try:
+                            stream_gen = stream_adapter()
+                            full_answer = st.write_stream(stream_gen)
+                            status_placeholder.empty()
+                        except Exception as ask_err:
+                            status_placeholder.empty()
+                            logger.error("Lỗi khi xử lý truy vấn: %s", ask_err, exc_info=True)
+                            error_answer = (
+                                f"⚠️ **Không thể kết nối hoặc xử lý câu trả lời từ mô hình.**\n\n"
+                                f"- Chi tiết lỗi: `{ask_err}`\n"
+                                f"- Vui lòng kiểm tra dịch vụ Ollama cục bộ ({settings.OLLAMA_BASE_URL}) hoặc thử lại sau."
+                            )
+                            st.markdown(error_answer)
+                            full_answer = error_answer
+                            response_holder["meta"] = ChatResponse(
+                                answer=error_answer,
+                                mode="ERROR",
+                                latency_ms=0.0
+                            )
+
+                        final_meta: Optional[ChatResponse] = response_holder.get("meta")
+                        persisted_answer = final_meta.answer if (final_meta and final_meta.answer) else full_answer
+
+                        # Render nguồn dữ liệu và inspector
+                        render_provenance_and_inspector(final_meta)
+
+        # Bước 4: Lưu câu trả lời hoàn chỉnh vào session state
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": persisted_answer,
+            "meta": final_meta
+        })
+        st.session_state.status = "Hoàn tất!"
+
+        # Bước 5: Ghi audit log
+        active_word_val = getattr(chat_engine.tracker, "active_word", None) if hasattr(chat_engine, "tracker") else None
+        st.session_state.audit_logs.append({
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "query": clean_input,
+            "mode": str(getattr(final_meta, "mode", "UNKNOWN")),
+            "intent": getattr(final_meta, "intent", None),
+            "active_word": active_word_val,
+            "record_id": getattr(final_meta, "record_id", None),
+            "rrf_score": getattr(final_meta, "rrf_score", 0.0),
+            "latency_ms": getattr(final_meta, "latency_ms", 0.0),
+            "answer": persisted_answer
+        })
+
+        return final_meta
+
+    finally:
+        st.session_state.is_processing = False
+
+
 if st.session_state.nav_page == "💬 Tra cứu từ vựng":
     # --------------------------------------------------------------------------
     # TRANG 1: 💬 TRA CỨU TỪ VỰNG (MAIN CHAT VIEW)
@@ -362,96 +592,33 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
     )
 
     # 2. Vùng hiển thị tin nhắn (cuộn tự nhiên theo trình duyệt, không chia 2 thanh cuộn)
-    if not st.session_state.messages:
-        # Màn hình rỗng / Lời chào ban đầu (Empty State chuẩn Visual Reference)
-        st.markdown(
-            """
-            <div class="chat-empty-state-box">
-                <div class="chat-empty-icon">🗨️</div>
-                <div class="chat-empty-title">Bạn muốn tra cứu từ nào?</div>
-                <div class="chat-empty-subtitle">Nhập từ tiếng Anh hoặc câu hỏi bằng tiếng Việt.</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-    else:
-        for idx, msg in enumerate(st.session_state.messages):
-            role = msg.get("role", "assistant")
-            content = msg.get("content", "")
-            meta: Optional[ChatResponse] = msg.get("meta")
+    messages_container = st.container()
 
-            if role == "user":
-                # Lỗi B: Lượt tin nhắn User - Căn phải bằng st.columns, nhãn "BẠN", bong bóng xám nhạt
-                with st.chat_message("user", avatar=USER_AVATAR):
-                    col_spacer, col_user = st.columns([1, 4])
-                    with col_user:
-                        st.markdown(
-                            f"""
-                            <div class="user-turn-wrapper">
-                                <div class="user-turn-author">BẠN</div>
-                                <div class="user-turn-body">{html.escape(content)}</div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-            else:
-                # Lượt tin nhắn Chatbot - Căn trái bằng st.columns([4, 1]), bọc trong container có viền nhẹ
-                with st.chat_message("assistant", avatar=BOT_AVATAR):
-                    col_bot, col_spacer = st.columns([4, 1])
-                    with col_bot:
-                        with st.container(border=True):
-                            # Khung thẻ Card chứa tiêu đề Chatbox và nội dung Markdown
-                            st.markdown(
-                                """
-                                <div class="bot-card-header">
-                                    <span class="bot-card-icon">🤖</span>
-                                    <span class="bot-card-title">Chatbox</span>
-                                </div>
-                                """,
-                                unsafe_allow_html=True
-                            )
-                            # Render nội dung Markdown nguyên bản (phiên âm, từ loại, phân dòng, ví dụ in nghiêng)
-                            st.markdown(content)
+    with messages_container:
+        empty_state_placeholder = st.empty()
+        if not st.session_state.messages:
+            # Màn hình rỗng / Lời chào ban đầu (Empty State chuẩn Visual Reference)
+            with empty_state_placeholder.container():
+                st.markdown(
+                    """
+                    <div class="chat-empty-state-box">
+                        <div class="chat-empty-icon">🗨️</div>
+                        <div class="chat-empty-title">Bạn muốn tra cứu từ nào?</div>
+                        <div class="chat-empty-subtitle">Nhập từ tiếng Anh hoặc câu hỏi bằng tiếng Việt.</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+        else:
+            for idx, msg in enumerate(st.session_state.messages):
+                role = msg.get("role", "assistant")
+                content = msg.get("content", "")
+                meta: Optional[ChatResponse] = msg.get("meta")
 
-                            # Hiển thị Expander Nguồn dữ liệu (Provenance) - Chỉ hiển thị metadata có thật
-                            if meta is not None:
-                                source_file = getattr(meta, "source", None)
-                                rec_id = getattr(meta, "record_id", None)
-                                word_val = getattr(meta, "word", None)
-                                sheet_val = None
-
-                                if getattr(meta, "candidates", None) and len(meta.candidates) > 0:
-                                    top_candidate = meta.candidates[0].record
-                                    if not source_file:
-                                        source_file = getattr(top_candidate, "source", None) or getattr(top_candidate, "source_file", None)
-                                    if not rec_id:
-                                        rec_id = getattr(top_candidate, "record_id", None) or getattr(top_candidate, "id", None)
-                                    if not word_val:
-                                        word_val = getattr(top_candidate, "word", None)
-                                    sheet_val = getattr(top_candidate, "sheet", None)
-
-                                has_provenance = any([rec_id, source_file, word_val, sheet_val])
-                                if has_provenance:
-                                    with st.expander("📄 Nguồn dữ liệu · Mở rộng", expanded=False):
-                                        prov_html = []
-                                        if rec_id:
-                                            prov_html.append(f'<span class="source-badge">Mã: <b>{html.escape(str(rec_id))}</b></span>')
-                                        if word_val:
-                                            prov_html.append(f'<span class="source-badge">Từ: <b>{html.escape(str(word_val))}</b></span>')
-                                        if source_file:
-                                            prov_html.append(f'<span class="source-badge">Tệp: <b>{html.escape(str(source_file))}</b></span>')
-                                        if sheet_val:
-                                            prov_html.append(f'<span class="source-badge">Sheet/Phần: <b>{html.escape(str(sheet_val))}</b></span>')
-                                        st.markdown("".join(prov_html), unsafe_allow_html=True)
-
-                                # Bảng phân tích kỹ thuật (Inspector) - Mặc định TẮT, chỉ mở khi bật ở Chẩn đoán
-                                if st.session_state.dev_mode:
-                                    with st.expander("🔬 Bảng phân tích kỹ thuật (Inspector)", expanded=False):
-                                        ic1, ic2, ic3, ic4 = st.columns(4)
-                                        ic1.metric("Response Mode", str(getattr(meta, "mode", "N/A")))
-                                        ic2.metric("PhoBERT Intent", str(getattr(meta, "intent", "N/A") or "N/A"))
-                                        ic3.metric("RRF Score", f"{getattr(meta, 'rrf_score', 0.0):.4f}")
-                                        ic4.metric("Độ trễ", f"{getattr(meta, 'latency_ms', 0.0):.1f} ms")
+                if role == "user":
+                    render_user_turn(content)
+                else:
+                    render_assistant_turn(content, meta)
 
     # Dòng trạng thái chân khung chat
     st.markdown(
@@ -468,47 +635,13 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
     user_query = st.chat_input("Nhập từ vựng hoặc câu hỏi tiếng Việt...")
     if user_query:
         clean_input = user_query.strip()
-        if clean_input:
-            st.session_state.messages.append({
-                "role": "user",
-                "content": clean_input
-            })
-            st.session_state.status = "Đang xử lý..."
-
-            try:
-                response = engine.ask(clean_input)
-            except Exception as ask_err:
-                logger.error("Lỗi khi xử lý truy vấn: %s", ask_err, exc_info=True)
-                response = ChatResponse(
-                    answer=(
-                        f"⚠️ **Không thể kết nối hoặc xử lý câu trả lời từ mô hình.**\n\n"
-                        f"- Chi tiết lỗi: `{ask_err}`\n"
-                        f"- Vui lòng kiểm tra dịch vụ Ollama cục bộ ({settings.OLLAMA_BASE_URL}) hoặc thử lại sau."
-                    ),
-                    mode="ERROR",
-                    latency_ms=0.0
-                )
-
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": response.answer,
-                "meta": response
-            })
-            st.session_state.status = "Hoàn tất!"
-
-            active_word_val = getattr(engine.tracker, "active_word", None) if hasattr(engine, "tracker") else None
-            st.session_state.audit_logs.append({
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "query": clean_input,
-                "mode": str(getattr(response, "mode", "UNKNOWN")),
-                "intent": getattr(response, "intent", None),
-                "active_word": active_word_val,
-                "record_id": getattr(response, "record_id", None),
-                "rrf_score": getattr(response, "rrf_score", 0.0),
-                "latency_ms": getattr(response, "latency_ms", 0.0),
-                "answer": response.answer
-            })
-            st.rerun()
+        if clean_input and not st.session_state.get("is_processing", False):
+            process_user_query(
+                clean_input=clean_input,
+                chat_engine=engine,
+                messages_container=messages_container,
+                empty_state_placeholder=empty_state_placeholder,
+            )
 
 
 elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":

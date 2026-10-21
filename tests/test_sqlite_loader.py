@@ -445,7 +445,8 @@ class TestSQLiteLoaderComprehensive(unittest.TestCase):
         conn.close()
 
         # Giả lập lỗi ở bước lập chỉ mục vector (Chroma error)
-        with patch("src.retriever.bge_chroma.BGEChromaRetriever.upsert_records", side_effect=RuntimeError("Mô phỏng lỗi ChromaDB")):
+        with patch("src.data.batch_ingestion.BGEChromaRetriever.upsert_records", side_effect=RuntimeError("Mô phỏng lỗi ChromaDB")), \
+             patch("src.retriever.bge_chroma.BGEChromaRetriever.upsert_records", side_effect=RuntimeError("Mô phỏng lỗi ChromaDB")):
             rep = self.manager.ingest_batch([new_db], mode="add")
             self.assertEqual(rep.batch_status, BatchStatus.FAILED)
 

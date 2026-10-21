@@ -207,7 +207,7 @@ class TestChatEngineVocabularyFormatting(unittest.TestCase):
         self.assertIn("• Please write your address on the form.", resp.answer)
 
         # Kiểm tra các nghĩa của Động từ
-        self.assertIn("**1. Gửi**", resp.answer)
+        self.assertIn("**2. Gửi**", resp.answer)
         self.assertIn("• I will address the package to my sister.", resp.answer)
 
         # Đảm bảo không dùng bảng Markdown

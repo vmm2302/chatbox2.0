@@ -66,7 +66,12 @@ chatbox2.0/
 │   ├── raw/                     # Tài liệu nguồn: Oxford 3000 PDF, Từ điển SQLite, Excel
 │   └── processed/               # qa_records.jsonl chuẩn hóa & sources_manifest.json
 ├── assets/                      # Ảnh đại diện bot/user, flowchart kiến trúc RAG
-├── docs/                        # Tài liệu hướng dẫn chuyên sâu
+├── docs/                        # Tài liệu hướng dẫn chuyên sâu & Báo cáo Rubric
+│   ├── IMPLEMENTATION_REPORT.md # Báo cáo tổng kết hoàn thiện đồ án theo Rubric A-G
+│   ├── DEMO_AND_DEFENSE_GUIDE.md# Kịch bản Demo 10 bước & 12 câu hỏi bảo vệ (Viva Q&A)
+│   ├── CHATBOT_TEST_REPORT.md   # Báo cáo thực thi 15 ca kiểm thử Rubric (15/15 PASS)
+│   ├── RUBRIC_GAP_ANALYSIS.md   # Phân tích khoảng cách rubric & kế hoạch thực hiện
+│   └── huong_dan_nap_du_lieu_excel.md # Hướng dẫn nạp tri thức từ file Excel
 ├── scripts/
 │   ├── download_models.py       # Tải trước PhoBERT-base-v2 và BGE-M3 vào local cache
 │   ├── sync_oxford_knowledge.py # Đồng bộ từ vựng Oxford 3000 và tra cứu SQLite
@@ -160,23 +165,45 @@ python ingest_data.py --file "data/processed/qa_records.jsonl" --mode replace
   ```
 
 ### Bước 4: Chạy kiểm thử tự động (Test Suite)
-```bash
-python -m unittest discover -s tests -p "test_*.py"
-```
+
+1. **Chạy bộ 15 ca kiểm thử chuẩn hóa theo Rubric đồ án:**
+   ```bash
+   python -m unittest tests.test_chatbot_rubric
+   ```
+   *(Tự động chạy và cập nhật báo cáo chi tiết tại `docs/CHATBOT_TEST_REPORT.md`)*
+
+2. **Chạy toàn bộ 190+ ca kiểm thử hồi quy (Full Regression Suite):**
+   ```bash
+   python -m unittest discover -s tests -p "test_*.py"
+   ```
 
 ---
 
-## 5. KẾT QUẢ KIỂM THỬ 7 KỊCH BẢN CHUẨN ĐỒ ÁN (TEST SCENARIOS)
+## 5. KẾT QUẢ KIỂM THỬ 15 CA HỘI THOẠI THEO RUBRIC (15/15 PASSED - 100%)
 
-| STT | Kịch bản kiểm thử | Câu hỏi người dùng | Kết quả xử lý | Chế độ (Mode) | Đánh giá |
-| :---: | :--- | :--- | :--- | :---: | :---: |
-| **1** | **Exact Query** | `"about nghĩa là gì?"` | Định nghĩa từ vựng: Về, quanh quất, quanh quẩn. Trích xuất chính xác từ Sheet 1. | `DIRECT_MATCH` / `RAG` | **100% PASSED** |
-| **2** | **Paraphrased Query** | `"bạn có thể giải thích ý nghĩa của từ about được không?"` | PhoBERT nhận diện `DEFINE_VOCAB`, RRF trích xuất bản ghi `about`, Qwen diễn đạt chính xác. | `RAG_GENERATION` | **100% PASSED** |
-| **3** | **Natural Translation** | `"từ nào có nghĩa là vay mượn?"` | BGE-M3 ngữ nghĩa tìm đúng cặp bản ghi dịch tiếng Việt -> tiếng Anh: `borrow`. | `DIRECT_MATCH` / `RAG` | **100% PASSED** |
-| **4** | **Ambiguous Query** | `"từ này nghĩa là gì?"` *(khi chưa có ngữ cảnh)* | Kích hoạt `Clarification Gate`: Hỏi lại người dùng thay vì hallucination. | `CLARIFICATION` | **100% PASSED** |
-| **5** | **Multi-turn Follow-up** | **Lượt 1:** `"từ about nghĩa là gì?"`<br/>**Lượt 2:** `"cho tôi câu ví dụ của từ này"` | TopicTracker giải quyết `"từ này"` thành `"about"`, trích xuất câu ví dụ từ Sheet 4 (`Do you know much about this old city?`). | `DIRECT_MATCH` / `RAG` | **100% PASSED** |
-| **6** | **Out-of-Scope Query** | `"thời tiết hôm nay thế nào?"` | PhoBERT nhận diện `OUT_OF_SCOPE`, từ chối lịch sự theo quy định, không gọi LLM. | `NO_MATCH` | **100% PASSED** |
-| **7** | **Unseen Vocabulary** | `"từ zzzzqqqxyz nghĩa là gì?"` | Điểm tương đồng RRF dưới ngưỡng (<0.005), từ chối an toàn theo quy định. | `NO_MATCH` | **100% PASSED** |
+Hệ thống đã triển khai và thực thi thành công bộ kiểm thử 15 ca hội thoại theo đúng quy định phân nhóm của Rubric bài tập lớn:
+
+| Mã ca | Phân nhóm kiểm thử | Câu hỏi người dùng | Chế độ (Mode) | Trạng thái |
+| :---: | :--- | :--- | :---: | :---: |
+| **VOC-01** | **In-Scope (Định nghĩa)** | `"about nghĩa là gì?"` | `DIRECT_MATCH` | ✅ **PASS** |
+| **VOC-02** | **In-Scope (Ví dụ)** | `"Cho tôi câu ví dụ của từ about này."` | `RAG_GENERATION` | ✅ **PASS** |
+| **VOC-03** | **In-Scope (Danh sách cấp độ)** | `"Cho tôi 1 danh sách gồm các từ tiếng anh trong trình độ A1"` | `RAG_GENERATION` | ✅ **PASS** |
+| **VOC-04** | **In-Scope (Dịch Việt -> Anh)** | `"từ nào có nghĩa là từ bỏ?"` | `RAG_GENERATION` | ✅ **PASS** |
+| **VOC-05** | **In-Scope (Từ loại, phát âm)** | `"phát âm và từ loại của từ abandon là gì?"` | `RAG_GENERATION` | ✅ **PASS** |
+| **PAR-01** | **Paraphrased (Lịch sự, trợ từ)**| `"bạn có thể giải thích ý nghĩa của từ about được không?"` | `RAG_GENERATION` | ✅ **PASS** |
+| **PAR-02** | **Paraphrased (Thân mật, filler)**| `"nghĩa của từ about là gì vậy chatbot?"` | `RAG_GENERATION` | ✅ **PASS** |
+| **PAR-03** | **Paraphrased (Cross-lingual)** | `"What does about mean in Vietnamese?"` | `DIRECT_MATCH` | ✅ **PASS** |
+| **CTX-01** | **Multi-turn (2 lượt)** | L1: `"từ confident nghĩa là gì?"` $\rightarrow$ L2: `"cho tôi câu ví dụ của từ này"` | `RAG_GENERATION` | ✅ **PASS** |
+| **CTX-02** | **Multi-turn (Đại từ 'nó')** | L1: `"resilient nghĩa là gì?"` $\rightarrow$ L2: `"còn trình độ của nó thì sao?"` | `RAG_GENERATION` | ✅ **PASS** |
+| **CTX-03** | **Multi-turn (3 lượt liên tiếp)** | L1: `"abandon nghĩa gì"` $\rightarrow$ L2: `"còn ví dụ"` $\rightarrow$ L3: `"dạng danh từ của từ đó"` | `RAG_GENERATION` | ✅ **PASS** |
+| **OOS-01** | **Out-of-Scope (Địa lý)** | `"Thủ đô của nước Pháp là gì?"` | `NO_MATCH` | ✅ **PASS** |
+| **OOS-02** | **Out-of-Scope (Thời tiết)** | `"Thời tiết tại Hà Nội hôm nay thế nào?"` | `NO_MATCH` | ✅ **PASS** |
+| **AMB-01** | **Ambiguous (Thiếu từ vựng)** | `"từ này nghĩa là gì?"` *(khi chưa có ngữ cảnh)* | `CLARIFICATION` | ✅ **PASS** |
+| **AMB-02** | **Ambiguous (Hỏi ví dụ trống)**| `"cho tôi câu ví dụ của từ đó"` *(khi chưa có ngữ cảnh)* | `CLARIFICATION` | ✅ **PASS** |
+
+> 📊 **Báo cáo chi tiết:** Xem tại [docs/CHATBOT_TEST_REPORT.md](docs/CHATBOT_TEST_REPORT.md).  
+> 🎯 **Kịch bản Demo & Vấn đáp bảo vệ:** Xem tại [docs/DEMO_AND_DEFENSE_GUIDE.md](docs/DEMO_AND_DEFENSE_GUIDE.md).  
+> 📑 **Báo cáo tổng kết đồ án:** Xem tại [docs/IMPLEMENTATION_REPORT.md](docs/IMPLEMENTATION_REPORT.md).
 
 ---
 

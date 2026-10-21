@@ -5,7 +5,7 @@ Thiết kế chuẩn Web Desktop-style theo Visual Reference:
 - Bảng màu Soft Slate (#475569, #0F172A, #FFFFFF, #F8FAFC, #E2E8F0).
 - Ép Theme Sáng (Light Theme) đồng nhất bất kể hệ điều hành đang bật Dark mode.
 - Khung hội thoại trung tâm cuộn tự nhiên theo viewport của trình duyệt, không tạo 2 thanh cuộn.
-- Tin nhắn người dùng (BẠN) căn phải trong bong bóng xám nhạt (#F1F5F9).
+- Tin nhắn người dùng căn phải với icon trong bong bóng xám nhạt (#F1F5F9).
 - Tin nhắn chatbot đóng khung thẻ Card trắng có viền nhẹ (#E2E8F0) bằng container thật.
 - Bảo toàn trọn vẹn Markdown, newline, từ loại, phiên âm và ví dụ câu.
 - Thích ứng responsive trên cả màn hình desktop lẫn màn hình hẹp.
@@ -420,9 +420,25 @@ div[data-testid="stSidebarResizeHandle"],
     gap: 0 !important;
 }
 
-/* Ẩn avatar ngoài mặc định của Streamlit vì đã có nhãn BẠN & thẻ Chatbox */
-[data-testid="stChatMessage"] [data-testid="stChatMessageAvatar"] {
+/* Ẩn hoàn toàn icon người dùng bên trái mặc định của Streamlit (tránh trùng lặp với icon bên phải) */
+[data-testid="stChatMessage"]:has(.user-turn-wrapper) > div:first-child:not([data-testid="stChatMessageContent"]),
+[data-testid="stChatMessage"]:has(.user-turn-wrapper) > img:first-child,
+[data-testid="stChatMessage"]:has(.user-turn-wrapper) [data-testid*="ChatMessageAvatar"],
+[data-testid="stChatMessage"]:has(.user-turn-wrapper) img[alt*="avatar"],
+[data-testid="stChatMessage"] img[alt="user avatar"],
+[data-testid="stChatMessage"] [data-testid="stChatMessageAvatarUser"],
+[data-testid="stChatMessage"]:has(.user-turn-wrapper) [data-testid="stChatMessageAvatar"] {
     display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+}
+
+[data-testid="stChatMessage"]:has(.user-turn-wrapper) {
+    gap: 0 !important;
 }
 
 [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
@@ -432,7 +448,7 @@ div[data-testid="stSidebarResizeHandle"],
 }
 
 /* --------------------------------------------------------------------------
-   3A. LƯỢT TIN NHẮN USER (BONG BÓNG XÁM CĂN PHẢI, NHÃN "BẠN")
+   3A. LƯỢT TIN NHẮN USER (BONG BÓNG XÁM CĂN PHẢI, ICON NGƯỜI DÙNG CÓ SẴN)
    -------------------------------------------------------------------------- */
 .user-turn-wrapper {
     display: flex !important;
@@ -443,14 +459,24 @@ div[data-testid="stSidebarResizeHandle"],
 }
 
 .user-turn-author {
-    font-size: 0.75rem !important;
-    font-weight: 700 !important;
-    color: #64748B !important;
-    letter-spacing: 0.05em !important;
-    text-transform: uppercase !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
     margin-bottom: 5px !important;
-    text-align: right !important;
     padding-right: 4px !important;
+    min-height: 32px !important;
+}
+
+.user-turn-avatar,
+.user-turn-author img,
+[data-testid="stChatMessage"] .user-turn-author img,
+[data-testid="stMarkdownContainer"] img.user-turn-avatar {
+    width: 32px !important;
+    height: 32px !important;
+    max-width: 32px !important;
+    max-height: 32px !important;
+    object-fit: contain !important;
+    display: inline-block !important;
 }
 
 .user-turn-body {
@@ -509,6 +535,30 @@ div[data-testid="stSidebarResizeHandle"],
     font-size: 0.95rem !important;
     font-weight: 600 !important;
     color: #0F172A !important;
+}
+
+/* Chỉ báo trạng thái đang xử lý bên trong thẻ bot */
+.bot-status-indicator {
+    color: #64748B !important;
+    font-size: 0.92rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    margin: 4px 0 10px 0 !important;
+    font-style: italic !important;
+    line-height: 1.4 !important;
+}
+
+.bot-status-indicator .status-spinner {
+    font-size: 1rem !important;
+    font-style: normal !important;
+    display: inline-block !important;
+    animation: status-pulse 1.5s infinite ease-in-out !important;
+}
+
+@keyframes status-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.95); }
 }
 
 /* Định dạng Markdown nội dung trả lời bên trong thẻ Card */

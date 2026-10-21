@@ -21,13 +21,13 @@ from src.llm.prompts import get_langchain_prompt_template
 logger = logging.getLogger(__name__)
 
 
-def clean_chinese_characters(text: str) -> str:
+def clean_chinese_characters(text: str, strip: bool = True) -> str:
     """Loại bỏ triệt để các ký tự chữ Hán / tiếng Trung nếu mô hình vô tình sinh ra."""
     if not text:
         return ""
     # Biểu thức chính quy phát hiện dải ký tự Hán CJK (\u4e00 - \u9fff)
     cleaned = re.sub(r"[\u4e00-\u9fff]+", "", text)
-    return cleaned.strip()
+    return cleaned.strip() if strip else cleaned
 
 
 
@@ -186,8 +186,8 @@ class OllamaClient:
                     if line:
                         chunk_json = json.loads(line)
                         token = chunk_json.get("message", {}).get("content", "")
-                        # Lọc ký tự tiếng Trung ngay trong từng chunk
-                        filtered_token = clean_chinese_characters(token)
+                        # Lọc ký tự tiếng Trung ngay trong từng chunk (giữ nguyên khoảng trắng và xuống dòng)
+                        filtered_token = clean_chinese_characters(token, strip=False)
                         if filtered_token:
                             yield filtered_token
 
@@ -220,5 +220,20 @@ class OllamaClient:
         except Exception as err:
             logger.error("Lỗi khi thực thi LangChain LCEL RAG chain: %s", err)
             raise OllamaResponseError(f"Lỗi LangChain: {err}") from err
+
+    def generate_with_langchain_stream(self, question: str, context: str) -> Iterator[str]:
+        """Sử dụng LangChain LCEL Chain để stream các token câu trả lời RAG phục vụ UI."""
+        try:
+            prompt_tmpl = get_langchain_prompt_template()
+            llm = self.get_langchain_model()
+            chain = prompt_tmpl | llm | StrOutputParser()
+            for chunk in chain.stream({"question": question, "context": context}):
+                filtered = clean_chinese_characters(chunk, strip=False)
+                if filtered:
+                    yield filtered
+        except Exception as err:
+            logger.error("Lỗi khi streaming qua LangChain LCEL RAG chain: %s", err)
+            raise OllamaResponseError(f"Lỗi LangChain stream: {err}") from err
+
 
 

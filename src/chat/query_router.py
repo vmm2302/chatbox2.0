@@ -50,6 +50,7 @@ DEFAULT_OUT_OF_SCOPE_TOPICS: Tuple[str, ...] = (
     "viet code", "viet code python", "lap trinh",
     "choi co", "ke chuyen", "ke chuyen cuoi", "ke chuyen co tich",
     "hat mot bai", "tin tuc hom nay", "bong da", "ket qua so xo",
+    "thu do", "dia ly", "lich su", "nuoc phap", "chinh tri", "tong thong",
 )
 
 

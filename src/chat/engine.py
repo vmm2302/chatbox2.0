@@ -264,7 +264,7 @@ class ChatEngine:
 
         # Nếu câu hỏi hoàn toàn ngoài phạm vi (OUT_OF_SCOPE) và không có từ tiếng Anh nào được phát hiện
         if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not self.tracker.active_word:
-            if not any(token.lower() in self.tracker.known_words for token in clean_query.split()):
+            if not any(token.lower().strip("?,.!") in self.tracker.vocab_words for token in clean_query.split()):
                 return self._create_and_log_response(
                     clean_query=clean_query,
                     resolved_query=resolved_query,
@@ -284,6 +284,12 @@ class ChatEngine:
             )
             # Trích xuất ngữ cảnh bất biến ngay trong khóa đọc
             context_str = build_context_string(candidates) if candidates else ""
+
+        # Nếu người dùng chỉ định rõ target_word và trong top candidates có bản ghi khớp chính xác target_word
+        if target_word and candidates:
+            exact_target_match = next((c for c in candidates if c.record.word and c.record.word.strip().lower() == target_word.strip().lower()), None)
+            if exact_target_match:
+                best_candidate = exact_target_match
 
         # KHÓA ĐỌC ĐÃ ĐƯỢC NHẢ TẠI ĐÂY!
         # Bước 5: Kiểm tra Domain & Threshold Gate
@@ -472,7 +478,7 @@ class ChatEngine:
             return
 
         if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not self.tracker.active_word:
-            if not any(token.lower() in self.tracker.known_words for token in clean_query.split()):
+            if not any(token.lower().strip("?,.!") in self.tracker.vocab_words for token in clean_query.split()):
                 resp = self._create_and_log_response(
                     clean_query=clean_query,
                     resolved_query=resolved_query,
@@ -492,7 +498,14 @@ class ChatEngine:
                 resolved_query,
                 top_k=settings.TOP_K_RETRIEVAL
             )
+            context_str = build_context_string(candidates) if candidates else ""
             messages = build_rag_prompt(resolved_query, candidates) if candidates else []
+
+        # Nếu người dùng chỉ định rõ target_word và trong top candidates có bản ghi khớp chính xác target_word
+        if target_word and candidates:
+            exact_target_match = next((c for c in candidates if c.record.word and c.record.word.strip().lower() == target_word.strip().lower()), None)
+            if exact_target_match:
+                best_candidate = exact_target_match
 
         # KHÓA ĐỌC ĐÃ ĐƯỢC NHẢ TẠI ĐÂY!
         # Bước 5: Threshold Gate
@@ -530,16 +543,30 @@ class ChatEngine:
             yield resp.answer, resp
             return
 
-        # 6.2 RAG_GENERATION (Streaming từ LLM hoàn toàn NGOÀI khóa dữ liệu)
+        # 6.2 RAG_GENERATION (Streaming từ LangChain LCEL hoàn toàn NGOÀI khóa dữ liệu)
         accumulated_text = ""
         try:
-            for token in self.llm_client.stream_chat(messages):
+            for token in self.llm_client.generate_with_langchain_stream(resolved_query, context_str):
                 accumulated_text += token
                 yield token, None
-        except Exception as err:
-            error_msg = f"\n{settings.OLLAMA_OFFLINE_RESPONSE}\n({err})"
-            accumulated_text += error_msg
-            yield error_msg, None
+        except Exception as lcel_err:
+            logger.warning("Lỗi LangChain LCEL streaming: %s", lcel_err)
+            if not accumulated_text:
+                # Chỉ kích hoạt fallback sang HTTP stream client khi chưa có token nào được phát ra
+                logger.info("Chuyển sang HTTP stream client fallback...")
+                try:
+                    for token in self.llm_client.stream_chat(messages):
+                        accumulated_text += token
+                        yield token, None
+                except Exception as err:
+                    error_msg = f"\n{settings.OLLAMA_OFFLINE_RESPONSE}\n({err})"
+                    accumulated_text += error_msg
+                    yield error_msg, None
+            else:
+                # Đã phát ra một phần nội dung: không gọi lại từ đầu để tránh trùng lặp nội dung
+                error_msg = f"\n\n⚠️ Quá trình truyền dữ liệu bị gián đoạn: {lcel_err}"
+                accumulated_text += error_msg
+                yield error_msg, None
 
 
         formatted_final = format_vocabulary_response(accumulated_text)

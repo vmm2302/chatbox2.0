@@ -1,0 +1,223 @@
+{
+  "title": "BỘ 15 CA KIỂM THỬ HỘI THOẠI CHUẨN RUBRIC BÀI TẬP LỚN CHATBOX 2.0",
+  "version": "1.0",
+  "generated_date": "2026-10-21",
+  "description": "Tập hợp 15 kịch bản kiểm thử bắt buộc theo đúng cơ cấu phân bổ rubric: 5 Trong phạm vi, 3 Diễn đạt khác nhau, 3 Hội thoại nhiều lượt, 2 Ngoài phạm vi, 2 Thiếu thông tin / Mơ hồ.",
+  "test_cases": [
+    {
+      "id": "VOC-01",
+      "category": "IN_SCOPE",
+      "name": "Tra cứu định nghĩa từ vựng cơ bản",
+      "input": "about nghĩa là gì?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+      "expected_intent": "DEFINE_VOCAB",
+      "expected_target_word": "about",
+      "expected_keywords": ["về", "quanh"],
+      "pass_criteria": "Chatbot nhận diện đúng từ 'about', phản hồi có chứa định nghĩa 'về' hoặc 'quanh', mode là DIRECT_MATCH hoặc RAG_GENERATION."
+    },
+    {
+      "id": "VOC-02",
+      "category": "IN_SCOPE",
+      "name": "Tra cứu câu ví dụ của từ vựng",
+      "input": "Cho tôi câu ví dụ của từ about này.",
+      "setup_context": "CLEAR",
+      "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+      "expected_intent": "GET_EXAMPLE",
+      "expected_target_word": "about",
+      "expected_keywords": ["about"],
+      "pass_criteria": "Chatbot trích xuất câu ví dụ tiếng Anh có chứa từ 'about'."
+    },
+    {
+      "id": "VOC-03",
+      "category": "IN_SCOPE",
+      "name": "Tra cứu danh sách từ theo cấp độ CEFR",
+      "input": "Cho tôi 1 danh sách gồm các từ tiếng anh trong trình độ A1",
+      "setup_context": "CLEAR",
+      "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+      "expected_intent": "GET_LEVEL_LIST",
+      "expected_target_level": "A1",
+      "expected_keywords": ["A1"],
+      "pass_criteria": "Chatbot trả về danh sách các từ vựng thuộc trình độ A1 từ cơ sở tri thức."
+    },
+    {
+      "id": "VOC-04",
+      "category": "IN_SCOPE",
+      "name": "Dịch ý nghĩa từ tiếng Việt sang từ tiếng Anh",
+      "input": "từ nào có nghĩa là từ bỏ?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+      "expected_intent": "TRANSLATE_VIE_TO_ENG",
+      "expected_keywords": ["abandon"],
+      "pass_criteria": "Chatbot tìm đúng từ tiếng Anh 'abandon' tương ứng với nghĩa 'từ bỏ'."
+    },
+    {
+      "id": "VOC-05",
+      "category": "IN_SCOPE",
+      "name": "Tra cứu từ loại và phát âm của từ vựng",
+      "input": "phát âm và từ loại của từ abandon là gì?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+      "expected_intent": "DEFINE_VOCAB",
+      "expected_target_word": "abandon",
+      "expected_keywords": ["abandon"],
+      "pass_criteria": "Chatbot cung cấp thông tin phát âm hoặc từ loại của từ 'abandon'."
+    },
+    {
+      "id": "PAR-01",
+      "category": "PARAPHRASED",
+      "name": "Diễn đạt biến thể 1 - Lời đề nghị lịch sự",
+      "input": "bạn có thể giải thích ý nghĩa của từ about được không?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+      "expected_intent": "DEFINE_VOCAB",
+      "expected_target_word": "about",
+      "expected_keywords": ["về", "quanh"],
+      "pass_criteria": "PhoBERT hiểu đúng câu hỏi lịch sự có cùng mục đích tra nghĩa 'about', trả lời chính xác."
+    },
+    {
+      "id": "PAR-02",
+      "category": "PARAPHRASED",
+      "name": "Diễn đạt biến thể 2 - Cấu trúc thân mật có từ xưng hô",
+      "input": "nghĩa của từ about là gì vậy chatbot?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+      "expected_intent": "DEFINE_VOCAB",
+      "expected_target_word": "about",
+      "expected_keywords": ["về", "quanh"],
+      "pass_criteria": "Hệ thống lọc bỏ filler xưng hô 'vậy chatbot', tìm đúng từ 'about' và trả lời nghĩa."
+    },
+    {
+      "id": "PAR-03",
+      "category": "PARAPHRASED",
+      "name": "Diễn đạt biến thể 3 - Câu hỏi bằng tiếng Anh",
+      "input": "What does about mean in Vietnamese?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+      "expected_intent": "DEFINE_VOCAB",
+      "expected_target_word": "about",
+      "expected_keywords": ["về", "quanh"],
+      "pass_criteria": "Hệ thống trích xuất đúng từ 'about' từ câu hỏi tiếng Anh và diễn đạt nghĩa bằng tiếng Việt."
+    },
+    {
+      "id": "CTX-01",
+      "category": "MULTI_TURN",
+      "name": "Hội thoại nhiều lượt 1 - Kế thừa thực thể qua đại từ 'từ này'",
+      "setup_context": "CLEAR",
+      "turns": [
+        {
+          "turn": 1,
+          "input": "từ confident nghĩa là gì?",
+          "expected_active_word": "confident",
+          "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"]
+        },
+        {
+          "turn": 2,
+          "input": "cho tôi câu ví dụ của từ này",
+          "expected_active_word": "confident",
+          "resolved_contains": "confident",
+          "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+          "expected_keywords": ["confident"]
+        }
+      ],
+      "pass_criteria": "Lượt 1 nhận diện active_word='confident', Lượt 2 TopicTracker phân giải 'từ này' thành 'confident', trả về ví dụ phù hợp."
+    },
+    {
+      "id": "CTX-02",
+      "category": "MULTI_TURN",
+      "name": "Hội thoại nhiều lượt 2 - Kế thừa thực thể qua đại từ 'nó' hỏi cấp độ",
+      "setup_context": "CLEAR",
+      "turns": [
+        {
+          "turn": 1,
+          "input": "resilient nghĩa là gì?",
+          "expected_active_word": "resilient",
+          "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"]
+        },
+        {
+          "turn": 2,
+          "input": "còn trình độ của nó thì sao?",
+          "expected_active_word": "resilient",
+          "resolved_contains": "resilient",
+          "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+          "expected_keywords": ["B2", "resilient"]
+        }
+      ],
+      "pass_criteria": "TopicTracker thay thế 'nó' bằng 'resilient', truy xuất thông tin cấp độ của 'resilient'."
+    },
+    {
+      "id": "CTX-03",
+      "category": "MULTI_TURN",
+      "name": "Hội thoại nhiều lượt 3 - Ba lượt liên tiếp duy trì chủ đề",
+      "setup_context": "CLEAR",
+      "turns": [
+        {
+          "turn": 1,
+          "input": "abandon nghĩa là gì?",
+          "expected_active_word": "abandon",
+          "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"]
+        },
+        {
+          "turn": 2,
+          "input": "còn ví dụ?",
+          "expected_active_word": "abandon",
+          "resolved_contains": "abandon",
+          "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"]
+        },
+        {
+          "turn": 3,
+          "input": "thế còn dạng danh từ của từ đó?",
+          "expected_active_word": "abandon",
+          "resolved_contains": "abandon",
+          "expected_mode": ["DIRECT_MATCH", "RAG_GENERATION"],
+          "expected_keywords": ["abandon"]
+        }
+      ],
+      "pass_criteria": "Ngữ cảnh 'abandon' được duy trì xuyên suốt 3 lượt mà không bị mất hoặc nhầm lẫn."
+    },
+    {
+      "id": "OOS-01",
+      "category": "OUT_OF_SCOPE",
+      "name": "Ngoài phạm vi 1 - Câu hỏi địa lý thế giới",
+      "input": "Thủ đô của nước Pháp là gì?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["NO_MATCH"],
+      "expected_intent": "OUT_OF_SCOPE",
+      "expected_keywords": ["ngoài phạm vi"],
+      "pass_criteria": "Bị chặn tại Query Router / Gate, trả về thông điệp từ chối lịch sự theo quy định, không hallucinate."
+    },
+    {
+      "id": "OOS-02",
+      "category": "OUT_OF_SCOPE",
+      "name": "Ngoài phạm vi 2 - Câu hỏi thời tiết thời sự",
+      "input": "Thời tiết tại Hà Nội hôm nay thế nào?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["NO_MATCH"],
+      "expected_intent": "OUT_OF_SCOPE",
+      "expected_keywords": ["ngoài phạm vi"],
+      "pass_criteria": "Nhận diện ngoài phạm vi từ vựng, từ chối an toàn, không gọi LLM suy diễn bên ngoài."
+    },
+    {
+      "id": "AMB-01",
+      "category": "AMBIGUOUS",
+      "name": "Thiếu thông tin / Mơ hồ 1 - Hỏi nghĩa nhưng không có từ vựng và chưa có ngữ cảnh",
+      "input": "từ này nghĩa là gì?",
+      "setup_context": "CLEAR",
+      "expected_mode": ["CLARIFICATION"],
+      "expected_intent": "AMBIGUOUS",
+      "expected_keywords": ["Bạn đang muốn hỏi về từ vựng nào"],
+      "pass_criteria": "Kích hoạt Clarification Gate, hỏi lại: 'Bạn đang muốn hỏi về từ vựng nào? Vui lòng cung cấp từ tiếng Anh cụ thể...'"
+    },
+    {
+      "id": "AMB-02",
+      "category": "AMBIGUOUS",
+      "name": "Thiếu thông tin / Mơ hồ 2 - Hỏi ví dụ nhưng không có từ vựng và chưa có ngữ cảnh",
+      "input": "cho tôi câu ví dụ của từ đó",
+      "setup_context": "CLEAR",
+      "expected_mode": ["CLARIFICATION"],
+      "expected_intent": "AMBIGUOUS",
+      "expected_keywords": ["Bạn đang muốn hỏi về từ vựng nào"],
+      "pass_criteria": "Kích hoạt Clarification Gate, nhận diện đại từ 'từ đó' khi chưa có topic, yêu cầu người dùng nêu từ cần tra."
+    }
+  ]
+}
