@@ -78,6 +78,24 @@ class TestChatbotRubricSuite(unittest.TestCase):
                 )
             )
 
+        has_vie_eng_abandon = any(
+            r.sheet == "tiengvietsangtienganh" and "từ bỏ" in r.question.lower()
+            for r in cls.records
+        )
+        if not has_vie_eng_abandon:
+            additional.append(
+                QARecord(
+                    record_id="TEST_ABANDON_VIE_ENG",
+                    word="abandon",
+                    sheet="tiengvietsangtienganh",
+                    source="Vietnamese-English",
+                    level="B2",
+                    question="từ nào có nghĩa là từ bỏ?",
+                    answer="- Từ tiếng Anh: abandon\n- Trình độ: B2\n- Nghĩa: từ bỏ; bỏ rơi, ruồng bỏ\n\nVí dụ: Do not abandon your dreams of success.",
+                    normalized_question="tu nao co nghia la tu bo"
+                )
+            )
+
         if additional:
             cls.records = list(cls.records) + additional
 

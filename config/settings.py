@@ -5,6 +5,10 @@ Mọi đường dẫn, tham số mô hình và ngưỡng tương đồng đều 
 """
 
 import os
+# Đảm bảo môi trường thực thi 100% Offline, không kết nối Internet ngoài ý muốn
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 from dataclasses import dataclass, field
 from pathlib import Path
 

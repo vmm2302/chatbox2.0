@@ -1,7 +1,7 @@
 # BÁO CÁO KẾT QUẢ KIỂM THỬ 15 CA HỘI THOẠI THEO RUBRIC
 ## DỰ ÁN: CHATBOX 2.0 — LOCAL VOCABULARY ASSISTANT
 
-> **Ngày thực thi:** 2026-10-26 23:57:11
+> **Ngày thực thi:** 2026-10-27 01:12:43
 > **Môi trường thực thi:** Python 3.11.9 | Local-only (Ollama Qwen2.5:7B + PhoBERT-base-v2 + BGE-M3 + BM25)
 > **Tệp cấu hình fixture:** `tests/fixtures/rubric_test_cases.json`
 
@@ -29,21 +29,21 @@
 
 | Mã ca | Nhóm kiểm thử | Câu hỏi người dùng | Chế độ (Mode) | Điểm RRF | Độ trễ | Kết quả | Ghi chú & Bằng chứng |
 | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **AMB-01** | AMBIGUOUS | `từ này nghĩa là gì?` | `CLARIFICATION` | 0.0000 | 133.0ms | ✅ **PASS** | Bạn đang muốn hỏi về từ vựng nào? Vui lòng cung cấp từ tiếng Anh cụ thể để tôi hỗ trợ nhé! |
-| **AMB-02** | AMBIGUOUS | `cho tôi câu ví dụ của từ đó` | `CLARIFICATION` | 0.0000 | 136.2ms | ✅ **PASS** | Bạn đang muốn hỏi về từ vựng nào? Vui lòng cung cấp từ tiếng Anh cụ thể để tôi hỗ trợ nhé! |
-| **CTX-01** | MULTI_TURN | `L1: từ confident nghĩa là gì? -> L2: cho tôi câu ví dụ của từ này` | `RAG_GENERATION` | 0.0328 | 18199.5ms | ✅ **PASS** | Turn 1: active_word=confident | Turn 2: resolved context, answer: **Trình độ:** B1  **Phát âm:** ... |
-| **CTX-02** | MULTI_TURN | `L1: resilient nghĩa là gì? -> L2: còn trình độ của nó thì sao?` | `RAG_GENERATION` | 0.0164 | 2866.3ms | ✅ **PASS** | Turn 1: resilient -> Turn 2: 'còn trình độ của nó' resolved to B2 resilient |
-| **CTX-03** | MULTI_TURN | `L1: abandon nghĩa gì -> L2: còn ví dụ -> L3: dạng danh từ của từ đó` | `RAG_GENERATION` | 0.0328 | 2432.8ms | ✅ **PASS** | 3 lượt liên tục duy trì active_word='abandon' thành công. |
-| **OOS-01** | OUT_OF_SCOPE | `Thủ đô của nước Pháp là gì?` | `NO_MATCH` | 0.0000 | 283.5ms | ✅ **PASS** | Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ ... |
-| **OOS-02** | OUT_OF_SCOPE | `Thời tiết tại Hà Nội hôm nay thế nào?` | `NO_MATCH` | 0.0000 | 0.3ms | ✅ **PASS** | Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ ... |
-| **PAR-01** | PARAPHRASED | `bạn có thể giải thích ý nghĩa của từ about được không?` | `RAG_GENERATION` | 0.0164 | 6205.3ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Giới từ (Preposition)  **1. Về**   • Do you know muc... |
-| **PAR-02** | PARAPHRASED | `nghĩa của từ about là gì vậy chatbot?` | `RAG_GENERATION` | 0.0328 | 7859.6ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  • *1. Xung quanh, quanh quẩn, đây... |
-| **PAR-03** | PARAPHRASED | `What does about mean in Vietnamese?` | `DIRECT_MATCH` | 0.0330 | 233.2ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  **1. Xung quanh, quanh quẩn, đây ... |
-| **VOC-01** | IN_SCOPE | `about nghĩa là gì?` | `DIRECT_MATCH` | 0.0330 | 256.1ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  **1. Xung quanh, quanh quẩn, đây ... |
-| **VOC-02** | IN_SCOPE | `Cho tôi câu ví dụ của từ about này.` | `RAG_GENERATION` | 0.0328 | 4392.1ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  • You can find him somewhere abou... |
-| **VOC-03** | IN_SCOPE | `Cho tôi 1 danh sách gồm các từ tiếng anh trong trình độ A1` | `RAG_GENERATION` | 0.0164 | 2264.5ms | ✅ **PASS** | Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ ... |
-| **VOC-04** | IN_SCOPE | `từ nào có nghĩa là từ bỏ?` | `RAG_GENERATION` | 0.0323 | 2762.8ms | ✅ **PASS** | **Trình độ:** B2  **Phát âm:** /əˈbændən/  ### Động từ (Verb)  **1. từ bỏ; bỏ rơi, ruồng bỏ**   •... |
-| **VOC-05** | IN_SCOPE | `phát âm và từ loại của từ abandon là gì?` | `RAG_GENERATION` | 0.0328 | 3868.4ms | ✅ **PASS** | **Trình độ:** B2  **Phát âm:** /əˈbændən/  ### Động từ (Verb)  • *1. Bộm (nhiếp ảnh)**   • They a... |
+| **AMB-01** | AMBIGUOUS | `từ này nghĩa là gì?` | `CLARIFICATION` | 0.0000 | 163.8ms | ✅ **PASS** | Bạn đang muốn hỏi về từ vựng nào? Vui lòng cung cấp từ tiếng Anh cụ thể để tôi hỗ trợ nhé! |
+| **AMB-02** | AMBIGUOUS | `cho tôi câu ví dụ của từ đó` | `CLARIFICATION` | 0.0000 | 152.8ms | ✅ **PASS** | Bạn đang muốn hỏi về từ vựng nào? Vui lòng cung cấp từ tiếng Anh cụ thể để tôi hỗ trợ nhé! |
+| **CTX-01** | MULTI_TURN | `L1: từ confident nghĩa là gì? -> L2: cho tôi câu ví dụ của từ này` | `RAG_GENERATION` | 0.0328 | 6443.2ms | ✅ **PASS** | Turn 1: active_word=confident | Turn 2: resolved context, answer: **Trình độ:** B1  **Phát âm:** ... |
+| **CTX-02** | MULTI_TURN | `L1: resilient nghĩa là gì? -> L2: còn trình độ của nó thì sao?` | `RAG_GENERATION` | 0.0164 | 2901.9ms | ✅ **PASS** | Turn 1: resilient -> Turn 2: 'còn trình độ của nó' resolved to B2 resilient |
+| **CTX-03** | MULTI_TURN | `L1: abandon nghĩa gì -> L2: còn ví dụ -> L3: dạng danh từ của từ đó` | `RAG_GENERATION` | 0.0164 | 2590.6ms | ✅ **PASS** | 3 lượt liên tục duy trì active_word='abandon' thành công. |
+| **OOS-01** | OUT_OF_SCOPE | `Thủ đô của nước Pháp là gì?` | `NO_MATCH` | 0.0000 | 318.9ms | ✅ **PASS** | Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ ... |
+| **OOS-02** | OUT_OF_SCOPE | `Thời tiết tại Hà Nội hôm nay thế nào?` | `NO_MATCH` | 0.0000 | 345.9ms | ✅ **PASS** | Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ ... |
+| **PAR-01** | PARAPHRASED | `bạn có thể giải thích ý nghĩa của từ about được không?` | `RAG_GENERATION` | 0.0164 | 7182.2ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  • Xung quanh, quanh quẩn, đây đó,... |
+| **PAR-02** | PARAPHRASED | `nghĩa của từ about là gì vậy chatbot?` | `RAG_GENERATION` | 0.0328 | 4902.5ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  • You can find him somewhere abou... |
+| **PAR-03** | PARAPHRASED | `What does about mean in Vietnamese?` | `DIRECT_MATCH` | 0.0330 | 267.8ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  **1. Xung quanh, quanh quẩn, đây ... |
+| **VOC-01** | IN_SCOPE | `about nghĩa là gì?` | `DIRECT_MATCH` | 0.0330 | 240.3ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  **1. Xung quanh, quanh quẩn, đây ... |
+| **VOC-02** | IN_SCOPE | `Cho tôi câu ví dụ của từ about này.` | `RAG_GENERATION` | 0.0328 | 3195.0ms | ✅ **PASS** | **Trình độ:** A1  **Phát âm:** /əˈbaʊt/  ### Trạng từ (Adverb)  • You can find him somewhere abou... |
+| **VOC-03** | IN_SCOPE | `Cho tôi 1 danh sách gồm các từ tiếng anh trong trình độ A1` | `RAG_GENERATION` | 0.0164 | 2009.4ms | ✅ **PASS** | Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ ... |
+| **VOC-04** | IN_SCOPE | `từ nào có nghĩa là từ bỏ?` | `DIRECT_MATCH` | 0.0330 | 338.4ms | ✅ **PASS** | - Từ tiếng Anh: abandon - Trình độ: B2 - Nghĩa: từ bỏ; bỏ rơi, ruồng bỏ  Ví dụ: Do not abandon yo... |
+| **VOC-05** | IN_SCOPE | `phát âm và từ loại của từ abandon là gì?` | `RAG_GENERATION` | 0.0164 | 4455.7ms | ✅ **PASS** | **Trình độ:** B2  **Phát âm:** /əˈbændən/  ### Động từ (Verb)  • *1. Bộm (nhiếp ảnh)**   • They a... |
 
 ---
 

@@ -58,6 +58,46 @@ class AuthService:
         except Exception as exc:
             return "DB_ERROR", f"Không thể kết nối cơ sở dữ liệu ứng dụng: {exc}"
 
+    def get_account_lifecycle_state(self, current_user: Optional[User] = None) -> Tuple[str, Dict[str, Any]]:
+        """Phân loại chính xác 7 trạng thái vòng đời tài khoản & hệ thống (Section 5 Spec):
+        1. STATE_1_DB_NOT_INITIALIZED: Database chưa tồn tại trên đĩa.
+        2. STATE_2_DB_EMPTY: Database đã tồn tại nhưng chưa có bất kỳ tài khoản nào.
+        3. STATE_3_NO_ACTIVE_ADMIN: Database có tài khoản nhưng chưa có Admin nào đang hoạt động.
+        4. STATE_4_UNAUTHENTICATED: Hệ thống đã sẵn sàng nhưng người dùng chưa đăng nhập.
+        5. STATE_5_AUTHENTICATED: Người dùng đã đăng nhập bình thường và tài khoản đang hoạt động.
+        6. STATE_6_DISABLED_OR_INVALID: Phiên xác thực không còn hợp lệ hoặc tài khoản bị vô hiệu hóa.
+        7. STATE_7_DB_ERROR: Database gặp lỗi kết nối hoặc hỏng tính toàn vẹn.
+        """
+        from pathlib import Path
+        db_path = getattr(self.user_repo.db, "db_path", None)
+        if db_path and not Path(db_path).exists():
+            return "STATE_1_DB_NOT_INITIALIZED", {"detail": f"Database chưa tồn tại tại {db_path}"}
+
+        try:
+            counts = self.user_repo.count_users()
+            total_users = counts.get("total", 0)
+            active_admins = counts.get("active_admins", 0)
+
+            if total_users == 0:
+                return "STATE_2_DB_EMPTY", {"total_users": 0, "active_admins": 0}
+
+            if active_admins == 0:
+                return "STATE_3_NO_ACTIVE_ADMIN", {"total_users": total_users, "active_admins": 0}
+
+            if current_user is None:
+                return "STATE_4_UNAUTHENTICATED", {"active_admins": active_admins}
+
+            fresh = self.user_repo.get_by_id(current_user.id)
+            if not fresh or not fresh.is_active:
+                return "STATE_6_DISABLED_OR_INVALID", {"user_id": current_user.id, "reason": "Tài khoản bị vô hiệu hóa hoặc không tồn tại"}
+
+            return "STATE_5_AUTHENTICATED", {"user": fresh}
+
+        except sqlite3.DatabaseError as db_err:
+            return "STATE_7_DB_ERROR", {"error": f"Lỗi toàn vẹn SQLite: {db_err}"}
+        except Exception as exc:
+            return "STATE_7_DB_ERROR", {"error": f"Lỗi kết nối database: {exc}"}
+
     # --------------------------------------------------------------------------
     # 1. ĐĂNG KÝ VÀ ĐĂNG NHẬP (USER FACING)
     # --------------------------------------------------------------------------

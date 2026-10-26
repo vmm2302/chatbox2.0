@@ -154,7 +154,8 @@ section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] > div[data
    3. PHẦN TỬ SIDEBAR: 3 KHU VỰC ĐỘC LẬP (TOP, HISTORY, PINNED FOOTER)
    ========================================================================== */
 /* 3.1. KHU VỰC ĐẦU SIDEBAR (st-key-sidebar_top) - CHIỀU CAO TỰ NHIÊN */
-section[data-testid="stSidebar"] div[class*="st-key-sidebar_top"] {
+section[data-testid="stSidebar"] div[class*="st-key-sidebar_top"],
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] > div[data-testid="stVerticalBlock"] > div:nth-child(1) {
     flex: 0 0 auto !important;
     padding: 0.75rem 0.65rem 0.35rem 0.65rem !important;
 }
@@ -203,7 +204,8 @@ section[data-testid="stSidebar"] div[class*="st-key-sidebar_top"] {
 }
 
 /* 3.2. KHU VỰC LỊCH SỬ Ở GIỮA (st-key-sidebar_history) - CHIẾM KHÔNG GIAN CÒN LẠI & CUỘN ĐỘC LẬP */
-section[data-testid="stSidebar"] div[class*="st-key-sidebar_history"] {
+section[data-testid="stSidebar"] div[class*="st-key-sidebar_history"],
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] > div[data-testid="stVerticalBlock"] > div:nth-child(2) {
     flex: 1 1 auto !important;
     min-height: 0 !important;
     overflow-y: auto !important;
@@ -274,7 +276,8 @@ div[data-testid="stSidebar"] div.stButton > button[key^="btn_conv_active_"] {
 }
 
 /* 3.3. KHU VỰC TÀI KHOẢN & CÀI ĐẶT GHIM Ở ĐÁY SIDEBAR (st-key-sidebar_footer) */
-section[data-testid="stSidebar"] div[class*="st-key-sidebar_footer"] {
+section[data-testid="stSidebar"] div[class*="st-key-sidebar_footer"],
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] > div[data-testid="stVerticalBlock"] > div:nth-child(3) {
     flex: 0 0 auto !important;
     margin-top: auto !important;
     padding: 0.65rem 0.65rem 0.75rem 0.65rem !important;
@@ -351,11 +354,8 @@ section[data-testid="stSidebar"] div[class*="st-key-sidebar_footer"] {
     padding: 12px !important;
     color: #ECECEC !important;
     z-index: 999999 !important;
-}
-    border-radius: 12px !important;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
-    padding: 12px !important;
-    color: #ECECEC !important;
+    max-height: calc(100vh - 80px) !important;
+    overflow-y: auto !important;
 }
 
 [data-testid="stPopoverBody"] hr {

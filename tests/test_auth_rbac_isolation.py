@@ -574,6 +574,42 @@ class TestSystemBootstrapAndAdminEnforcement(BaseAuthTestCase):
         self.assertEqual(user.username, "newuser_waiting")
         self.assertEqual(user.role, "user")
 
+    def test_account_lifecycle_states_distinction(self):
+        """Kiểm tra phân biệt đầy đủ các trạng thái vòng đời tài khoản (Section 5):
+        STATE_2_DB_EMPTY, STATE_3_NO_ACTIVE_ADMIN, STATE_4_UNAUTHENTICATED,
+        STATE_5_AUTHENTICATED, STATE_6_DISABLED_OR_INVALID, STATE_7_DB_ERROR.
+        """
+        # 1. Ban đầu DB rỗng, chưa có user nào -> STATE_2_DB_EMPTY
+        state, meta = self.auth_service.get_account_lifecycle_state()
+        self.assertEqual(state, "STATE_2_DB_EMPTY")
+
+        # 2. Tạo một tài khoản user thường (chưa có admin) -> STATE_3_NO_ACTIVE_ADMIN
+        u = self.user_repo.create_user("plain_user", "hash1", "Plain User", role="user")
+        state, meta = self.auth_service.get_account_lifecycle_state()
+        self.assertEqual(state, "STATE_3_NO_ACTIVE_ADMIN")
+
+        # 3. Tạo Admin -> Hệ thống có Admin, nhưng khách chưa login -> STATE_4_UNAUTHENTICATED
+        adm = self.user_repo.create_user("super_adm", "hash2", "Super Admin", role="admin")
+        state, meta = self.auth_service.get_account_lifecycle_state(current_user=None)
+        self.assertEqual(state, "STATE_4_UNAUTHENTICATED")
+
+        # 4. Đăng nhập bằng user hợp lệ -> STATE_5_AUTHENTICATED
+        state, meta = self.auth_service.get_account_lifecycle_state(current_user=u)
+        self.assertEqual(state, "STATE_5_AUTHENTICATED")
+        self.assertEqual(meta["user"].username, "plain_user")
+
+        # 5. Khóa tài khoản -> STATE_6_DISABLED_OR_INVALID
+        self.user_repo.set_active_status(u.id, is_active=False)
+        state, meta = self.auth_service.get_account_lifecycle_state(current_user=u)
+        self.assertEqual(state, "STATE_6_DISABLED_OR_INVALID")
+
+        # 6. Lỗi SQLite hỏng -> STATE_7_DB_ERROR
+        import sqlite3
+        from unittest.mock import patch
+        with patch.object(self.user_repo, "count_users", side_effect=sqlite3.DatabaseError("Disk I/O error")):
+            state, meta = self.auth_service.get_account_lifecycle_state()
+            self.assertEqual(state, "STATE_7_DB_ERROR")
+
 
 if __name__ == "__main__":
     unittest.main()

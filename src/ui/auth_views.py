@@ -24,8 +24,9 @@ def render_auth_page(
     2. Chưa có tài khoản Admin nào (NO_ADMIN): hướng dẫn chạy CLI an toàn.
     3. Hệ thống đã sẵn sàng (READY): cho phép đăng nhập và đăng ký User.
     """
-    # Kiểm tra trạng thái khởi tạo hệ thống
+    # Kiểm tra trạng thái khởi tạo hệ thống và vòng đời tài khoản
     init_status, init_err = auth_service.get_system_init_status()
+    lifecycle_state, lifecycle_meta = auth_service.get_account_lifecycle_state()
 
     # Hiển thị tiêu đề chính
     st.markdown(
@@ -56,22 +57,27 @@ def render_auth_page(
             )
             return None
 
-        # Trường hợp 2: Hệ thống chưa có tài khoản Admin nào
+        # Trường hợp 2: Hệ thống chưa có tài khoản Admin nào (STATE_2_DB_EMPTY hoặc STATE_3_NO_ACTIVE_ADMIN)
         if init_status == "NO_ADMIN":
+            if lifecycle_state == "STATE_2_DB_EMPTY":
+                admin_notice_subtitle = "Cơ sở dữ liệu ứng dụng vừa khởi tạo và <b>chưa có bất kỳ tài khoản nào</b>."
+            else:
+                admin_notice_subtitle = "Đã có tài khoản trong hệ thống nhưng <b>chưa có Quản trị viên nào đang hoạt động</b>."
+
             st.markdown(
-                """
+                f"""
                 <div style="background-color: #1E293B; border: 1px solid #0284C7; border-radius: 12px; padding: 16px 20px; margin-bottom: 1.5rem; color: #E0F2FE;">
                     <div style="font-size: 1.1rem; font-weight: 600; color: #38BDF8; margin-bottom: 6px;">
-                        🛡️ Hệ thống chưa khởi tạo Quản trị viên (Admin)
+                        🛡️ Hệ thống chưa có Quản trị viên (Admin)
                     </div>
                     <p style="margin: 0 0 10px 0; font-size: 0.92rem; line-height: 1.5; color: #BAE6FD;">
-                        Để đảm bảo an toàn phân quyền, hệ thống yêu cầu khởi tạo tài khoản <b>Quản trị viên đầu tiên</b> qua terminal an toàn trước khi mở đăng ký người dùng:
+                        {admin_notice_subtitle} Để đảm bảo an toàn phân quyền, hệ thống yêu cầu khởi tạo tài khoản <b>Quản trị viên đầu tiên</b> qua terminal an toàn trước khi mở đăng ký người dùng:
                     </p>
                     <div style="background-color: #0F172A; padding: 10px 14px; border-radius: 8px; font-family: monospace; font-size: 0.95rem; color: #38BDF8; border: 1px solid #1E293B; margin-bottom: 10px;">
                         python scripts/create_admin.py
                     </div>
                     <p style="margin: 0; font-size: 0.85rem; color: #94A3B8;">
-                        Lệnh CLI sẽ bảo mật mật khẩu (không in ra màn hình) và băm bảo mật bằng thuật toán an toàn.
+                        Lệnh CLI sẽ bảo mật mật khẩu (không in ra màn hình) và băm bảo mật bằng thuật toán Bcrypt / Salt ngẫu nhiên.
                     </p>
                 </div>
                 """,
@@ -82,9 +88,12 @@ def render_auth_page(
                 if st.button("🔄 Kiểm tra lại trạng thái", key="btn_check_admin_init", use_container_width=True):
                     st.rerun()
 
-        # Chọn tab mặc định dựa trên session_state.auth_tab
+        # Chọn tab mặc định dựa trên session_state.auth_tab (tương thích đa phiên bản Streamlit)
         active_tab_label = "📝 Đăng ký tài khoản" if st.session_state.get("auth_tab") == "register" else "🔐 Đăng nhập"
-        tab_login, tab_register = st.tabs(["🔐 Đăng nhập", "📝 Đăng ký tài khoản"], default=active_tab_label)
+        try:
+            tab_login, tab_register = st.tabs(["🔐 Đăng nhập", "📝 Đăng ký tài khoản"], default=active_tab_label)
+        except TypeError:
+            tab_login, tab_register = st.tabs(["🔐 Đăng nhập", "📝 Đăng ký tài khoản"])
 
         # ----------------------------------------------------------------------
         # TAB 1: ĐĂNG NHẬP
@@ -119,9 +128,10 @@ def render_auth_page(
                     if success and user:
                         # Lưu user vào session state
                         st.session_state.auth_user = user
-                        # Xóa mọi ngữ cảnh cũ và tin nhắn còn sót lại
+                        # Xóa mọi ngữ cảnh cũ và tin nhắn còn sót lại, khởi tạo tracker độc lập
                         st.session_state.messages = []
                         st.session_state.current_conversation_id = None
+                        st.session_state.tracker = None
                         st.session_state.status = "Sẵn sàng!"
                         st.toast(f"Xin chào, {user.display_name}!", icon="👋")
                         st.rerun()
@@ -181,7 +191,5 @@ def render_auth_page(
                         st.info("👉 Bạn có thể chuyển sang tab **'Đăng nhập'** bên cạnh để bắt đầu tra cứu.")
                     else:
                         st.error(f"❌ {msg}")
-
-    return None
 
     return None

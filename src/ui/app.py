@@ -36,6 +36,10 @@ project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# Đảm bảo môi trường thực thi 100% Offline cục bộ cho HuggingFace & Transformers
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 # Thiết lập Streamlit Theme sang Dark Theme trung tính chuẩn phong cách ChatGPT
 os.environ["STREAMLIT_THEME_BASE"] = "dark"
 os.environ["STREAMLIT_THEME_PRIMARY_COLOR"] = "#10A37F"
@@ -629,16 +633,16 @@ with st.sidebar:
 
         if current_user is not None:
             if st.button("➕ Đoạn chat mới", key="btn_sidebar_new_chat", use_container_width=True, help="Tạo cuộc hội thoại mới"):
-                new_conv = conv_repo.create_conversation(current_user.id, "Cuộc trò chuyện mới")
-                st.session_state.current_conversation_id = new_conv.id
+                st.session_state.current_conversation_id = None
                 st.session_state.messages = []
                 if st.session_state.tracker:
                     st.session_state.tracker.clear()
-                engine.tracker.clear()
+                if hasattr(engine, "tracker") and hasattr(engine.tracker, "clear"):
+                    engine.tracker.clear()
                 st.session_state.status = "Sẵn sàng!"
                 st.session_state.is_processing = False
                 st.session_state.nav_page = "💬 Tra cứu từ vựng"
-                st.toast("Đã bắt đầu cuộc trò chuyện mới.", icon="✨")
+                st.toast("Đã chuyển sang cuộc trò chuyện mới.", icon="✨")
                 st.rerun()
 
             search_query = st.text_input(
@@ -656,10 +660,11 @@ with st.sidebar:
     with st.container(key="sidebar_history"):
         if current_user is not None:
             user_convs = conv_repo.list_conversations(current_user.id, limit=50)
+            valid_convs = [c for c in user_convs if c.message_count > 0 or c.id == st.session_state.current_conversation_id]
             if search_query:
-                filtered_convs = [c for c in user_convs if search_query in c.title.lower()]
+                filtered_convs = [c for c in valid_convs if search_query in c.title.lower()]
             else:
-                filtered_convs = user_convs
+                filtered_convs = valid_convs
 
             grouped_convs: Dict[str, List[Any]] = {
                 "Hôm nay": [],
@@ -738,9 +743,12 @@ with st.sidebar:
             with st.popover(f"👤 {current_user.display_name}", use_container_width=True):
                 st.markdown(
                     f"""
-                    <div style="margin-bottom: 8px;">
-                        <div style="font-weight: 600; color: #ECECEC; font-size: 0.95rem;">{html.escape(current_user.display_name)}</div>
-                        <div style="color: #8E8E8E; font-size: 0.8rem;">@{html.escape(current_user.username)} · <span class="{role_badge_class}">{role_name_text}</span></div>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                        <div>{USER_AVATAR_HTML}</div>
+                        <div>
+                            <div style="font-weight: 600; color: #ECECEC; font-size: 0.95rem;">{html.escape(current_user.display_name)}</div>
+                            <div style="color: #8E8E8E; font-size: 0.8rem;">@{html.escape(current_user.username)} · <span class="{role_badge_class}">{role_name_text}</span></div>
+                        </div>
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -801,9 +809,9 @@ with st.sidebar:
                     st.session_state.auth_user = None
                     st.session_state.messages = []
                     st.session_state.current_conversation_id = None
-                    if st.session_state.tracker:
-                        st.session_state.tracker.clear()
-                    engine.tracker.clear()
+                    st.session_state.tracker = None
+                    if hasattr(engine, "tracker") and hasattr(engine.tracker, "clear"):
+                        engine.tracker.clear()
                     st.toast("Đã đăng xuất an toàn.", icon="👋")
                     st.rerun()
         else:
