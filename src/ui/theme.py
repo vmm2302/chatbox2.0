@@ -1184,5 +1184,83 @@ div[data-baseweb="notification"][kind="negative"] {
         max-width: 100% !important;
     }
 }
+/* ==========================================================================
+   7. PHẦN TỬ GIAO DIỆN XÁC THỰC & QUẢN TRỊ TÀI KHOẢN (AUTH & RBAC UI)
+   ========================================================================== */
+.auth-wrapper {
+    max-width: 480px;
+    margin: 2rem auto;
+    padding: 2.2rem 2.4rem;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 14px;
+    box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.06);
+}
+
+.auth-header {
+    text-align: center;
+    margin-bottom: 1.8rem;
+}
+
+.auth-title {
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: #0F172A;
+    margin-bottom: 0.35rem;
+}
+
+.auth-subtitle {
+    font-size: 0.92rem;
+    color: #64748B;
+}
+
+.sidebar-user-card {
+    padding: 10px 12px;
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    margin-bottom: 12px;
+}
+
+.sidebar-user-name {
+    font-weight: 600;
+    font-size: 0.94rem;
+    color: #0F172A;
+    line-height: 1.3;
+}
+
+.sidebar-user-sub {
+    font-size: 0.8rem;
+    color: #64748B;
+    margin-top: 2px;
+}
+
+.role-badge-user {
+    display: inline-block;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    background: #EFF6FF;
+    color: #2563EB;
+    border: 1px solid #BFDBFE;
+}
+
+.role-badge-admin {
+    display: inline-block;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    background: #FAF5FF;
+    color: #7C3AED;
+    border: 1px solid #E9D5FF;
+}
+
+.conv-history-list {
+    max-height: 240px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+}
 </style>
 """

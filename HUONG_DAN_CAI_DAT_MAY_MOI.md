@@ -133,6 +133,12 @@ Sau khi clone repo mới, cơ sở dữ liệu vector ChromaDB chưa được t�
    python ingest_data.py --file "data/raw/du_lieu_tu_vung_RAG_chuan_hoa_v3.xlsx" --mode append
    ```
 
+4. **Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên:**
+   ```bash
+   python scripts/create_admin.py
+   ```
+   > Script sẽ yêu cầu nhập tên đăng nhập và mật khẩu an toàn qua console (không hiển thị ký tự mật khẩu). Mật khẩu được băm một chiều bằng Bcrypt trước khi ghi vào cơ sở dữ liệu `data/app_data.db`.
+
 > [!TIP]
 > **Nhận diện PDF dạng scan (Tùy chọn OCR):**  
 > Dự án hỗ trợ trích xuất văn bản từ trang scan qua OCR cục bộ (`pytesseract`). Để sử dụng, hãy cài đặt [Tesseract OCR for Windows](https://github.com/UB-Mannheim/tesseract/wiki) (hoặc `sudo apt install tesseract-ocr` trên Ubuntu). Nếu chưa cài, hệ thống vẫn xử lý văn bản bình thường và bỏ qua OCR kèm cảnh báo rõ ràng.
@@ -173,7 +179,10 @@ python src/ui/cli.py
 Để kiểm tra tính toàn vẹn của tất cả các module trên máy tính mới:
 
 ```bash
-# Chạy toàn bộ các bài kiểm thử tự động
+# 1. Chạy bộ kiểm thử Xác thực, Phân quyền RBAC & Cách ly Dữ liệu (Mới):
+python -m unittest tests.test_auth_rbac_isolation
+
+# 2. Chạy toàn bộ các bài kiểm thử tự động:
 python -m unittest discover -s tests -p "test_*.py"
 
 # Hoặc chạy kiểm thử các module cốt lõi:

@@ -61,6 +61,7 @@ class Settings:
     SOURCES_MANIFEST_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "processed" / "sources_manifest.json")
     EXCEPTION_INTENTS_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "config" / "exception_intent.json")
     DICTIONARY_DB_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "raw" / "dictionary_en_vi.db")
+    APP_DB_PATH: Path = field(default_factory=lambda: Path(os.getenv("APP_DB_PATH", str(Path(__file__).resolve().parent.parent / "data" / "app_data.db"))))
     OXFORD_PDF_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "raw" / "The_Oxford_3000_by_CEFR_level.pdf")
     EMBEDDINGS_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "processed" / "embeddings.npy")
 

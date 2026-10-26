@@ -73,17 +73,28 @@ chatbox2.0/
 │   ├── RUBRIC_GAP_ANALYSIS.md   # Phân tích khoảng cách rubric & kế hoạch thực hiện
 │   └── huong_dan_nap_du_lieu_excel.md # Hướng dẫn nạp tri thức từ file Excel
 ├── scripts/
+│   ├── create_admin.py          # Khởi tạo Quản trị viên (Admin) đầu tiên an toàn qua CLI
 │   ├── download_models.py       # Tải trước PhoBERT-base-v2 và BGE-M3 vào local cache
 │   ├── sync_oxford_knowledge.py # Đồng bộ từ vựng Oxford 3000 và tra cứu SQLite
 │   └── prune_dictionary_db.py   # Thu gọn dung lượng cơ sở dữ liệu từ điển SQLite
 ├── src/
+│   ├── auth/                    # Module xác thực & phân quyền (Bcrypt, Session, RBAC)
+│   │   ├── __init__.py
+│   │   ├── security.py          # Băm mật khẩu Bcrypt + salt, chính sách bảo mật
+│   │   └── service.py           # Nghiệp vụ đăng ký, đăng nhập, phân quyền backend
 │   ├── chat/                    # Topic Tracker & Engine điều phối pipeline
 │   ├── core/                    # DTO Models & Exceptions
-│   ├── data/                    # QALoader, IngestionManager & File Loaders (PDF, Excel...)
+│   ├── data/                    # Quản lý dữ liệu ứng dụng & nạp Knowledge Base
+│   │   ├── app_db.py            # SQLite database riêng cho tài khoản & hội thoại (app_data.db)
+│   │   ├── user_repository.py   # Quản lý tài khoản User & Admin (Parameterized SQL)
+│   │   ├── conversation_repository.py # Lưu trữ hội thoại & tin nhắn cách ly theo user_id
+│   │   ├── audit_repository.py  # Ghi nhận nhật ký kiểm toán hệ thống
+│   │   ├── batch_ingestion.py   # Quản lý nạp tri thức đa tệp
+│   │   └── loaders/             # Trích xuất dữ liệu đa định dạng (PDF, SQLite, Excel...)
 │   ├── llm/                     # LangChain LCEL & Ollama Client
 │   ├── nlp/                     # PhoBERT Query Understanding & Intent Classifier
 │   ├── retriever/               # BGE-M3 ChromaDB + BM25Okapi + RRF Fusion (k=60)
-│   └── ui/                      # Streamlit UI (Port 8501), Gradio UI (Port 7860), CLI
+│   └── ui/                      # Giao diện Streamlit phân quyền đa vai trò, Admin Dashboard
 ├── tests/                       # Toàn bộ bài kiểm thử tự động (Unit & Integration Tests)
 ├── HUONG_DAN_CAI_DAT_MAY_MOI.md # Hướng dẫn chi tiết thiết lập môi trường qua Terminal
 ├── ingest_data.py               # Công cụ CLI nạp và cập nhật tri thức đa định dạng
@@ -139,11 +150,16 @@ ollama pull qwen2.5:7b
 
 # 4. Khởi tạo / Đồng bộ chỉ mục Vector ChromaDB & BM25 lần đầu (từ 3,725 cặp Q&A có sẵn):
 python ingest_data.py --file "data/processed/qa_records.jsonl" --mode replace
+
+# 5. Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên:
+python scripts/create_admin.py
 ```
 
 > [!TIP]
-> **Hỗ trợ OCR cho PDF dạng scan (Tùy chọn):**  
-> Hệ thống tích hợp sẵn nhận diện trang scan qua OCR cục bộ. Để sử dụng tính năng này, cài đặt [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) (Windows) hoặc `sudo apt install tesseract-ocr` (Linux). Nếu chưa cài Tesseract, hệ thống sẽ ghi cảnh báo rõ ràng và tiếp tục xử lý các trang văn bản bình thường mà không bị crash.
+> **Khởi tạo Admin đầu tiên (Bootstrap Admin):**  
+> Lệnh `python scripts/create_admin.py` yêu cầu nhập username và password an toàn qua terminal (không in mật khẩu ra màn hình). Mật khẩu được băm bằng Bcrypt với Salt ngẫu nhiên và lưu vào cơ sở dữ liệu `data/app_data.db`.
+
+---
 
 ### Bước 3: Khởi chạy ứng dụng qua Terminal
 
@@ -152,6 +168,10 @@ python ingest_data.py --file "data/processed/qa_records.jsonl" --mode replace
   streamlit run src/ui/app.py --server.port 8501
   ```
   *(Truy cập: `http://localhost:8501`)*
+
+- **Đăng nhập & Sử dụng:**
+  - Khách chưa có tài khoản có thể chuyển sang tab **"📝 Đăng ký tài khoản"** để tự tạo tài khoản Người dùng (`user`).
+  - Đăng nhập bằng tài khoản Quản trị viên (`admin`) đã tạo ở Bước 2 để truy cập toàn quyền Admin Dashboard, Quản lý tài khoản, Nạp Knowledge Base và Chẩn đoán hệ thống.
 
 - **Khởi chạy giao diện Gradio:**
   ```bash
@@ -164,22 +184,63 @@ python ingest_data.py --file "data/processed/qa_records.jsonl" --mode replace
   python src/ui/cli.py
   ```
 
+---
+
 ### Bước 4: Chạy kiểm thử tự động (Test Suite)
 
-1. **Chạy bộ 15 ca kiểm thử chuẩn hóa theo Rubric đồ án:**
+1. **Chạy bộ kiểm thử Xác thực, Phân quyền RBAC & Cách ly Dữ liệu (Mới):**
+   ```bash
+   python -m unittest tests.test_auth_rbac_isolation
+   ```
+   *(Kiểm tra 20 ca kiểm thử bảo mật: băm mật khẩu Bcrypt, đăng ký, đăng nhập, khóa tài khoản, bảo vệ Admin cuối cùng, cách ly cuộc trò chuyện và TopicTracker qua database SQLite tạm thời).*
+
+2. **Chạy bộ 15 ca kiểm thử chuẩn hóa theo Rubric đồ án:**
    ```bash
    python -m unittest tests.test_chatbot_rubric
    ```
    *(Tự động chạy và cập nhật báo cáo chi tiết tại `docs/CHATBOT_TEST_REPORT.md`)*
 
-2. **Chạy toàn bộ 190+ ca kiểm thử hồi quy (Full Regression Suite):**
+3. **Chạy bộ kiểm thử chuẩn hóa không cần thư viện ngoài:**
    ```bash
-   python -m unittest discover -s tests -p "test_*.py"
+   python -m unittest tests.test_all_unittest
    ```
 
 ---
 
-## 5. KẾT QUẢ KIỂM THỬ 15 CA HỘI THOẠI THEO RUBRIC (15/15 PASSED - 100%)
+## 5. HỆ THỐNG XÁC THỰC, PHÂN QUYỀN RBAC & QUẢN TRỊ DỮ LIỆU CÁ NHÂN
+
+Hệ thống tài khoản và phân quyền của Chatbox 2.0 được phát triển theo các chuẩn mực bảo mật cao nhất dành cho ứng dụng cục bộ:
+
+### 5.1. Mô hình Phân quyền RBAC (Role-Based Access Control)
+
+| Vai trò | Quyền hạn được phép | Giới hạn & Ngăn cấm |
+| :--- | :--- | :--- |
+| **User (Người dùng)** | • Đăng nhập / Đăng xuất.<br/>• Tra cứu từ vựng tiếng Anh bằng tiếng Việt.<br/>• Lưu lịch sử cuộc trò chuyện riêng.<br/>• Tạo mới, đổi tên hoặc xóa hội thoại của mình.<br/>• Xóa toàn bộ lịch sử trò chuyện của chính mình.<br/>• Cập nhật tên hiển thị và đổi mật khẩu cá nhân. | • Không xem hoặc truy cập Admin Dashboard.<br/>• Không xem tài khoản hoặc lịch sử người khác.<br/>• Không thể nạp, xóa hoặc chỉnh sửa Knowledge Base.<br/>• Không xem cấu hình phần cứng / telemetry.<br/>• Tuyệt đối không thể tự nâng quyền lên Admin. |
+| **Admin (Quản trị viên)** | • Toàn bộ quyền của User.<br/>• Bảng điều khiển quản trị (Admin Dashboard) với tổng quan thống kê.<br/>• Tìm kiếm, lọc và xem danh sách tài khoản hệ thống.<br/>• Tạo tài khoản User hoặc Admin mới.<br/>• Vô hiệu hóa hoặc kích hoạt lại tài khoản người dùng.<br/>• Đặt lại mật khẩu cho người dùng.<br/>• Quản trị nạp tài liệu và xóa Knowledge Base (Add / Replace).<br/>• Xem chẩn đoán tài nguyên động (GPU, VRAM, RAM, Threads, Ollama).<br/>• Xem và tải về Nhật ký Kiểm toán Quản trị (Admin Audit Logs). | • Không thể tự xóa tài khoản quản trị đang đăng nhập.<br/>• Không thể vô hiệu hóa, giáng quyền hoặc xóa Quản trị viên cuối cùng của hệ thống.<br/>• Mặc định tôn trọng quyền riêng tư: Không hiển thị nội dung chat cá nhân của User trên Dashboard. |
+
+### 5.2. Kiến trúc Cách ly Dữ liệu (Data Isolation) & Lưu trữ Riêng biệt
+
+- **Cơ sở dữ liệu ứng dụng riêng biệt (`data/app_data.db`):**
+  - Quản lý 4 bảng: `users`, `conversations`, `messages`, `audit_logs`.
+  - Bật chế độ `WAL` (Write-Ahead Logging) và ràng buộc khóa ngoại `PRAGMA foreign_keys = ON;`.
+  - **Tuyệt đối không xâm phạm:** Cơ sở dữ liệu từ điển (`data/raw/dictionary_en_vi.db`), tệp `qa_records.jsonl`, và ChromaDB (`chroma_db/`) được giữ nguyên vẹn 100%.
+- **Bảo vệ quyền sở hữu ở tầng Backend:**
+  - Mọi thao tác đọc, ghi, cập nhật hoặc xóa cuộc hội thoại và tin nhắn đều bắt buộc phải kèm điều kiện `WHERE id = ? AND user_id = ?`. Người dùng không thể truy cập hội thoại của người khác chỉ bằng cách thay đổi mã `conversation_id`.
+  - Khi Admin vô hiệu hóa một tài khoản, mọi lượt truy vấn hoặc thao tác tiếp theo từ tài khoản đó đều bị chặn tức thì ở backend.
+- **Cách ly ngữ cảnh TopicTracker:**
+  - Bộ đệm ngữ cảnh `TopicTracker` được khởi tạo độc lập theo phiên người dùng.
+  - Khi người dùng đăng xuất, chuyển cuộc hội thoại hoặc chuyển tài khoản, hàm `tracker.clear()` được gọi để dọn sạch `active_word` và lịch sử ngữ cảnh, loại trừ 100% rủi ro rò rỉ ngữ cảnh giữa các người dùng.
+
+### 5.3. Tiêu chuẩn Bảo mật Mật khẩu & Session
+
+- **Mật khẩu:** Băm một chiều bằng thuật toán `Bcrypt` với chi phí `rounds=12` và muối (Salt) ngẫu nhiên. Cơ chế dự phòng `PBKDF2-HMAC-SHA256` (600,000 vòng lặp) sẵn sàng khi thiếu thư viện Bcrypt.
+- **Không bao giờ lưu văn bản thuần:** Tuyệt đối không lưu mật khẩu dạng plaintext trong database, mã nguồn, log hay console.
+- **Bảo mật phản hồi lỗi:** Thông báo lỗi đăng nhập chung *"Tên đăng nhập hoặc mật khẩu không chính xác"* để chống kỹ thuật dò quét tài khoản (Username Enumeration).
+- **Audit Logging:** Ghi nhận đầy đủ actor, thời gian UTC, hành động, đối tượng và kết quả. Tự động che dấu các trường nhạy cảm (`******`).
+
+---
+
+## 6. KẾT QUẢ KIỂM THỬ 15 CA HỘI THOẠI THEO RUBRIC (15/15 PASSED - 100%)
 
 Hệ thống đã triển khai và thực thi thành công bộ kiểm thử 15 ca hội thoại theo đúng quy định phân nhóm của Rubric bài tập lớn:
 

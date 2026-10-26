@@ -77,7 +77,21 @@ from src.data.loaders.sqlite_loader import (
     SQLiteMappingMode,
     SQLiteSchemaInfo,
 )
+from src.auth.service import AuthService
+from src.chat.topic_tracker import TopicTracker
+from src.data.audit_repository import AuditRepository
+from src.data.conversation_repository import ConversationRepository
+from src.data.user_repository import User, UserRepository
+from src.ui.admin_dashboard import render_admin_dashboard
+from src.ui.audit_view import render_admin_audit_logs
+from src.ui.auth_views import render_auth_page
+from src.ui.profile_view import render_profile_view
 from src.ui.theme import CUSTOM_CSS
+
+# Khởi tạo các repository và service hệ thống
+auth_service = AuthService()
+conv_repo = ConversationRepository()
+audit_repo = AuditRepository()
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +280,13 @@ def get_chatbot_engine() -> ChatEngine:
 engine = get_chatbot_engine()
 batch_manager = BatchIngestionManager()
 
-# --- KHỞI TẠO SESSION STATE CỐT LÕI ---
+# --- KHỞI TẠO SESSION STATE CỐT LÕI & XÁC THỰC ---
+if "auth_user" not in st.session_state:
+    st.session_state.auth_user = None
+if "current_conversation_id" not in st.session_state:
+    st.session_state.current_conversation_id = None
+if "tracker" not in st.session_state:
+    st.session_state.tracker = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "audit_logs" not in st.session_state:
@@ -290,6 +310,32 @@ if "show_clear_kb_confirm" not in st.session_state:
 if "is_processing" not in st.session_state:
     st.session_state.is_processing = False
 
+# Xác minh trạng thái phiên làm việc ở backend mỗi lần rerun
+if st.session_state.auth_user is not None:
+    verified_user = auth_service.verify_active_session(st.session_state.auth_user.id)
+    if not verified_user:
+        st.session_state.auth_user = None
+        st.session_state.messages = []
+        st.session_state.current_conversation_id = None
+        if hasattr(engine, "tracker") and hasattr(engine.tracker, "clear"):
+            engine.tracker.clear()
+        st.warning("⚠️ Phiên làm việc đã hết hạn hoặc tài khoản đã bị vô hiệu hóa.")
+        st.rerun()
+    else:
+        st.session_state.auth_user = verified_user
+
+# Cổng bảo vệ xác thực (Authentication Gate)
+if st.session_state.auth_user is None:
+    render_auth_page(auth_service, conv_repo)
+    st.stop()
+
+current_user: User = st.session_state.auth_user
+
+# Khởi tạo TopicTracker riêng cho từng phiên / người dùng
+if st.session_state.tracker is None:
+    st.session_state.tracker = TopicTracker(records=engine.records)
+engine.tracker = st.session_state.tracker
+
 # Lấy trạng thái runtime
 ollama_info = get_ollama_runtime_status(settings.OLLAMA_BASE_URL, settings.OLLAMA_MODEL)
 kb_records_count = len(engine.records) if hasattr(engine, "records") and engine.records else 0
@@ -310,30 +356,70 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    # 2. Nút '+ Cuộc trò chuyện mới'
-    if st.button("➕ Cuộc trò chuyện mới", key="btn_sidebar_new_chat", use_container_width=True):
-        st.session_state.messages = []
-        if hasattr(engine, "tracker") and hasattr(engine.tracker, "clear"):
+    # 2. Thẻ người dùng đăng nhập & Đăng xuất
+    role_badge_class = "role-badge-admin" if current_user.role == "admin" else "role-badge-user"
+    role_name_text = "Quản trị viên" if current_user.role == "admin" else "Người dùng"
+    st.markdown(
+        f"""
+        <div class="sidebar-user-card">
+            <div class="sidebar-user-name">👤 {html.escape(current_user.display_name)}</div>
+            <div class="sidebar-user-sub">@{html.escape(current_user.username)} · <span class="{role_badge_class}">{role_name_text}</span></div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col_btn_new, col_btn_out = st.columns([1, 1])
+    with col_btn_new:
+        if st.button("➕ Mới", key="btn_sidebar_new_chat", use_container_width=True, help="Tạo cuộc hội thoại mới"):
+            new_conv = conv_repo.create_conversation(current_user.id, "Cuộc trò chuyện mới")
+            st.session_state.current_conversation_id = new_conv.id
+            st.session_state.messages = []
+            if st.session_state.tracker:
+                st.session_state.tracker.clear()
             engine.tracker.clear()
-        st.session_state.status = "Sẵn sàng!"
-        st.session_state.is_processing = False
-        st.session_state.nav_page = "💬 Tra cứu từ vựng"
-        st.toast("Đã bắt đầu cuộc trò chuyện mới.", icon="✨")
-        st.rerun()
+            st.session_state.status = "Sẵn sàng!"
+            st.session_state.is_processing = False
+            st.session_state.nav_page = "💬 Tra cứu từ vựng"
+            st.toast("Đã bắt đầu cuộc trò chuyện mới.", icon="✨")
+            st.rerun()
+
+    with col_btn_out:
+        if st.button("🚪 Thoát", key="btn_sidebar_logout", use_container_width=True, help="Đăng xuất khỏi hệ thống"):
+            auth_service.logout(current_user)
+            st.session_state.auth_user = None
+            st.session_state.messages = []
+            st.session_state.current_conversation_id = None
+            if st.session_state.tracker:
+                st.session_state.tracker.clear()
+            engine.tracker.clear()
+            st.toast("Đã đăng xuất.", icon="👋")
+            st.rerun()
 
     # Đường phân cách
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
-    # 3. Mục ĐIỀU HƯỚNG
+    # 3. Mục ĐIỀU HƯỚNG PHÂN QUYỀN (RBAC NAVIGATION)
     st.markdown('<div class="sidebar-section-title">ĐIỀU HƯỚNG</div>', unsafe_allow_html=True)
     
-    nav_options = [
-        "💬 Tra cứu từ vựng",
-        "🗄️ Quản lý dữ liệu",
-        "📈 Chẩn đoán"
-    ]
+    if current_user.role == "admin":
+        nav_options = [
+            "💬 Tra cứu từ vựng",
+            "👥 Quản lý tài khoản",
+            "🗄️ Quản lý dữ liệu",
+            "📈 Chẩn đoán & Nhật ký",
+            "👤 Thông tin cá nhân",
+        ]
+    else:
+        nav_options = [
+            "💬 Tra cứu từ vựng",
+            "👤 Thông tin cá nhân",
+        ]
     
-    current_index = nav_options.index(st.session_state.nav_page) if st.session_state.nav_page in nav_options else 0
+    if st.session_state.nav_page not in nav_options:
+        st.session_state.nav_page = nav_options[0]
+
+    current_index = nav_options.index(st.session_state.nav_page)
     selected_nav = st.radio(
         label="Điều hướng trang",
         options=nav_options,
@@ -345,7 +431,73 @@ with st.sidebar:
         st.session_state.nav_page = selected_nav
         st.rerun()
 
-    # 4. Trạng thái Ollama ở chân sidebar
+    # 4. Lịch sử hội thoại cá nhân của tài khoản
+    st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section-title">LỊCH SỬ HỘI THOẠI</div>', unsafe_allow_html=True)
+
+    user_convs = conv_repo.list_conversations(current_user.id, limit=20)
+    if user_convs:
+        for c in user_convs:
+            is_active_conv = (c.id == st.session_state.current_conversation_id)
+            btn_prefix = "👉 " if is_active_conv else "🗨️ "
+            short_title = c.title if len(c.title) <= 16 else c.title[:16] + "..."
+            if st.button(f"{btn_prefix}{short_title}", key=f"btn_conv_{c.id}", use_container_width=True):
+                if not is_active_conv:
+                    st.session_state.current_conversation_id = c.id
+                    db_msgs = conv_repo.get_messages(current_user.id, c.id)
+                    st.session_state.messages = []
+                    for m in db_msgs:
+                        meta_obj = None
+                        if m.meta_json:
+                            try:
+                                md = json.loads(m.meta_json)
+                                meta_obj = ChatResponse(
+                                    answer=m.content,
+                                    mode=md.get("mode", "UNKNOWN"),
+                                    intent=md.get("intent"),
+                                    record_id=md.get("record_id"),
+                                    rrf_score=md.get("rrf_score", 0.0),
+                                    latency_ms=md.get("latency_ms", 0.0),
+                                    word=md.get("word"),
+                                    source=md.get("source"),
+                                )
+                            except Exception:
+                                pass
+                        st.session_state.messages.append({
+                            "role": m.role,
+                            "content": m.content,
+                            "meta": meta_obj
+                        })
+                    if st.session_state.tracker:
+                        st.session_state.tracker.clear()
+                    engine.tracker.clear()
+                    st.session_state.nav_page = "💬 Tra cứu từ vựng"
+                    st.rerun()
+
+        with st.expander("⚙️ Quản lý lịch sử", expanded=False):
+            if st.session_state.current_conversation_id:
+                if st.button("🗑️ Xóa cuộc trò chuyện này", key="btn_del_curr_conv", use_container_width=True):
+                    conv_repo.delete_conversation(current_user.id, st.session_state.current_conversation_id)
+                    st.session_state.current_conversation_id = None
+                    st.session_state.messages = []
+                    if st.session_state.tracker:
+                        st.session_state.tracker.clear()
+                    engine.tracker.clear()
+                    st.toast("Đã xóa cuộc trò chuyện.", icon="🗑️")
+                    st.rerun()
+            if st.button("🧹 Xóa toàn bộ lịch sử của tôi", key="btn_clear_all_history", use_container_width=True):
+                deleted = conv_repo.clear_user_history(current_user.id)
+                st.session_state.current_conversation_id = None
+                st.session_state.messages = []
+                if st.session_state.tracker:
+                    st.session_state.tracker.clear()
+                engine.tracker.clear()
+                st.toast(f"Đã xóa {deleted} cuộc trò chuyện.", icon="🧹")
+                st.rerun()
+    else:
+        st.caption("Chưa có lịch sử hội thoại nào.")
+
+    # 5. Trạng thái Ollama ở chân sidebar
     ollama_class = "online" if ollama_info["online"] else "offline"
     ollama_text = "● Ollama sẵn sàng" if ollama_info["online"] else "● Ollama ngoại tuyến"
     st.markdown(
@@ -448,20 +600,36 @@ def render_assistant_turn(content: str, meta: Optional[ChatResponse] = None) -> 
 def process_user_query(
     clean_input: str,
     chat_engine: ChatEngine,
+    current_user: User,
+    conv_repo: ConversationRepository,
     messages_container=None,
     empty_state_placeholder=None,
 ) -> Optional[ChatResponse]:
     """Quy trình xử lý một câu hỏi của người dùng chuẩn luồng hiện đại:
-    1. Cập nhật câu hỏi vào st.session_state.messages ngay lập tức.
+    1. Cập nhật câu hỏi vào st.session_state.messages và lưu bền vững vào SQLite.
     2. Render bubble người dùng ngay lập tức trên UI trước khi bắt đầu backend.
     3. Render bubble assistant cùng placeholder trạng thái 'Đang phân tích câu hỏi & tìm kiếm dữ liệu...'.
     4. Gọi ChatEngine.ask_stream() để sinh câu trả lời theo luồng (streaming).
     5. Cập nhật các chunk phản hồi thay thế placeholder trạng thái.
-    6. Lưu câu trả lời hoàn chỉnh cùng metadata vào st.session_state.messages.
+    6. Lưu câu trả lời hoàn chỉnh cùng metadata vào st.session_state.messages và SQLite.
     7. Ghi nhận nhật ký kiểm toán (audit log).
     """
     if not clean_input:
         return None
+
+    # Đảm bảo cuộc hội thoại tồn tại trong cơ sở dữ liệu
+    conv_id = st.session_state.get("current_conversation_id")
+    if not conv_id:
+        short_title = clean_input[:35] + ("..." if len(clean_input) > 35 else "")
+        new_conv = conv_repo.create_conversation(current_user.id, short_title)
+        conv_id = new_conv.id
+        st.session_state.current_conversation_id = conv_id
+
+    # Lưu tin nhắn người dùng vào cơ sở dữ liệu
+    try:
+        conv_repo.add_message(current_user.id, conv_id, "user", clean_input)
+    except Exception as save_u_err:
+        logger.error("Lỗi khi lưu tin nhắn người dùng: %s", save_u_err)
 
     st.session_state.is_processing = True
     try:
@@ -503,6 +671,9 @@ def process_user_query(
                         def stream_adapter():
                             first_chunk = True
                             try:
+                                # Đồng bộ tracker riêng của phiên
+                                if "tracker" in st.session_state and st.session_state.tracker:
+                                    chat_engine.tracker = st.session_state.tracker
                                 for token, meta in chat_engine.ask_stream(clean_input):
                                     if meta is not None:
                                         response_holder["meta"] = meta
@@ -549,7 +720,33 @@ def process_user_query(
         })
         st.session_state.status = "Hoàn tất!"
 
-        # Bước 5: Ghi audit log
+        # Bước 5: Lưu câu trả lời vào SQLite bền vững
+        meta_json_str = None
+        if final_meta:
+            try:
+                meta_json_str = json.dumps({
+                    "mode": getattr(final_meta, "mode", None),
+                    "intent": getattr(final_meta, "intent", None),
+                    "record_id": getattr(final_meta, "record_id", None),
+                    "rrf_score": getattr(final_meta, "rrf_score", 0.0),
+                    "latency_ms": getattr(final_meta, "latency_ms", 0.0),
+                    "word": getattr(final_meta, "word", None),
+                    "source": getattr(final_meta, "source", None),
+                }, ensure_ascii=False)
+            except Exception:
+                pass
+
+        try:
+            conv_repo.add_message(current_user.id, conv_id, "assistant", persisted_answer, meta_json_str)
+            # Tự động cập nhật tiêu đề nếu vẫn là 'Cuộc trò chuyện mới'
+            curr_c = conv_repo.get_conversation(current_user.id, conv_id)
+            if curr_c and curr_c.title == "Cuộc trò chuyện mới":
+                auto_title = clean_input[:35] + ("..." if len(clean_input) > 35 else "")
+                conv_repo.update_title(current_user.id, conv_id, auto_title)
+        except Exception as save_bot_err:
+            logger.error("Lỗi khi lưu tin nhắn chatbot: %s", save_bot_err)
+
+        # Bước 6: Ghi audit log phiên
         active_word_val = getattr(chat_engine.tracker, "active_word", None) if hasattr(chat_engine, "tracker") else None
         st.session_state.audit_logs.append({
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -575,11 +772,14 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
     # --------------------------------------------------------------------------
 
     # 1. Header Khung Chat: Tiêu đề + Badge 'Local' + Trạng thái thu gọn
+    curr_conv_info = conv_repo.get_conversation(current_user.id, st.session_state.current_conversation_id) if st.session_state.current_conversation_id else None
+    conv_display_title = curr_conv_info.title if curr_conv_info else "Cuộc trò chuyện mới"
+
     st.markdown(
         f"""
         <div class="chat-top-bar">
             <div class="chat-top-left">
-                <span class="chat-view-title">Tra cứu từ vựng</span>
+                <span class="chat-view-title">{html.escape(conv_display_title)}</span>
                 <span class="chat-local-pill">Local</span>
             </div>
             <div class="chat-top-right">
@@ -590,6 +790,23 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
         """,
         unsafe_allow_html=True
     )
+
+    if st.session_state.current_conversation_id:
+        with st.expander("✏️ Đổi tên cuộc hội thoại này", expanded=False):
+            col_rn1, col_rn2 = st.columns([3, 1])
+            with col_rn1:
+                new_title_inp = st.text_input(
+                    "Tiêu đề mới:",
+                    value=conv_display_title,
+                    key="rename_conv_input",
+                    label_visibility="collapsed"
+                ).strip()
+            with col_rn2:
+                if st.button("Lưu tên", key="btn_save_conv_title", use_container_width=True):
+                    if new_title_inp:
+                        conv_repo.update_title(current_user.id, st.session_state.current_conversation_id, new_title_inp)
+                        st.toast("Đã cập nhật tiêu đề cuộc trò chuyện.", icon="✏️")
+                        st.rerun()
 
     # 2. Vùng hiển thị tin nhắn (cuộn tự nhiên theo trình duyệt, không chia 2 thanh cuộn)
     messages_container = st.container()
@@ -639,16 +856,33 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
             process_user_query(
                 clean_input=clean_input,
                 chat_engine=engine,
+                current_user=current_user,
+                conv_repo=conv_repo,
                 messages_container=messages_container,
                 empty_state_placeholder=empty_state_placeholder,
             )
 
 
+elif st.session_state.nav_page == "👥 Quản lý tài khoản":
+    # --------------------------------------------------------------------------
+    # TRANG QUẢN LÝ TÀI KHOẢN & NGƯỜI DÙNG (ADMIN ONLY)
+    # --------------------------------------------------------------------------
+    try:
+        auth_service.require_admin(current_user)
+        render_admin_dashboard(auth_service, conv_repo, current_user)
+    except PermissionError as perm_err:
+        st.error(f"❌ Truy cập bị từ chối: {perm_err}")
+
+
 elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
     # --------------------------------------------------------------------------
-    # TRANG 2: 🗄️ QUẢN LÝ DỮ LIỆU (KNOWLEDGE BASE MANAGEMENT)
-    # Lỗi D: Thay thế thẻ div panel-card bằng st.container(border=True)
+    # TRANG 2: 🗄️ QUẢN LÝ DỮ LIỆU (KNOWLEDGE BASE MANAGEMENT - ADMIN ONLY)
     # --------------------------------------------------------------------------
+    try:
+        auth_service.require_admin(current_user)
+    except PermissionError as perm_err:
+        st.error(f"❌ Truy cập bị từ chối: Yêu cầu quyền Quản trị viên (Admin) để thao tác trên Knowledge Base.")
+        st.stop()
     with st.container(border=True):
         st.markdown('<div class="panel-card-header">🗄️ Quản Trị & Cập Nhật Kho Tri Thức</div>', unsafe_allow_html=True)
         st.markdown(
@@ -1353,11 +1587,16 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
                             )
 
 
-elif st.session_state.nav_page == "📈 Chẩn đoán":
+elif st.session_state.nav_page in ("📈 Chẩn đoán", "📈 Chẩn đoán & Nhật ký"):
     # --------------------------------------------------------------------------
-    # TRANG 3: 📈 CHẨN ĐOÁN & KIỂM ĐỊNH (DIAGNOSTICS & AUDIT)
-    # Lỗi D: Thay thế thẻ div panel-card bằng st.container(border=True)
+    # TRANG 3: 📈 CHẨN ĐOÁN & NHẬT KÝ (DIAGNOSTICS & AUDIT - ADMIN ONLY)
     # --------------------------------------------------------------------------
+    try:
+        auth_service.require_admin(current_user)
+    except PermissionError as perm_err:
+        st.error(f"❌ Truy cập bị từ chối: Yêu cầu quyền Quản trị viên (Admin) để xem chẩn đoán hệ thống.")
+        st.stop()
+
     with st.container(border=True):
         st.markdown('<div class="panel-card-header">📈 Chẩn Đoán Hệ Thống & Kiểm Định Kỹ Thuật</div>', unsafe_allow_html=True)
 
@@ -1572,3 +1811,15 @@ elif st.session_state.nav_page == "📈 Chẩn đoán":
                     st.rerun()
         else:
             st.info("Chưa có lượt truy vấn nào trong phiên làm việc hiện tại.")
+
+        st.markdown("---")
+        # Nhật ký kiểm toán bảo mật quản trị (Admin Audit Logs từ cơ sở dữ liệu)
+        render_admin_audit_logs(audit_repo, current_user)
+
+
+elif st.session_state.nav_page == "👤 Thông tin cá nhân":
+    # --------------------------------------------------------------------------
+    # TRANG HỒ SƠ CÁ NHÂN & ĐỔI MẬT KHẨU
+    # --------------------------------------------------------------------------
+    render_profile_view(auth_service, current_user)
+
