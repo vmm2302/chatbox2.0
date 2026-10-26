@@ -4,6 +4,7 @@ Chịu trách nhiệm thực thi các quy tắc kiểm tra quyền hạn (Access
 ngăn chặn người dùng tự nâng quyền và bảo vệ an toàn cho hệ thống.
 """
 
+import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.auth.security import (
@@ -31,6 +32,33 @@ class AuthService:
         self.audit_repo = audit_repo or AuditRepository(db=database)
 
     # --------------------------------------------------------------------------
+    # 0. KIỂM TRA TRẠNG THÁI KHỞI TẠO HỆ THỐNG
+    # --------------------------------------------------------------------------
+
+    def has_admin(self) -> bool:
+        """Kiểm tra hệ thống đã có ít nhất một Quản trị viên (Admin) hoạt động hay chưa."""
+        try:
+            return self.user_repo.count_active_admins() > 0
+        except Exception:
+            return False
+
+    def get_system_init_status(self) -> Tuple[str, Optional[str]]:
+        """Xác định trạng thái khởi tạo của hệ thống tài khoản:
+        - 'READY': Hệ thống đã sẵn sàng với ít nhất một Admin hợp lệ.
+        - 'NO_ADMIN': Chưa có tài khoản Admin nào được khởi tạo (yêu cầu bootstrap).
+        - 'DB_ERROR': Lỗi kết nối hoặc hỏng tệp cơ sở dữ liệu (không phải trạng thái không có tài khoản).
+        """
+        try:
+            admins = self.user_repo.count_active_admins()
+            if admins > 0:
+                return "READY", None
+            return "NO_ADMIN", None
+        except sqlite3.DatabaseError as db_err:
+            return "DB_ERROR", f"Cơ sở dữ liệu SQLite gặp lỗi tính toàn vẹn: {db_err}"
+        except Exception as exc:
+            return "DB_ERROR", f"Không thể kết nối cơ sở dữ liệu ứng dụng: {exc}"
+
+    # --------------------------------------------------------------------------
     # 1. ĐĂNG KÝ VÀ ĐĂNG NHẬP (USER FACING)
     # --------------------------------------------------------------------------
 
@@ -40,14 +68,19 @@ class AuthService:
         password: str,
         confirm_password: str,
         display_name: Optional[str] = None,
+        require_admin_exists: bool = False,
     ) -> Tuple[bool, Optional[User], str]:
         """Đăng ký tài khoản User mới cho khách.
         
         Quy tắc:
+        - Nếu require_admin_exists=True, chỉ cho phép đăng ký khi hệ thống đã có ít nhất một Admin.
         - Luôn gán vai trò 'user'. Tuyệt đối không cho phép tạo admin qua form đăng ký.
         - Kiểm tra độ mạnh mật khẩu và trùng khớp mật khẩu.
         - Tên đăng nhập là duy nhất.
         """
+        if require_admin_exists and not self.has_admin():
+            return False, None, "Hệ thống chưa có tài khoản Quản trị viên (Admin). Vui lòng khởi tạo Admin trước bằng lệnh: python scripts/create_admin.py"
+
         valid_u, err_u = validate_username(username)
         if not valid_u:
             return False, None, err_u

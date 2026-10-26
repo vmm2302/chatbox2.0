@@ -17,17 +17,26 @@ def render_auth_page(
     auth_service: AuthService,
     conv_repo: ConversationRepository,
 ) -> Optional[User]:
-    """Hiển thị màn hình đăng nhập và đăng ký khi người dùng chưa xác thực."""
+    """Hiển thị màn hình đăng nhập và đăng ký khi người dùng chưa xác thực.
+    
+    Xử lý rõ ràng 3 trạng thái:
+    1. Cơ sở dữ liệu bị lỗi (DB_ERROR): cảnh báo an toàn, không xóa hay ghi đè.
+    2. Chưa có tài khoản Admin nào (NO_ADMIN): hướng dẫn chạy CLI an toàn.
+    3. Hệ thống đã sẵn sàng (READY): cho phép đăng nhập và đăng ký User.
+    """
+    # Kiểm tra trạng thái khởi tạo hệ thống
+    init_status, init_err = auth_service.get_system_init_status()
+
     # Hiển thị tiêu đề chính
     st.markdown(
         """
-        <div style="text-align: center; margin-top: 1.5rem; margin-bottom: 2rem;">
+        <div style="text-align: center; margin-top: 1.5rem; margin-bottom: 1.75rem;">
             <div style="font-size: 3rem; margin-bottom: 0.5rem;">🤖</div>
-            <h1 style="font-size: 1.85rem; font-weight: 700; color: #0F172A; margin-bottom: 0.25rem;">
+            <h1 style="font-size: 1.85rem; font-weight: 700; color: #ECECEC; margin-bottom: 0.25rem;">
                 Chatbox 2.0
             </h1>
-            <p style="color: #64748B; font-size: 0.95rem;">
-                Hệ thống tra cứu từ vựng tiếng Anh thông minh với AI cục bộ
+            <p style="color: #8E8E8E; font-size: 0.95rem; max-width: 500px; margin: 0 auto;">
+                Hệ thống tra cứu từ vựng tiếng Anh thông minh với AI cục bộ. Đăng nhập để lưu và cá nhân hóa lịch sử trò chuyện của bạn.
             </p>
         </div>
         """,
@@ -37,7 +46,45 @@ def render_auth_page(
     col_spacer_l, col_auth, col_spacer_r = st.columns([1, 2, 1])
 
     with col_auth:
-        tab_login, tab_register = st.tabs(["🔐 Đăng nhập", "📝 Đăng ký tài khoản"])
+        # Trường hợp 1: Cơ sở dữ liệu bị lỗi kết nối hoặc hỏng file
+        if init_status == "DB_ERROR":
+            st.error(
+                f"❌ **LỖI KẾT NỐI CƠ SỞ DỮ LIỆU ỨNG DỤNG**\n\n"
+                f"- Chi tiết: `{init_err}`\n\n"
+                f"- Hệ thống đã tạm dừng để bảo vệ an toàn dữ liệu. Tuyệt đối không tự động xóa hoặc ghi đè database.\n"
+                f"- Vui lòng kiểm tra quyền truy cập file tại `data/app_data.db` và khởi động lại."
+            )
+            return None
+
+        # Trường hợp 2: Hệ thống chưa có tài khoản Admin nào
+        if init_status == "NO_ADMIN":
+            st.markdown(
+                """
+                <div style="background-color: #1E293B; border: 1px solid #0284C7; border-radius: 12px; padding: 16px 20px; margin-bottom: 1.5rem; color: #E0F2FE;">
+                    <div style="font-size: 1.1rem; font-weight: 600; color: #38BDF8; margin-bottom: 6px;">
+                        🛡️ Hệ thống chưa khởi tạo Quản trị viên (Admin)
+                    </div>
+                    <p style="margin: 0 0 10px 0; font-size: 0.92rem; line-height: 1.5; color: #BAE6FD;">
+                        Để đảm bảo an toàn phân quyền, hệ thống yêu cầu khởi tạo tài khoản <b>Quản trị viên đầu tiên</b> qua terminal an toàn trước khi mở đăng ký người dùng:
+                    </p>
+                    <div style="background-color: #0F172A; padding: 10px 14px; border-radius: 8px; font-family: monospace; font-size: 0.95rem; color: #38BDF8; border: 1px solid #1E293B; margin-bottom: 10px;">
+                        python scripts/create_admin.py
+                    </div>
+                    <p style="margin: 0; font-size: 0.85rem; color: #94A3B8;">
+                        Lệnh CLI sẽ bảo mật mật khẩu (không in ra màn hình) và băm bảo mật bằng thuật toán an toàn.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            col_rf1, col_rf2 = st.columns([1, 1])
+            with col_rf1:
+                if st.button("🔄 Kiểm tra lại trạng thái", key="btn_check_admin_init", use_container_width=True):
+                    st.rerun()
+
+        # Chọn tab mặc định dựa trên session_state.auth_tab
+        active_tab_label = "📝 Đăng ký tài khoản" if st.session_state.get("auth_tab") == "register" else "🔐 Đăng nhập"
+        tab_login, tab_register = st.tabs(["🔐 Đăng nhập", "📝 Đăng ký tài khoản"], default=active_tab_label)
 
         # ----------------------------------------------------------------------
         # TAB 1: ĐĂNG NHẬP
@@ -86,47 +133,55 @@ def render_auth_page(
         # ----------------------------------------------------------------------
         with tab_register:
             st.markdown("##### Tạo tài khoản mới")
-            st.caption("Tài khoản tự đăng ký mặc định có vai trò Người dùng (User).")
+            if init_status == "NO_ADMIN":
+                st.warning("⚠️ Chức năng đăng ký tài khoản User đang tạm khóa cho đến khi Quản trị viên (Admin) đầu tiên được tạo qua lệnh CLI.")
+                st.info("💡 Vui lòng chạy lệnh sau trên terminal để khởi tạo Admin trước: \n\n`python scripts/create_admin.py`")
+            else:
+                st.caption("Tài khoản tự đăng ký mặc định có vai trò Người dùng (User).")
 
-            with st.form("form_register", clear_on_submit=False):
-                reg_username = st.text_input(
-                    "Tên đăng nhập *",
-                    placeholder="3-30 ký tự (chữ cái, số, gạch dưới)",
-                    key="reg_username",
-                ).strip()
-                reg_display_name = st.text_input(
-                    "Tên hiển thị (Tùy chọn)",
-                    placeholder="ví dụ: Nguyễn Văn A",
-                    key="reg_display_name",
-                ).strip()
-                reg_password = st.text_input(
-                    "Mật khẩu *",
-                    type="password",
-                    placeholder="Tối thiểu 6 ký tự",
-                    key="reg_password",
-                )
-                reg_confirm_password = st.text_input(
-                    "Xác nhận mật khẩu *",
-                    type="password",
-                    placeholder="Nhập lại mật khẩu",
-                    key="reg_confirm_password",
-                )
-                submitted_register = st.form_submit_button(
-                    "Đăng ký ngay",
-                    use_container_width=True,
-                )
+                with st.form("form_register", clear_on_submit=False):
+                    reg_username = st.text_input(
+                        "Tên đăng nhập *",
+                        placeholder="3-30 ký tự (chữ cái, số, gạch dưới)",
+                        key="reg_username",
+                    ).strip()
+                    reg_display_name = st.text_input(
+                        "Tên hiển thị (Tùy chọn)",
+                        placeholder="ví dụ: Nguyễn Văn A",
+                        key="reg_display_name",
+                    ).strip()
+                    reg_password = st.text_input(
+                        "Mật khẩu *",
+                        type="password",
+                        placeholder="Tối thiểu 6 ký tự",
+                        key="reg_password",
+                    )
+                    reg_confirm_password = st.text_input(
+                        "Xác nhận mật khẩu *",
+                        type="password",
+                        placeholder="Nhập lại mật khẩu",
+                        key="reg_confirm_password",
+                    )
+                    submitted_register = st.form_submit_button(
+                        "Đăng ký ngay",
+                        use_container_width=True,
+                    )
 
-            if submitted_register:
-                success, new_user, msg = auth_service.register_user(
-                    username=reg_username,
-                    password=reg_password,
-                    confirm_password=reg_confirm_password,
-                    display_name=reg_display_name,
-                )
-                if success:
-                    st.success(f"✅ {msg}")
-                    st.info("👉 Bạn có thể chuyển sang tab **'Đăng nhập'** bên cạnh để bắt đầu tra cứu.")
-                else:
-                    st.error(f"❌ {msg}")
+                if submitted_register:
+                    success, new_user, msg = auth_service.register_user(
+                        username=reg_username,
+                        password=reg_password,
+                        confirm_password=reg_confirm_password,
+                        display_name=reg_display_name,
+                        require_admin_exists=True,
+                    )
+                    if success:
+                        st.success(f"✅ {msg}")
+                        st.session_state.auth_tab = "login"
+                        st.info("👉 Bạn có thể chuyển sang tab **'Đăng nhập'** bên cạnh để bắt đầu tra cứu.")
+                    else:
+                        st.error(f"❌ {msg}")
+
+    return None
 
     return None

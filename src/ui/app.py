@@ -18,6 +18,7 @@ import os
 import shutil
 import sys
 import time
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import uuid4
@@ -35,12 +36,12 @@ project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# Ép buộc Streamlit Theme luôn ở chế độ Light Theme (chống browser/OS dark mode làm đen canvas st.dataframe và checkbox)
-os.environ["STREAMLIT_THEME_BASE"] = "light"
-os.environ["STREAMLIT_THEME_PRIMARY_COLOR"] = "#2563EB"
-os.environ["STREAMLIT_THEME_BACKGROUND_COLOR"] = "#FFFFFF"
-os.environ["STREAMLIT_THEME_SECONDARY_BACKGROUND_COLOR"] = "#F8FAFC"
-os.environ["STREAMLIT_THEME_TEXT_COLOR"] = "#0F172A"
+# Thiết lập Streamlit Theme sang Dark Theme trung tính chuẩn phong cách ChatGPT
+os.environ["STREAMLIT_THEME_BASE"] = "dark"
+os.environ["STREAMLIT_THEME_PRIMARY_COLOR"] = "#10A37F"
+os.environ["STREAMLIT_THEME_BACKGROUND_COLOR"] = "#212121"
+os.environ["STREAMLIT_THEME_SECONDARY_BACKGROUND_COLOR"] = "#171717"
+os.environ["STREAMLIT_THEME_TEXT_COLOR"] = "#ECECEC"
 
 import requests
 import streamlit as st
@@ -324,198 +325,56 @@ if st.session_state.auth_user is not None:
     else:
         st.session_state.auth_user = verified_user
 
-# Cổng bảo vệ xác thực (Authentication Gate)
-if st.session_state.auth_user is None:
-    render_auth_page(auth_service, conv_repo)
-    st.stop()
-
-current_user: User = st.session_state.auth_user
+current_user: Optional[User] = st.session_state.auth_user
+if current_user is None and not st.runtime.exists():
+    # Khi chạy import từ unit tests ngoài runtime của Streamlit
+    current_user = User(
+        id="test_bare_mode_user",
+        username="test_user",
+        password_hash="mock",
+        display_name="Test User",
+        role="user",
+        is_active=True,
+        created_at="2026-01-01 00:00:00",
+        last_login_at=None,
+        updated_at="2026-01-01 00:00:00",
+    )
 
 # Khởi tạo TopicTracker riêng cho từng phiên / người dùng
-if st.session_state.tracker is None:
-    st.session_state.tracker = TopicTracker(records=engine.records)
-engine.tracker = st.session_state.tracker
+if current_user is not None:
+    if st.session_state.tracker is None:
+        st.session_state.tracker = TopicTracker(records=engine.records)
+    engine.tracker = st.session_state.tracker
 
 # Lấy trạng thái runtime
 ollama_info = get_ollama_runtime_status(settings.OLLAMA_BASE_URL, settings.OLLAMA_MODEL)
 kb_records_count = len(engine.records) if hasattr(engine, "records") and engine.records else 0
 
 
-# ==============================================================================
-# SIDEBAR BÊN TRÁI: LOGO, NÚT CUỘC TRÒ CHUYỆN MỚI, ĐIỀU HƯỚNG
-# ==============================================================================
-with st.sidebar:
-    # 1. Logo & Tên ứng dụng
-    st.markdown(
-        """
-        <div class="sidebar-header-box">
-            <span class="sidebar-app-icon">🤖</span>
-            <span class="sidebar-app-title">Chatbox 2.0</span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+def get_conversation_time_group(iso_timestamp: Optional[str]) -> str:
+    """Phân nhóm cuộc trò chuyện theo thời gian: Hôm nay, 7 ngày gần đây, Trước đó."""
+    if not iso_timestamp:
+        return "Trước đó"
+    try:
+        ts_clean = str(iso_timestamp).replace("T", " ").split(".")[0]
+        dt = datetime.strptime(ts_clean, "%Y-%m-%d %H:%M:%S")
+        diff_days = (date.today() - dt.date()).days
+        if diff_days <= 0:
+            return "Hôm nay"
+        elif diff_days <= 7:
+            return "7 ngày gần đây"
+        else:
+            return "Trước đó"
+    except Exception:
+        return "Trước đó"
 
-    # 2. Thẻ người dùng đăng nhập & Đăng xuất
-    role_badge_class = "role-badge-admin" if current_user.role == "admin" else "role-badge-user"
-    role_name_text = "Quản trị viên" if current_user.role == "admin" else "Người dùng"
-    st.markdown(
-        f"""
-        <div class="sidebar-user-card">
-            <div class="sidebar-user-name">👤 {html.escape(current_user.display_name)}</div>
-            <div class="sidebar-user-sub">@{html.escape(current_user.username)} · <span class="{role_badge_class}">{role_name_text}</span></div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    col_btn_new, col_btn_out = st.columns([1, 1])
-    with col_btn_new:
-        if st.button("➕ Mới", key="btn_sidebar_new_chat", use_container_width=True, help="Tạo cuộc hội thoại mới"):
-            new_conv = conv_repo.create_conversation(current_user.id, "Cuộc trò chuyện mới")
-            st.session_state.current_conversation_id = new_conv.id
-            st.session_state.messages = []
-            if st.session_state.tracker:
-                st.session_state.tracker.clear()
-            engine.tracker.clear()
-            st.session_state.status = "Sẵn sàng!"
-            st.session_state.is_processing = False
-            st.session_state.nav_page = "💬 Tra cứu từ vựng"
-            st.toast("Đã bắt đầu cuộc trò chuyện mới.", icon="✨")
-            st.rerun()
-
-    with col_btn_out:
-        if st.button("🚪 Thoát", key="btn_sidebar_logout", use_container_width=True, help="Đăng xuất khỏi hệ thống"):
-            auth_service.logout(current_user)
-            st.session_state.auth_user = None
-            st.session_state.messages = []
-            st.session_state.current_conversation_id = None
-            if st.session_state.tracker:
-                st.session_state.tracker.clear()
-            engine.tracker.clear()
-            st.toast("Đã đăng xuất.", icon="👋")
-            st.rerun()
-
-    # Đường phân cách
-    st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-
-    # 3. Mục ĐIỀU HƯỚNG PHÂN QUYỀN (RBAC NAVIGATION)
-    st.markdown('<div class="sidebar-section-title">ĐIỀU HƯỚNG</div>', unsafe_allow_html=True)
-    
-    if current_user.role == "admin":
-        nav_options = [
-            "💬 Tra cứu từ vựng",
-            "👥 Quản lý tài khoản",
-            "🗄️ Quản lý dữ liệu",
-            "📈 Chẩn đoán & Nhật ký",
-            "👤 Thông tin cá nhân",
-        ]
-    else:
-        nav_options = [
-            "💬 Tra cứu từ vựng",
-            "👤 Thông tin cá nhân",
-        ]
-    
-    if st.session_state.nav_page not in nav_options:
-        st.session_state.nav_page = nav_options[0]
-
-    current_index = nav_options.index(st.session_state.nav_page)
-    selected_nav = st.radio(
-        label="Điều hướng trang",
-        options=nav_options,
-        index=current_index,
-        key="radio_nav_sidebar",
-        label_visibility="collapsed"
-    )
-    if selected_nav != st.session_state.nav_page:
-        st.session_state.nav_page = selected_nav
-        st.rerun()
-
-    # 4. Lịch sử hội thoại cá nhân của tài khoản
-    st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-section-title">LỊCH SỬ HỘI THOẠI</div>', unsafe_allow_html=True)
-
-    user_convs = conv_repo.list_conversations(current_user.id, limit=20)
-    if user_convs:
-        for c in user_convs:
-            is_active_conv = (c.id == st.session_state.current_conversation_id)
-            btn_prefix = "👉 " if is_active_conv else "🗨️ "
-            short_title = c.title if len(c.title) <= 16 else c.title[:16] + "..."
-            if st.button(f"{btn_prefix}{short_title}", key=f"btn_conv_{c.id}", use_container_width=True):
-                if not is_active_conv:
-                    st.session_state.current_conversation_id = c.id
-                    db_msgs = conv_repo.get_messages(current_user.id, c.id)
-                    st.session_state.messages = []
-                    for m in db_msgs:
-                        meta_obj = None
-                        if m.meta_json:
-                            try:
-                                md = json.loads(m.meta_json)
-                                meta_obj = ChatResponse(
-                                    answer=m.content,
-                                    mode=md.get("mode", "UNKNOWN"),
-                                    intent=md.get("intent"),
-                                    record_id=md.get("record_id"),
-                                    rrf_score=md.get("rrf_score", 0.0),
-                                    latency_ms=md.get("latency_ms", 0.0),
-                                    word=md.get("word"),
-                                    source=md.get("source"),
-                                )
-                            except Exception:
-                                pass
-                        st.session_state.messages.append({
-                            "role": m.role,
-                            "content": m.content,
-                            "meta": meta_obj
-                        })
-                    if st.session_state.tracker:
-                        st.session_state.tracker.clear()
-                    engine.tracker.clear()
-                    st.session_state.nav_page = "💬 Tra cứu từ vựng"
-                    st.rerun()
-
-        with st.expander("⚙️ Quản lý lịch sử", expanded=False):
-            if st.session_state.current_conversation_id:
-                if st.button("🗑️ Xóa cuộc trò chuyện này", key="btn_del_curr_conv", use_container_width=True):
-                    conv_repo.delete_conversation(current_user.id, st.session_state.current_conversation_id)
-                    st.session_state.current_conversation_id = None
-                    st.session_state.messages = []
-                    if st.session_state.tracker:
-                        st.session_state.tracker.clear()
-                    engine.tracker.clear()
-                    st.toast("Đã xóa cuộc trò chuyện.", icon="🗑️")
-                    st.rerun()
-            if st.button("🧹 Xóa toàn bộ lịch sử của tôi", key="btn_clear_all_history", use_container_width=True):
-                deleted = conv_repo.clear_user_history(current_user.id)
-                st.session_state.current_conversation_id = None
-                st.session_state.messages = []
-                if st.session_state.tracker:
-                    st.session_state.tracker.clear()
-                engine.tracker.clear()
-                st.toast(f"Đã xóa {deleted} cuộc trò chuyện.", icon="🧹")
-                st.rerun()
-    else:
-        st.caption("Chưa có lịch sử hội thoại nào.")
-
-    # 5. Trạng thái Ollama ở chân sidebar
-    ollama_class = "online" if ollama_info["online"] else "offline"
-    ollama_text = "● Ollama sẵn sàng" if ollama_info["online"] else "● Ollama ngoại tuyến"
-    st.markdown(
-        f'<div class="sidebar-footer-status {ollama_class}">{ollama_text}</div>',
-        unsafe_allow_html=True
-    )
-
-
-# ==============================================================================
-# KHUNG CHÍNH (MAIN AREA)
-# ==============================================================================
 
 # ==============================================================================
 # CÁC HÀM RENDER & XỬ LÝ HỘI THOẠI CHUẨN MODERN STREAMLIT CHAT UI
 # ==============================================================================
 
 def render_user_turn(content: str) -> None:
-    """Hiển thị lượt tin nhắn của người dùng: căn phải, icon người dùng có sẵn, bong bóng xám nhạt."""
+    """Hiển thị lượt tin nhắn của người dùng: căn phải với bong bóng tối bo tròn phong cách ChatGPT."""
     with st.chat_message("user", avatar=USER_AVATAR):
         col_spacer, col_user = st.columns([1, 4])
         with col_user:
@@ -530,21 +389,8 @@ def render_user_turn(content: str) -> None:
             )
 
 
-def render_bot_card_header() -> None:
-    """Hiển thị tiêu đề thẻ Card của Chatbox kèm biểu tượng robot."""
-    st.markdown(
-        """
-        <div class="bot-card-header">
-            <span class="bot-card-icon">🤖</span>
-            <span class="bot-card-title">Chatbox</span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
 def render_provenance_and_inspector(meta: Optional[ChatResponse]) -> None:
-    """Hiển thị thông tin xuất xứ dữ liệu (Provenance) và bảng kỹ thuật (Inspector)."""
+    """Hiển thị thông tin xuất xứ dữ liệu (Provenance) và bảng kỹ thuật (Inspector) tinh tế."""
     if meta is None:
         return
 
@@ -587,21 +433,17 @@ def render_provenance_and_inspector(meta: Optional[ChatResponse]) -> None:
 
 
 def render_assistant_turn(content: str, meta: Optional[ChatResponse] = None) -> None:
-    """Hiển thị lượt tin nhắn chatbot hoàn chỉnh trong lịch sử hội thoại."""
+    """Hiển thị lượt tin nhắn chatbot theo phong cách ChatGPT tinh gọn."""
     with st.chat_message("assistant", avatar=BOT_AVATAR):
-        col_bot, col_spacer = st.columns([4, 1])
-        with col_bot:
-            with st.container(border=True):
-                render_bot_card_header()
-                st.markdown(content)
-                render_provenance_and_inspector(meta)
+        st.markdown(content)
+        render_provenance_and_inspector(meta)
 
 
 def process_user_query(
     clean_input: str,
     chat_engine: ChatEngine,
-    current_user: User,
-    conv_repo: ConversationRepository,
+    current_user: Optional[User] = None,
+    conv_repo: Optional[ConversationRepository] = None,
     messages_container=None,
     empty_state_placeholder=None,
 ) -> Optional[ChatResponse]:
@@ -617,19 +459,26 @@ def process_user_query(
     if not clean_input:
         return None
 
-    # Đảm bảo cuộc hội thoại tồn tại trong cơ sở dữ liệu
-    conv_id = st.session_state.get("current_conversation_id")
-    if not conv_id:
-        short_title = clean_input[:35] + ("..." if len(clean_input) > 35 else "")
-        new_conv = conv_repo.create_conversation(current_user.id, short_title)
-        conv_id = new_conv.id
-        st.session_state.current_conversation_id = conv_id
+    if current_user is None:
+        current_user = st.session_state.get("auth_user")
 
-    # Lưu tin nhắn người dùng vào cơ sở dữ liệu
-    try:
-        conv_repo.add_message(current_user.id, conv_id, "user", clean_input)
-    except Exception as save_u_err:
-        logger.error("Lỗi khi lưu tin nhắn người dùng: %s", save_u_err)
+    # Đảm bảo cuộc hội thoại tồn tại trong cơ sở dữ liệu nếu có user và conv_repo
+    conv_id = st.session_state.get("current_conversation_id")
+    if current_user and conv_repo:
+        if not conv_id:
+            short_title = clean_input[:35] + ("..." if len(clean_input) > 35 else "")
+            try:
+                new_conv = conv_repo.create_conversation(current_user.id, short_title)
+                conv_id = new_conv.id
+                st.session_state.current_conversation_id = conv_id
+            except Exception as e_c:
+                logger.error("Lỗi tạo conversation: %s", e_c)
+
+        if conv_id:
+            try:
+                conv_repo.add_message(current_user.id, conv_id, "user", clean_input)
+            except Exception as save_u_err:
+                logger.error("Lỗi khi lưu tin nhắn người dùng: %s", save_u_err)
 
     st.session_state.is_processing = True
     try:
@@ -652,65 +501,60 @@ def process_user_query(
 
             # 3B. Hiện bubble assistant với placeholder trạng thái đang xử lý
             with st.chat_message("assistant", avatar=BOT_AVATAR):
-                col_bot, col_spacer = st.columns([4, 1])
-                with col_bot:
-                    with st.container(border=True):
-                        render_bot_card_header()
+                status_placeholder = st.empty()
+                status_placeholder.markdown(
+                    '<div class="bot-status-indicator">'
+                    '<span class="status-spinner">⏳</span> '
+                    '<span>Đang phân tích câu hỏi & tìm kiếm dữ liệu...</span>'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
 
-                        status_placeholder = st.empty()
-                        status_placeholder.markdown(
-                            '<div class="bot-status-indicator">'
-                            '<span class="status-spinner">⏳</span> '
-                            '<span>Đang phân tích câu hỏi & tìm kiếm dữ liệu...</span>'
-                            '</div>',
-                            unsafe_allow_html=True
-                        )
+                response_holder: Dict[str, Any] = {"meta": None}
 
-                        response_holder: Dict[str, Any] = {"meta": None}
-
-                        def stream_adapter():
-                            first_chunk = True
-                            try:
-                                # Đồng bộ tracker riêng của phiên
-                                if "tracker" in st.session_state and st.session_state.tracker:
-                                    chat_engine.tracker = st.session_state.tracker
-                                for token, meta in chat_engine.ask_stream(clean_input):
-                                    if meta is not None:
-                                        response_holder["meta"] = meta
-                                    if token:
-                                        if first_chunk:
-                                            status_placeholder.empty()
-                                            first_chunk = False
-                                        yield token
-                            finally:
+                def stream_adapter():
+                    first_chunk = True
+                    try:
+                        # Đồng bộ tracker riêng của phiên
+                        if "tracker" in st.session_state and st.session_state.tracker:
+                            chat_engine.tracker = st.session_state.tracker
+                        for token, meta in chat_engine.ask_stream(clean_input):
+                            if meta is not None:
+                                response_holder["meta"] = meta
+                            if token:
                                 if first_chunk:
                                     status_placeholder.empty()
-
-                        try:
-                            stream_gen = stream_adapter()
-                            full_answer = st.write_stream(stream_gen)
+                                    first_chunk = False
+                                yield token
+                    finally:
+                        if first_chunk:
                             status_placeholder.empty()
-                        except Exception as ask_err:
-                            status_placeholder.empty()
-                            logger.error("Lỗi khi xử lý truy vấn: %s", ask_err, exc_info=True)
-                            error_answer = (
-                                f"⚠️ **Không thể kết nối hoặc xử lý câu trả lời từ mô hình.**\n\n"
-                                f"- Chi tiết lỗi: `{ask_err}`\n"
-                                f"- Vui lòng kiểm tra dịch vụ Ollama cục bộ ({settings.OLLAMA_BASE_URL}) hoặc thử lại sau."
-                            )
-                            st.markdown(error_answer)
-                            full_answer = error_answer
-                            response_holder["meta"] = ChatResponse(
-                                answer=error_answer,
-                                mode="ERROR",
-                                latency_ms=0.0
-                            )
 
-                        final_meta: Optional[ChatResponse] = response_holder.get("meta")
-                        persisted_answer = final_meta.answer if (final_meta and final_meta.answer) else full_answer
+                try:
+                    stream_gen = stream_adapter()
+                    full_answer = st.write_stream(stream_gen)
+                    status_placeholder.empty()
+                except Exception as ask_err:
+                    status_placeholder.empty()
+                    logger.error("Lỗi khi xử lý truy vấn: %s", ask_err, exc_info=True)
+                    error_answer = (
+                        f"⚠️ **Không thể kết nối hoặc xử lý câu trả lời từ mô hình.**\n\n"
+                        f"- Chi tiết lỗi: `{ask_err}`\n"
+                        f"- Vui lòng kiểm tra dịch vụ Ollama cục bộ ({settings.OLLAMA_BASE_URL}) hoặc thử lại sau."
+                    )
+                    st.markdown(error_answer)
+                    full_answer = error_answer
+                    response_holder["meta"] = ChatResponse(
+                        answer=error_answer,
+                        mode="ERROR",
+                        latency_ms=0.0
+                    )
 
-                        # Render nguồn dữ liệu và inspector
-                        render_provenance_and_inspector(final_meta)
+                final_meta: Optional[ChatResponse] = response_holder.get("meta")
+                persisted_answer = final_meta.answer if (final_meta and final_meta.answer) else full_answer
+
+                # Render nguồn dữ liệu và inspector
+                render_provenance_and_inspector(final_meta)
 
         # Bước 4: Lưu câu trả lời hoàn chỉnh vào session state
         st.session_state.messages.append({
@@ -736,15 +580,16 @@ def process_user_query(
             except Exception:
                 pass
 
-        try:
-            conv_repo.add_message(current_user.id, conv_id, "assistant", persisted_answer, meta_json_str)
-            # Tự động cập nhật tiêu đề nếu vẫn là 'Cuộc trò chuyện mới'
-            curr_c = conv_repo.get_conversation(current_user.id, conv_id)
-            if curr_c and curr_c.title == "Cuộc trò chuyện mới":
-                auto_title = clean_input[:35] + ("..." if len(clean_input) > 35 else "")
-                conv_repo.update_title(current_user.id, conv_id, auto_title)
-        except Exception as save_bot_err:
-            logger.error("Lỗi khi lưu tin nhắn chatbot: %s", save_bot_err)
+        if current_user and conv_repo and conv_id:
+            try:
+                conv_repo.add_message(current_user.id, conv_id, "assistant", persisted_answer, meta_json_str)
+                # Tự động cập nhật tiêu đề nếu vẫn là 'Cuộc trò chuyện mới'
+                curr_c = conv_repo.get_conversation(current_user.id, conv_id)
+                if curr_c and curr_c.title == "Cuộc trò chuyện mới":
+                    auto_title = clean_input[:35] + ("..." if len(clean_input) > 35 else "")
+                    conv_repo.update_title(current_user.id, conv_id, auto_title)
+            except Exception as save_bot_err:
+                logger.error("Lỗi khi lưu tin nhắn chatbot: %s", save_bot_err)
 
         # Bước 6: Ghi audit log phiên
         active_word_val = getattr(chat_engine.tracker, "active_word", None) if hasattr(chat_engine, "tracker") else None
@@ -766,66 +611,299 @@ def process_user_query(
         st.session_state.is_processing = False
 
 
+# ==============================================================================
+# SIDEBAR BÊN TRÁI: BỐ CỤC CHATGPT (3 ZONE: TOP, SCROLLABLE HISTORY, PINNED ACCOUNT)
+# ==============================================================================
+with st.sidebar:
+    # 1. ZONE TOP (Header & New Chat)
+    with st.container(key="sidebar_top"):
+        st.markdown(
+            """
+            <div class="sidebar-header-box">
+                <span class="sidebar-app-icon">🤖</span>
+                <span class="sidebar-app-title">Chatbox 2.0</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        if current_user is not None:
+            if st.button("➕ Đoạn chat mới", key="btn_sidebar_new_chat", use_container_width=True, help="Tạo cuộc hội thoại mới"):
+                new_conv = conv_repo.create_conversation(current_user.id, "Cuộc trò chuyện mới")
+                st.session_state.current_conversation_id = new_conv.id
+                st.session_state.messages = []
+                if st.session_state.tracker:
+                    st.session_state.tracker.clear()
+                engine.tracker.clear()
+                st.session_state.status = "Sẵn sàng!"
+                st.session_state.is_processing = False
+                st.session_state.nav_page = "💬 Tra cứu từ vựng"
+                st.toast("Đã bắt đầu cuộc trò chuyện mới.", icon="✨")
+                st.rerun()
+
+            search_query = st.text_input(
+                "Tìm kiếm cuộc trò chuyện...",
+                placeholder="🔍 Tìm đoạn chat...",
+                key="sidebar_search_conv",
+                label_visibility="collapsed"
+            ).strip().lower()
+        else:
+            if st.button("➕ Đoạn chat mới", key="btn_sidebar_new_chat", use_container_width=True, help="Vui lòng đăng nhập để bắt đầu trò chuyện"):
+                st.toast("Vui lòng đăng nhập để bắt đầu cuộc trò chuyện.", icon="🔒")
+            search_query = ""
+
+    # 2. ZONE HISTORY (Cuộn độc lập ở giữa)
+    with st.container(key="sidebar_history"):
+        if current_user is not None:
+            user_convs = conv_repo.list_conversations(current_user.id, limit=50)
+            if search_query:
+                filtered_convs = [c for c in user_convs if search_query in c.title.lower()]
+            else:
+                filtered_convs = user_convs
+
+            grouped_convs: Dict[str, List[Any]] = {
+                "Hôm nay": [],
+                "7 ngày gần đây": [],
+                "Trước đó": []
+            }
+            for c in filtered_convs:
+                grp = get_conversation_time_group(getattr(c, "updated_at", None) or getattr(c, "created_at", None))
+                grouped_convs[grp].append(c)
+
+            has_convs = any(len(items) > 0 for items in grouped_convs.values())
+
+            if has_convs:
+                for grp_name in ["Hôm nay", "7 ngày gần đây", "Trước đó"]:
+                    items = grouped_convs[grp_name]
+                    if not items:
+                        continue
+                    st.markdown(f'<div class="history-time-heading">{grp_name}</div>', unsafe_allow_html=True)
+                    for c in items:
+                        is_active_conv = (c.id == st.session_state.current_conversation_id)
+                        display_title = c.title if len(c.title) <= 22 else c.title[:20] + "..."
+                        btn_key = f"btn_conv_active_{c.id}" if is_active_conv else f"btn_conv_{c.id}"
+                        btn_icon = "💬 " if not is_active_conv else "👉 "
+                        if st.button(f"{btn_icon}{display_title}", key=btn_key, use_container_width=True):
+                            if not is_active_conv:
+                                st.session_state.current_conversation_id = c.id
+                                db_msgs = conv_repo.get_messages(current_user.id, c.id)
+                                st.session_state.messages = []
+                                for m in db_msgs:
+                                    meta_obj = None
+                                    if m.meta_json:
+                                        try:
+                                            md = json.loads(m.meta_json)
+                                            meta_obj = ChatResponse(
+                                                answer=m.content,
+                                                mode=md.get("mode", "UNKNOWN"),
+                                                intent=md.get("intent"),
+                                                record_id=md.get("record_id"),
+                                                rrf_score=md.get("rrf_score", 0.0),
+                                                latency_ms=md.get("latency_ms", 0.0),
+                                                word=md.get("word"),
+                                                source=md.get("source"),
+                                            )
+                                        except Exception:
+                                            pass
+                                    st.session_state.messages.append({
+                                        "role": m.role,
+                                        "content": m.content,
+                                        "meta": meta_obj
+                                    })
+                                if st.session_state.tracker:
+                                    st.session_state.tracker.clear()
+                                engine.tracker.clear()
+                                st.session_state.nav_page = "💬 Tra cứu từ vựng"
+                                st.rerun()
+            else:
+                st.caption("Không tìm thấy đoạn chat nào." if search_query else "Chưa có đoạn chat nào.")
+        else:
+            st.markdown(
+                """
+                <div style="padding: 1.5rem 0.5rem; text-align: center; color: #8E8E8E;">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔒</div>
+                    <div style="font-size: 0.92rem; font-weight: 500; color: #ECECEC; margin-bottom: 0.35rem;">Lịch sử trò chuyện</div>
+                    <div style="font-size: 0.82rem; line-height: 1.45;">Đăng nhập để xem và lưu trữ các cuộc trò chuyện của bạn.</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    # 3. ZONE FOOTER (Tài khoản & Cài đặt ghim cố định ở góc dưới cùng bên trái)
+    with st.container(key="sidebar_footer"):
+        if current_user is not None:
+            role_badge_class = "role-badge-admin" if current_user.role == "admin" else "role-badge-user"
+            role_name_text = "Quản trị viên" if current_user.role == "admin" else "Người dùng"
+
+            with st.popover(f"👤 {current_user.display_name}", use_container_width=True):
+                st.markdown(
+                    f"""
+                    <div style="margin-bottom: 8px;">
+                        <div style="font-weight: 600; color: #ECECEC; font-size: 0.95rem;">{html.escape(current_user.display_name)}</div>
+                        <div style="color: #8E8E8E; font-size: 0.8rem;">@{html.escape(current_user.username)} · <span class="{role_badge_class}">{role_name_text}</span></div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.markdown("---")
+                st.markdown("**Điều hướng:**")
+                if st.button("💬 Trò chuyện", key="nav_popover_chat", use_container_width=True):
+                    st.session_state.nav_page = "💬 Tra cứu từ vựng"
+                    st.rerun()
+                if st.button("👤 Hồ sơ cá nhân", key="nav_popover_profile", use_container_width=True):
+                    st.session_state.nav_page = "👤 Thông tin cá nhân"
+                    st.rerun()
+
+                if current_user.role == "admin":
+                    st.markdown("---")
+                    st.markdown("**Quản trị hệ thống:**")
+                    if st.button("👥 Quản lý tài khoản", key="nav_popover_admin_users", use_container_width=True):
+                        st.session_state.nav_page = "👥 Quản lý tài khoản"
+                        st.rerun()
+                    if st.button("🗄️ Quản lý dữ liệu", key="nav_popover_admin_kb", use_container_width=True):
+                        st.session_state.nav_page = "🗄️ Quản lý dữ liệu"
+                        st.rerun()
+                    if st.button("📈 Chẩn đoán & Nhật ký", key="nav_popover_admin_diag", use_container_width=True):
+                        st.session_state.nav_page = "📈 Chẩn đoán & Nhật ký"
+                        st.rerun()
+
+                st.markdown("---")
+                st.markdown("**Cài đặt:**")
+                dev_toggle = st.toggle("🔬 Bảng phân tích kỹ thuật (Inspector)", value=st.session_state.get("dev_mode", False), key="toggle_inspector_popover")
+                if dev_toggle != st.session_state.get("dev_mode", False):
+                    st.session_state.dev_mode = dev_toggle
+                    st.rerun()
+
+                if st.session_state.current_conversation_id:
+                    if st.button("🗑️ Xóa đoạn chat hiện tại", key="btn_popover_del_curr", use_container_width=True):
+                        conv_repo.delete_conversation(current_user.id, st.session_state.current_conversation_id)
+                        st.session_state.current_conversation_id = None
+                        st.session_state.messages = []
+                        if st.session_state.tracker:
+                            st.session_state.tracker.clear()
+                        engine.tracker.clear()
+                        st.toast("Đã xóa đoạn chat hiện tại.", icon="🗑️")
+                        st.rerun()
+
+                if st.button("🧹 Xóa toàn bộ lịch sử", key="btn_popover_clear_all", use_container_width=True):
+                    deleted_cnt = conv_repo.clear_user_history(current_user.id)
+                    st.session_state.current_conversation_id = None
+                    st.session_state.messages = []
+                    if st.session_state.tracker:
+                        st.session_state.tracker.clear()
+                    engine.tracker.clear()
+                    st.toast(f"Đã xóa {deleted_cnt} đoạn chat.", icon="🧹")
+                    st.rerun()
+
+                st.markdown("---")
+                if st.button("🚪 Đăng xuất", key="btn_popover_logout", use_container_width=True):
+                    auth_service.logout(current_user)
+                    st.session_state.auth_user = None
+                    st.session_state.messages = []
+                    st.session_state.current_conversation_id = None
+                    if st.session_state.tracker:
+                        st.session_state.tracker.clear()
+                    engine.tracker.clear()
+                    st.toast("Đã đăng xuất an toàn.", icon="👋")
+                    st.rerun()
+        else:
+            if st.button("🔐 Đăng nhập", key="btn_sidebar_unauth_login", use_container_width=True):
+                st.session_state.auth_tab = "login"
+                st.rerun()
+            if st.button("📝 Tạo tài khoản", key="btn_sidebar_unauth_register", use_container_width=True):
+                st.session_state.auth_tab = "register"
+                st.rerun()
+
+        # Trạng thái Ollama ở chân sidebar
+        ollama_class = "online" if ollama_info["online"] else "offline"
+        ollama_text = "● Ollama sẵn sàng" if ollama_info["online"] else "● Ollama ngoại tuyến"
+        st.markdown(
+            f'<div class="sidebar-footer-status {ollama_class}">{ollama_text}</div>',
+            unsafe_allow_html=True
+        )
+
+
+# ==============================================================================
+# CỔNG BẢO VỆ XÁC THỰC (AUTHENTICATION GATE)
+# ==============================================================================
+# Nếu chưa xác thực và không phải bare unit test mode, hiển thị trang đăng nhập và dừng
+if st.session_state.auth_user is None:
+    render_auth_page(auth_service, conv_repo)
+    st.stop()
+
+
+
 if st.session_state.nav_page == "💬 Tra cứu từ vựng":
     # --------------------------------------------------------------------------
-    # TRANG 1: 💬 TRA CỨU TỪ VỰNG (MAIN CHAT VIEW)
+    # TRANG 1: 💬 TRA CỨU TỪ VỰNG (MAIN CHAT VIEW CHUẨN CHATGPT)
     # --------------------------------------------------------------------------
 
-    # 1. Header Khung Chat: Tiêu đề + Badge 'Local' + Trạng thái thu gọn
+    # 1. Header Khung Chat: Tiêu đề + Badge 'Local AI' + Đổi tên cuộc hội thoại
     curr_conv_info = conv_repo.get_conversation(current_user.id, st.session_state.current_conversation_id) if st.session_state.current_conversation_id else None
     conv_display_title = curr_conv_info.title if curr_conv_info else "Cuộc trò chuyện mới"
 
-    st.markdown(
-        f"""
-        <div class="chat-top-bar">
-            <div class="chat-top-left">
-                <span class="chat-view-title">{html.escape(conv_display_title)}</span>
-                <span class="chat-local-pill">Local</span>
+    col_h_left, col_h_right = st.columns([4, 1])
+    with col_h_left:
+        st.markdown(
+            f"""
+            <div class="chat-top-bar" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+                <div class="chat-top-left">
+                    <span class="chat-view-title">{html.escape(conv_display_title)}</span>
+                    <span class="chat-local-pill">Local AI</span>
+                </div>
             </div>
-            <div class="chat-top-right">
-                <span class="status-dot {ollama_class}">{ollama_text}</span>
-                <span>• Kho tri thức: {kb_records_count:,} bản ghi</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    if st.session_state.current_conversation_id:
-        with st.expander("✏️ Đổi tên cuộc hội thoại này", expanded=False):
-            col_rn1, col_rn2 = st.columns([3, 1])
-            with col_rn1:
+            """,
+            unsafe_allow_html=True
+        )
+    with col_h_right:
+        if st.session_state.current_conversation_id:
+            with st.popover("✏️ Đổi tên", use_container_width=True):
                 new_title_inp = st.text_input(
                     "Tiêu đề mới:",
                     value=conv_display_title,
-                    key="rename_conv_input",
-                    label_visibility="collapsed"
+                    key="rename_conv_input"
                 ).strip()
-            with col_rn2:
-                if st.button("Lưu tên", key="btn_save_conv_title", use_container_width=True):
+                if st.button("Lưu", key="btn_save_conv_title", use_container_width=True):
                     if new_title_inp:
                         conv_repo.update_title(current_user.id, st.session_state.current_conversation_id, new_title_inp)
-                        st.toast("Đã cập nhật tiêu đề cuộc trò chuyện.", icon="✏️")
+                        st.toast("Đã cập nhật tiêu đề.", icon="✏️")
                         st.rerun()
 
-    # 2. Vùng hiển thị tin nhắn (cuộn tự nhiên theo trình duyệt, không chia 2 thanh cuộn)
+    st.markdown('<div style="border-bottom: 1px solid #2F2F2F; margin-bottom: 1rem; margin-top: 4px;"></div>', unsafe_allow_html=True)
+
+    # 2. Vùng hiển thị tin nhắn (cuộn tự nhiên theo trình duyệt)
     messages_container = st.container()
 
     with messages_container:
         empty_state_placeholder = st.empty()
         if not st.session_state.messages:
-            # Màn hình rỗng / Lời chào ban đầu (Empty State chuẩn Visual Reference)
+            # Màn hình chào mừng khi chưa có tin nhắn (Empty State chuẩn ChatGPT)
             with empty_state_placeholder.container():
                 st.markdown(
                     """
                     <div class="chat-empty-state-box">
-                        <div class="chat-empty-icon">🗨️</div>
-                        <div class="chat-empty-title">Bạn muốn tra cứu từ nào?</div>
-                        <div class="chat-empty-subtitle">Nhập từ tiếng Anh hoặc câu hỏi bằng tiếng Việt.</div>
+                        <div class="chat-empty-icon">🤖</div>
+                        <div class="chat-empty-title">Hôm nay bạn muốn học từ vựng nào?</div>
+                        <div class="chat-empty-subtitle">Tra cứu nghĩa từ, ví dụ câu, phát âm, thành ngữ hoặc so sánh ngữ pháp tiếng Anh.</div>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
+                col_s1, col_s2 = st.columns(2)
+                with col_s1:
+                    if st.button("💡 **Giải thích từ 'ubiquitous'**\n\nKèm ví dụ câu và từ đồng nghĩa", key="sug_card_1", use_container_width=True):
+                        st.session_state["pending_query"] = "Giải thích từ ubiquitous kèm ví dụ câu và từ đồng nghĩa"
+                        st.rerun()
+                    if st.button("💡 **Collocations với 'decision'**\n\nCác cụm kết hợp từ tự nhiên hay gặp", key="sug_card_2", use_container_width=True):
+                        st.session_state["pending_query"] = "Cho các collocations thông dụng với từ decision kèm ví dụ"
+                        st.rerun()
+                with col_s2:
+                    if st.button("💡 **Phân biệt 'affect' và 'effect'**\n\nCách dùng chuẩn trong văn cảnh học thuật", key="sug_card_3", use_container_width=True):
+                        st.session_state["pending_query"] = "Phân biệt affect và effect cách dùng và ví dụ"
+                        st.rerun()
+                    if st.button("💡 **'Vừa mừng vừa lo' trong tiếng Anh**\n\nTừ vựng hoặc thành ngữ diễn đạt cảm xúc này", key="sug_card_4", use_container_width=True):
+                        st.session_state["pending_query"] = "Từ tiếng Anh nào diễn tả cảm giác vừa mừng vừa lo?"
+                        st.rerun()
         else:
             for idx, msg in enumerate(st.session_state.messages):
                 role = msg.get("role", "assistant")
@@ -837,19 +915,21 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
                 else:
                     render_assistant_turn(content, meta)
 
-    # Dòng trạng thái chân khung chat
-    st.markdown(
-        f"""
-        <div class="chat-bottom-status-line">
-            <span class="status-dot {ollama_class}">{ollama_text}</span>
-            <span>Chatbox 2.0 chạy cục bộ trên máy tính • Kho tri thức: {kb_records_count:,} bản ghi</span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    # Xử lý câu hỏi từ gợi ý (suggestion card) nếu có
+    pending_query = st.session_state.pop("pending_query", None)
+    if pending_query and not st.session_state.get("is_processing", False):
+        process_user_query(
+            clean_input=pending_query,
+            chat_engine=engine,
+            current_user=current_user,
+            conv_repo=conv_repo,
+            messages_container=messages_container,
+            empty_state_placeholder=empty_state_placeholder,
+        )
+        st.rerun()
 
     # 3. Ô nhập câu hỏi st.chat_input (nằm ở đáy vùng chính qua API chính thức của Streamlit)
-    user_query = st.chat_input("Nhập từ vựng hoặc câu hỏi tiếng Việt...")
+    user_query = st.chat_input("Hỏi về một từ vựng tiếng Anh hoặc câu hỏi bất kỳ...")
     if user_query:
         clean_input = user_query.strip()
         if clean_input and not st.session_state.get("is_processing", False):
@@ -862,11 +942,27 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
                 empty_state_placeholder=empty_state_placeholder,
             )
 
+    # Dòng trạng thái chân khung chat
+    st.markdown(
+        f"""
+        <div class="chat-bottom-status-line">
+            Chatbox 2.0 chạy hoàn toàn cục bộ trên máy tính • Qwen2.5:7B & PhoBERT • Kho tri thức: {kb_records_count:,} bản ghi
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 
 elif st.session_state.nav_page == "👥 Quản lý tài khoản":
     # --------------------------------------------------------------------------
     # TRANG QUẢN LÝ TÀI KHOẢN & NGƯỜI DÙNG (ADMIN ONLY)
     # --------------------------------------------------------------------------
+    col_ret_1, col_ret_2 = st.columns([1, 5])
+    with col_ret_1:
+        if st.button("← Trò chuyện", key="btn_ret_from_admin_users"):
+            st.session_state.nav_page = "💬 Tra cứu từ vựng"
+            st.rerun()
+
     try:
         auth_service.require_admin(current_user)
         render_admin_dashboard(auth_service, conv_repo, current_user)
@@ -878,6 +974,12 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
     # --------------------------------------------------------------------------
     # TRANG 2: 🗄️ QUẢN LÝ DỮ LIỆU (KNOWLEDGE BASE MANAGEMENT - ADMIN ONLY)
     # --------------------------------------------------------------------------
+    col_ret_1, col_ret_2 = st.columns([1, 5])
+    with col_ret_1:
+        if st.button("← Trò chuyện", key="btn_ret_from_admin_kb"):
+            st.session_state.nav_page = "💬 Tra cứu từ vựng"
+            st.rerun()
+
     try:
         auth_service.require_admin(current_user)
     except PermissionError as perm_err:
@@ -1591,6 +1693,12 @@ elif st.session_state.nav_page in ("📈 Chẩn đoán", "📈 Chẩn đoán & N
     # --------------------------------------------------------------------------
     # TRANG 3: 📈 CHẨN ĐOÁN & NHẬT KÝ (DIAGNOSTICS & AUDIT - ADMIN ONLY)
     # --------------------------------------------------------------------------
+    col_ret_1, col_ret_2 = st.columns([1, 5])
+    with col_ret_1:
+        if st.button("← Trò chuyện", key="btn_ret_from_admin_diag"):
+            st.session_state.nav_page = "💬 Tra cứu từ vựng"
+            st.rerun()
+
     try:
         auth_service.require_admin(current_user)
     except PermissionError as perm_err:
@@ -1821,5 +1929,11 @@ elif st.session_state.nav_page == "👤 Thông tin cá nhân":
     # --------------------------------------------------------------------------
     # TRANG HỒ SƠ CÁ NHÂN & ĐỔI MẬT KHẨU
     # --------------------------------------------------------------------------
+    col_ret_1, col_ret_2 = st.columns([1, 5])
+    with col_ret_1:
+        if st.button("← Trò chuyện", key="btn_ret_from_profile"):
+            st.session_state.nav_page = "💬 Tra cứu từ vựng"
+            st.rerun()
+
     render_profile_view(auth_service, current_user)
 

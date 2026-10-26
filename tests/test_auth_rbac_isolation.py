@@ -505,5 +505,75 @@ class TestChatContextRegression(BaseAuthTestCase):
         reloaded_db.close()
 
 
+class TestSystemBootstrapAndAdminEnforcement(BaseAuthTestCase):
+    """Kiểm tra 3 trạng thái khởi tạo hệ thống và chính sách khóa đăng ký User khi chưa có Admin."""
+
+    def test_has_admin_empty_vs_created(self):
+        """Xác minh has_admin() trả về False khi chưa có Admin và True khi đã tạo Admin."""
+        # Cơ sở dữ liệu mới tinh: Chưa có Admin
+        self.assertFalse(self.auth_service.has_admin())
+
+        # Tạo một tài khoản User thông thường (không có quyền Admin)
+        self.user_repo.create_user("normal_user", "hash123", "Normal User", role="user")
+        self.assertFalse(self.auth_service.has_admin())
+
+        # Tạo một tài khoản Admin qua CLI / Backend
+        self.user_repo.create_user("sys_admin", "hash456", "System Admin", role="admin")
+        self.assertTrue(self.auth_service.has_admin())
+
+    def test_get_system_init_status(self):
+        """Xác minh get_system_init_status() trả về NO_ADMIN khi chưa có admin và READY khi đã có."""
+        # Chưa có admin
+        status, err = self.auth_service.get_system_init_status()
+        self.assertEqual(status, "NO_ADMIN")
+        self.assertIsNone(err)
+
+        # Tạo Admin
+        self.user_repo.create_user("superadmin", "hash789", "Super Admin", role="admin")
+        status, err = self.auth_service.get_system_init_status()
+        self.assertEqual(status, "READY")
+        self.assertIsNone(err)
+
+    def test_get_system_init_status_db_error(self):
+        """Xác minh get_system_init_status() xử lý lỗi DB_ERROR an toàn khi database gặp sự cố."""
+        import sqlite3
+        from unittest.mock import patch
+
+        with patch.object(self.user_repo, "count_active_admins", side_effect=sqlite3.DatabaseError("database disk image is malformed")):
+            status, err = self.auth_service.get_system_init_status()
+            self.assertEqual(status, "DB_ERROR")
+            self.assertIsNotNone(err)
+            self.assertIn("malformed", str(err))
+
+    def test_register_user_locked_until_admin_exists(self):
+        """Người dùng không thể tự đăng ký khi hệ thống chưa có Quản trị viên (require_admin_exists=True)."""
+        # Chưa có Admin -> Đăng ký bị từ chối
+        ok, user, msg = self.auth_service.register_user(
+            username="newuser_waiting",
+            password="SecurePassword123!",
+            confirm_password="SecurePassword123!",
+            require_admin_exists=True,
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(user)
+        self.assertIn("chưa có tài khoản Quản trị viên", msg)
+        self.assertIn("python scripts/create_admin.py", msg)
+
+        # Khởi tạo Admin qua script / repo
+        self.user_repo.create_user("admin_first", "hashadmin", "First Admin", role="admin")
+
+        # Bây giờ người dùng đăng ký thành công
+        ok, user, msg = self.auth_service.register_user(
+            username="newuser_waiting",
+            password="SecurePassword123!",
+            confirm_password="SecurePassword123!",
+            require_admin_exists=True,
+        )
+        self.assertTrue(ok)
+        self.assertIsNotNone(user)
+        self.assertEqual(user.username, "newuser_waiting")
+        self.assertEqual(user.role, "user")
+
+
 if __name__ == "__main__":
     unittest.main()
