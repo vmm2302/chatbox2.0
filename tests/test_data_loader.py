@@ -64,6 +64,49 @@ class TestDataLoaderModule(unittest.TestCase):
             self.assertEqual(loaded_records[0].id, "T1")
             self.assertEqual(loaded_records[1].id, "T2")
 
+    def test_detect_column_mapping_with_source_variations(self):
+        """Kiểm tra nhận diện cột nguồn với các biến thể tiêu đề khác nhau."""
+        headers_vn = ["STT", "Từ vựng", "Câu hỏi", "Câu trả lời", "Trình độ", "Nguồn"]
+        col_map = QALoader._detect_column_mapping(headers_vn)
+        self.assertIsNotNone(col_map)
+        self.assertIn("source", col_map)
+        self.assertEqual(col_map["source"], 5)
+
+        headers_en = ["word", "question", "answer", "source", "level"]
+        col_map_en = QALoader._detect_column_mapping(headers_en)
+        self.assertIsNotNone(col_map_en)
+        self.assertIn("source", col_map_en)
+        self.assertEqual(col_map_en["source"], 3)
+
+        headers_trich_nguon = ["Câu hỏi", "Câu trả lời", "Trích nguồn"]
+        col_map_tn = QALoader._detect_column_mapping(headers_trich_nguon)
+        self.assertIsNotNone(col_map_tn)
+        self.assertIn("source", col_map_tn)
+        self.assertEqual(col_map_tn["source"], 2)
+
+    def test_parse_custom_sheet_with_and_without_source(self):
+        """Kiểm tra nạp dữ liệu sheet có và không có cột nguồn."""
+        loader = QALoader()
+
+        # Trường hợp 1: Có cột nguồn rõ ràng
+        rows_with_src = [
+            ["Câu hỏi", "Câu trả lời", "Từ vựng", "Trình độ", "Nguồn"],
+            ["about nghĩa là gì?", "Về, khoảng chừng", "about", "A1", "Oxford Learner's Dictionary"],
+        ]
+        recs_with_src = loader._parse_custom_sheet(rows_with_src, "Sheet1", "DefaultFile.xlsx", 0)
+        self.assertEqual(len(recs_with_src), 1)
+        self.assertEqual(recs_with_src[0].word, "about")
+        self.assertEqual(recs_with_src[0].source, "Oxford Learner's Dictionary")
+
+        # Trường hợp 2: Không có cột nguồn -> Fallback về source_default
+        rows_no_src = [
+            ["Câu hỏi", "Câu trả lời", "Từ vựng", "Trình độ"],
+            ["hello nghĩa là gì?", "Xin chào", "hello", "A1"],
+        ]
+        recs_no_src = loader._parse_custom_sheet(rows_no_src, "Sheet1", "VocabularyBook.xlsx", 0)
+        self.assertEqual(len(recs_no_src), 1)
+        self.assertEqual(recs_no_src[0].source, "VocabularyBook.xlsx")
+
 
 if __name__ == "__main__":
     unittest.main()

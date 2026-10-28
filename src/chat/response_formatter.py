@@ -30,11 +30,12 @@ RE_PRON = re.compile(r"^(?:\*\*)?Phát âm:(?:\*\*)?\s*(.*)$", re.IGNORECASE)
 RE_BULLET = re.compile(r"^(?:[•\-\*]\s*|(?:Ví dụ|Example):\s*)(.+)$", re.IGNORECASE)
 
 
-def format_vocabulary_response(text: str) -> str:
+def format_vocabulary_response(text: str, word: Optional[str] = None) -> str:
     """Chuẩn hóa và định dạng văn bản câu trả lời từ vựng theo cấu trúc Markdown rõ ràng.
 
     Args:
         text: Nội dung văn bản câu trả lời từ Knowledge Base hoặc LLM.
+        word: Từ vựng tiếng Anh được tra cứu (nếu có), dùng để nêu lại từ đầu câu trả lời.
 
     Returns:
         str: Nội dung đã được định dạng chuẩn với xuống dòng và thụt lề hợp lý.
@@ -56,6 +57,10 @@ def format_vocabulary_response(text: str) -> str:
     )
     if not has_vocab_feature:
         # Nếu là câu xã giao, từ chối ngoài phạm vi, hoặc văn bản tự do không theo khuôn từ điển
+        if word and isinstance(word, str) and word.strip():
+            clean_w = word.strip()
+            if clean_w.lower() not in text.lower()[:60]:
+                return f"Từ **{clean_w}**:\n\n{text}"
         return text
 
     headers: List[str] = []
@@ -184,6 +189,13 @@ def format_vocabulary_response(text: str) -> str:
 
     # Ghép lại thành chuỗi Markdown hoàn chỉnh
     paragraphs: List[str] = []
+
+    # Nêu lại từ vựng người dùng hỏi nếu có và chưa xuất hiện ở đầu câu trả lời
+    if word and isinstance(word, str) and word.strip():
+        clean_w = word.strip()
+        lower_raw = text.lower()[:80]
+        if f"**{clean_w.lower()}**" not in lower_raw and f"từ **{clean_w.lower()}**" not in lower_raw:
+            paragraphs.append(f"Từ **{clean_w}**:")
 
     # Thêm phần Header (Trình độ, Phát âm)
     if headers:

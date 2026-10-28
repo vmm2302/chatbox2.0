@@ -33,10 +33,10 @@ def render_auth_page(
         """
         <div style="text-align: center; margin-top: 1.5rem; margin-bottom: 1.75rem;">
             <div style="font-size: 3rem; margin-bottom: 0.5rem;">🤖</div>
-            <h1 style="font-size: 1.85rem; font-weight: 700; color: #ECECEC; margin-bottom: 0.25rem;">
+            <h1 style="font-size: 1.85rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.25rem;">
                 Chatbox 2.0
             </h1>
-            <p style="color: #8E8E8E; font-size: 0.95rem; max-width: 500px; margin: 0 auto;">
+            <p style="color: var(--text-muted); font-size: 0.95rem; max-width: 500px; margin: 0 auto;">
                 Hệ thống tra cứu từ vựng tiếng Anh thông minh với AI cục bộ. Đăng nhập để lưu và cá nhân hóa lịch sử trò chuyện của bạn.
             </p>
         </div>
@@ -126,6 +126,17 @@ def render_auth_page(
                 else:
                     success, user, msg = auth_service.authenticate(username_input, password_input)
                     if success and user:
+                        # Tải trước Ollama dưới nền và làm nóng model trong lúc đăng nhập
+                        try:
+                            from src.resource.ollama_service import (
+                                ensure_ollama_running_background,
+                                preload_model_in_background,
+                            )
+                            ensure_ollama_running_background()
+                            preload_model_in_background()
+                        except Exception as ollama_bg_err:
+                            pass
+
                         # Lưu user vào session state
                         st.session_state.auth_user = user
                         # Xóa mọi ngữ cảnh cũ và tin nhắn còn sót lại, khởi tạo tracker độc lập

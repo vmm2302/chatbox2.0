@@ -610,6 +610,61 @@ class TestSystemBootstrapAndAdminEnforcement(BaseAuthTestCase):
             state, meta = self.auth_service.get_account_lifecycle_state()
             self.assertEqual(state, "STATE_7_DB_ERROR")
 
+    def test_conversation_pin_toggle_and_isolation(self):
+        """Kiểm tra chức năng Ghim/Bỏ ghim hội thoại, sắp xếp ưu tiên và cô lập giữa các user."""
+        u1 = self.user_repo.create_user("user_pin_1", "hash1", "User Pin 1")
+        u2 = self.user_repo.create_user("user_pin_2", "hash2", "User Pin 2")
+
+        c1 = self.conv_repo.create_conversation(u1.id, "Đoạn chat 1 của User 1")
+        c2 = self.conv_repo.create_conversation(u1.id, "Đoạn chat 2 của User 1")
+        c_u2 = self.conv_repo.create_conversation(u2.id, "Đoạn chat của User 2")
+
+        # 1. Mặc định chưa ghim
+        self.assertFalse(c1.is_pinned)
+        self.assertFalse(c2.is_pinned)
+
+        # 2. User 1 ghim c1 thành công
+        ok = self.conv_repo.toggle_pin_conversation(u1.id, c1.id)
+        self.assertTrue(ok)
+        conv1_fetched = self.conv_repo.get_conversation(u1.id, c1.id)
+        self.assertTrue(conv1_fetched.is_pinned)
+
+        # 3. User 2 KHÔNG THỂ ghim cuộc trò chuyện của User 1 (Data isolation)
+        ok_cross = self.conv_repo.toggle_pin_conversation(u2.id, c1.id)
+        self.assertFalse(ok_cross)
+        conv1_still = self.conv_repo.get_conversation(u1.id, c1.id)
+        self.assertTrue(conv1_still.is_pinned)
+
+        # 4. Danh sách hội thoại của User 1 ưu tiên hội thoại đã ghim lên đầu
+        convs_u1 = self.conv_repo.list_conversations(u1.id)
+        self.assertEqual(convs_u1[0].id, c1.id)
+        self.assertTrue(convs_u1[0].is_pinned)
+
+        # 5. User 1 bỏ ghim c1
+        ok_unpin = self.conv_repo.toggle_pin_conversation(u1.id, c1.id)
+        self.assertTrue(ok_unpin)
+        conv1_unpinned = self.conv_repo.get_conversation(u1.id, c1.id)
+        self.assertFalse(conv1_unpinned.is_pinned)
+
+    def test_conversation_delete_and_isolation(self):
+        """Kiểm tra chức năng Xóa hội thoại và bảo đảm chỉ chủ sở hữu mới được xóa."""
+        u1 = self.user_repo.create_user("user_del_1", "hash1", "User Del 1")
+        u2 = self.user_repo.create_user("user_del_2", "hash2", "User Del 2")
+
+        c1 = self.conv_repo.create_conversation(u1.id, "Đoạn chat cần xóa")
+        self.conv_repo.add_message(u1.id, c1.id, "user", "Hello message")
+
+        # 1. User 2 cố gắng xóa hội thoại của User 1 -> Không thành công
+        deleted_cross = self.conv_repo.delete_conversation(u2.id, c1.id)
+        self.assertFalse(deleted_cross)
+        self.assertIsNotNone(self.conv_repo.get_conversation(u1.id, c1.id))
+
+        # 2. User 1 xóa hội thoại của chính mình -> Thành công
+        deleted_own = self.conv_repo.delete_conversation(u1.id, c1.id)
+        self.assertTrue(deleted_own)
+        self.assertIsNone(self.conv_repo.get_conversation(u1.id, c1.id))
+        self.assertEqual(len(self.conv_repo.get_messages(u1.id, c1.id)), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

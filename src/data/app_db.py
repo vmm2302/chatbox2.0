@@ -16,7 +16,7 @@ from typing import Generator, Optional, Union
 from config.settings import settings
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     title TEXT NOT NULL DEFAULT 'Cuộc trò chuyện mới',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    archived_at TEXT
+    archived_at TEXT,
+    is_pinned INTEGER NOT NULL DEFAULT 0
 );
 
 -- Bảng tin nhắn thuộc từng cuộc hội thoại
@@ -138,6 +139,13 @@ class AppDatabase:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self.transaction() as conn:
             conn.executescript(SCHEMA_SQL)
+
+            # Migration: kiểm tra và thêm cột is_pinned vào bảng conversations nếu chưa có
+            cursor = conn.execute("PRAGMA table_info(conversations)")
+            existing_cols = [row[1] for row in cursor.fetchall()]
+            if "is_pinned" not in existing_cols:
+                conn.execute("ALTER TABLE conversations ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_pinned ON conversations(user_id, is_pinned, updated_at DESC)")
             
             # Ghi nhận phiên bản schema
             cursor = conn.execute("SELECT MAX(version) FROM schema_version")

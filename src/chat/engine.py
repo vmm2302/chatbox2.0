@@ -310,9 +310,11 @@ class ChatEngine:
             self.tracker.active_word = best_candidate.record.word.strip().lower()
 
         # Bước 6: Xử lý theo Response Mode
+        query_word = best_candidate.record.word if (best_candidate and best_candidate.record.word) else target_word
+
         # 6.1 Khớp chính xác (DIRECT_MATCH)
         if mode == "DIRECT_MATCH":
-            answer = format_vocabulary_response(best_candidate.record.answer)
+            answer = format_vocabulary_response(best_candidate.record.answer, word=query_word)
             return self._create_and_log_response(
                 clean_query=clean_query,
                 resolved_query=resolved_query,
@@ -340,7 +342,7 @@ class ChatEngine:
                 logger.error("Lỗi khi gọi Qwen2.5:7B: %s", final_err)
                 llm_answer = f"{settings.OLLAMA_OFFLINE_RESPONSE}\n(Chi tiết: {final_err})"
 
-        formatted_answer = format_vocabulary_response(llm_answer)
+        formatted_answer = format_vocabulary_response(llm_answer, word=query_word)
         return self._create_and_log_response(
             clean_query=clean_query,
             resolved_query=resolved_query,
@@ -526,9 +528,11 @@ class ChatEngine:
         if best_candidate.record.word:
             self.tracker.active_word = best_candidate.record.word.strip().lower()
 
+        query_word = best_candidate.record.word if (best_candidate and best_candidate.record.word) else target_word
+
         # 6.1 DIRECT_MATCH
         if mode == "DIRECT_MATCH":
-            answer = format_vocabulary_response(best_candidate.record.answer)
+            answer = format_vocabulary_response(best_candidate.record.answer, word=query_word)
             resp = self._create_and_log_response(
                 clean_query=clean_query,
                 resolved_query=resolved_query,
@@ -569,7 +573,7 @@ class ChatEngine:
                 yield error_msg, None
 
 
-        formatted_final = format_vocabulary_response(accumulated_text)
+        formatted_final = format_vocabulary_response(accumulated_text, word=query_word)
         final_resp = self._create_and_log_response(
             clean_query=clean_query,
             resolved_query=resolved_query,
@@ -582,3 +586,82 @@ class ChatEngine:
             candidates=candidates,
         )
         yield "", final_resp
+
+
+# ==============================================================================
+# SINGLETON CHAT ENGINE & BACKGROUND WARM-UP COORDINATOR
+# ==============================================================================
+
+import concurrent.futures
+import threading
+
+_shared_engine_lock = threading.Lock()
+_shared_engine_instance: Optional[ChatEngine] = None
+_shared_engine_future: Optional[concurrent.futures.Future] = None
+_shared_warmup_started: bool = False
+
+
+def start_engine_warmup() -> None:
+    """Kích hoạt tác vụ nạp và làm nóng ChatEngine dưới luồng nền (idempotent)."""
+    global _shared_warmup_started, _shared_engine_future
+    with _shared_engine_lock:
+        if _shared_warmup_started or _shared_engine_instance is not None:
+            return
+        _shared_warmup_started = True
+        fut = concurrent.futures.Future()
+        _shared_engine_future = fut
+
+    def _worker():
+        global _shared_engine_instance
+        try:
+            t0 = time.perf_counter()
+            logger.info("[WARMUP] Bắt đầu khởi tạo ChatEngine trong tiến trình nền...")
+            eng = ChatEngine()
+            eng.warm_up()
+            with _shared_engine_lock:
+                _shared_engine_instance = eng
+            fut.set_result(eng)
+            logger.info("[WARMUP] ChatEngine đã sẵn sàng sau %.3f giây.", time.perf_counter() - t0)
+        except Exception as exc:
+            logger.error("[WARMUP] Lỗi khi nạp ChatEngine dưới nền: %s", exc, exc_info=True)
+            fut.set_exception(exc)
+
+    t = threading.Thread(target=_worker, name="chatbox-engine-warmup", daemon=True)
+    t.start()
+
+
+def is_engine_ready() -> bool:
+    """Kiểm tra ChatEngine đã sẵn sàng phục vụ chưa."""
+    with _shared_engine_lock:
+        if _shared_engine_instance is not None:
+            return True
+        if _shared_engine_future is not None and _shared_engine_future.done():
+            return _shared_engine_future.exception() is None
+    return False
+
+
+def get_shared_chat_engine() -> ChatEngine:
+    """Trả về singleton ChatEngine dùng chung, đồng bộ an toàn qua Future/Lock."""
+    global _shared_engine_instance, _shared_engine_future
+    with _shared_engine_lock:
+        if _shared_engine_instance is not None:
+            return _shared_engine_instance
+        fut = _shared_engine_future
+
+    if fut is not None:
+        try:
+            eng = fut.result()
+            with _shared_engine_lock:
+                _shared_engine_instance = eng
+            return eng
+        except Exception as exc:
+            logger.error("[WARMUP] Nạp nền thất bại, chuyển sang nạp trực tiếp: %s", exc)
+
+    # Nạp trực tiếp nếu chưa có warmup nền hoặc warmup gặp lỗi
+    t0 = time.perf_counter()
+    eng = ChatEngine()
+    eng.warm_up()
+    with _shared_engine_lock:
+        _shared_engine_instance = eng
+    logger.info("[WARMUP] ChatEngine đã khởi tạo trực tiếp sau %.3f giây.", time.perf_counter() - t0)
+    return eng

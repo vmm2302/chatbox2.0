@@ -177,7 +177,7 @@ class QALoader:
             elif any(kw in h for kw in ["trinh do", "cap do", "level", "cefr", "difficulty"]):
                 if "level" not in col_map:
                     col_map["level"] = idx
-            elif any(kw in h for kw in ["nguon", "source", "tai lieu"]):
+            elif any(kw in h for kw in ["nguon", "source", "tai lieu", "xuat xu", "trich nguon", "reference", "origin", "book", "sach"]):
                 if "source" not in col_map:
                     col_map["source"] = idx
             elif any(kw in h for kw in ["record_id", "record id", "recordid", "id", "stt", "ma", "ma ban ghi"]):
@@ -336,92 +336,111 @@ class QALoader:
 
                     # 1. Sheet 1 gốc: danhsachtutienganhA1-B2
                     if sheet_name == "danhsachtutienganhA1-B2":
-                        for row in rows[1:]:
-                            if len(row) >= 3:
-                                question, answer = row[1].strip(), row[2].strip()
-                                source = row[3].strip() if len(row) > 3 and row[3].strip() else "Cambridge Dictionary"
-                                if question and answer:
-                                    rec_id = f"ENG_VOCAB_{len(records) + 1:04d}"
-                                    w_match = re.match(r"^([a-zA-Z\s,\-]+)\s+nghĩa là gì", question, re.IGNORECASE)
-                                    word = w_match.group(1).strip() if w_match else ""
-                                    lvl_match = re.search(r"trình độ\s*:\s*([A-Za-z0-9]+)", answer, re.IGNORECASE)
-                                    level = lvl_match.group(1).upper() if lvl_match else ""
+                        col_map = self._detect_column_mapping(rows[0]) if rows else None
+                        if col_map is not None and "source" in col_map:
+                            records.extend(self._parse_custom_sheet(rows, sheet_name, "Cambridge Dictionary", len(records)))
+                        else:
+                            for row in rows[1:]:
+                                if len(row) >= 3:
+                                    question, answer = row[1].strip(), row[2].strip()
+                                    source = row[3].strip() if len(row) > 3 and row[3].strip() else "Cambridge Dictionary"
+                                    if question and answer:
+                                        rec_id = f"ENG_VOCAB_{len(records) + 1:04d}"
+                                        w_match = re.match(r"^([a-zA-Z\s,\-]+)\s+nghĩa là gì", question, re.IGNORECASE)
+                                        word = w_match.group(1).strip() if w_match else ""
+                                        lvl_match = re.search(r"trình độ\s*:\s*([A-Za-z0-9]+)", answer, re.IGNORECASE)
+                                        level = lvl_match.group(1).upper() if lvl_match else ""
 
-                                    records.append(QARecord(
-                                        record_id=rec_id,
-                                        word=word,
-                                        sheet=sheet_name,
-                                        source=source,
-                                        level=level,
-                                        question=question,
-                                        answer=answer,
-                                        normalized_question=normalize_vietnamese_text(question),
-                                    ))
+                                        records.append(QARecord(
+                                            record_id=rec_id,
+                                            word=word,
+                                            sheet=sheet_name,
+                                            source=source,
+                                            level=level,
+                                            question=question,
+                                            answer=answer,
+                                            normalized_question=normalize_vietnamese_text(question),
+                                        ))
 
                     # 2. Sheet 2 gốc: danhsachtheotrinhdoA1-B2
                     elif sheet_name == "danhsachtheotrinhdoA1-B2":
-                        for row in rows:
-                            if len(row) >= 2:
-                                question, answer = row[0].strip(), row[1].strip()
-                                if question and answer:
-                                    rec_id = f"LEVEL_LIST_{len(records) + 1:04d}"
-                                    lvl_match = re.search(r"trình độ\s*([A-Za-z0-9]+)", question, re.IGNORECASE)
-                                    level = lvl_match.group(1).upper() if lvl_match else ""
+                        col_map = self._detect_column_mapping(rows[0]) if rows else None
+                        if col_map is not None and "source" in col_map:
+                            records.extend(self._parse_custom_sheet(rows, sheet_name, "CEFR A1-B2 Framework", len(records)))
+                        else:
+                            for row in rows:
+                                if len(row) >= 2:
+                                    question, answer = row[0].strip(), row[1].strip()
+                                    source = row[2].strip() if len(row) > 2 and row[2].strip() else "CEFR A1-B2 Framework"
+                                    if question and answer:
+                                        rec_id = f"LEVEL_LIST_{len(records) + 1:04d}"
+                                        lvl_match = re.search(r"trình độ\s*([A-Za-z0-9]+)", question, re.IGNORECASE)
+                                        level = lvl_match.group(1).upper() if lvl_match else ""
 
-                                    records.append(QARecord(
-                                        record_id=rec_id,
-                                        word="list",
-                                        sheet=sheet_name,
-                                        source="CEFR A1-B2 Framework",
-                                        level=level,
-                                        question=question,
-                                        answer=answer,
-                                        normalized_question=normalize_vietnamese_text(question),
-                                    ))
+                                        records.append(QARecord(
+                                            record_id=rec_id,
+                                            word="list",
+                                            sheet=sheet_name,
+                                            source=source,
+                                            level=level,
+                                            question=question,
+                                            answer=answer,
+                                            normalized_question=normalize_vietnamese_text(question),
+                                        ))
 
                     # 3. Sheet 3 gốc: tiengvietsangtienganh
                     elif sheet_name == "tiengvietsangtienganh":
-                        for row in rows[1:]:
-                            if len(row) >= 2:
-                                question, answer = row[0].strip(), row[1].strip()
-                                if question and answer:
-                                    rec_id = f"VIE_ENG_{len(records) + 1:04d}"
-                                    w_match = re.search(r"-\s*Từ tiếng Anh\s*:\s*([^\n\r]+)", answer, re.IGNORECASE)
-                                    word = w_match.group(1).strip() if w_match else ""
-                                    lvl_match = re.search(r"-\s*Trình độ\s*:\s*([A-Za-z0-9]+)", answer, re.IGNORECASE)
-                                    level = lvl_match.group(1).upper() if lvl_match else ""
+                        col_map = self._detect_column_mapping(rows[0]) if rows else None
+                        if col_map is not None and "source" in col_map:
+                            records.extend(self._parse_custom_sheet(rows, sheet_name, "Vietnamese-English Dictionary", len(records)))
+                        else:
+                            for row in rows[1:]:
+                                if len(row) >= 2:
+                                    question, answer = row[0].strip(), row[1].strip()
+                                    source = row[2].strip() if len(row) > 2 and row[2].strip() else "Vietnamese-English Dictionary"
+                                    if question and answer:
+                                        rec_id = f"VIE_ENG_{len(records) + 1:04d}"
+                                        w_match = re.search(r"-\s*Từ tiếng Anh\s*:\s*([^\n\r]+)", answer, re.IGNORECASE)
+                                        word = w_match.group(1).strip() if w_match else ""
+                                        lvl_match = re.search(r"-\s*Trình độ\s*:\s*([A-Za-z0-9]+)", answer, re.IGNORECASE)
+                                        level = lvl_match.group(1).upper() if lvl_match else ""
 
-                                    records.append(QARecord(
-                                        record_id=rec_id,
-                                        word=word,
-                                        sheet=sheet_name,
-                                        source="Vietnamese-English Dictionary",
-                                        level=level,
-                                        question=question,
-                                        answer=answer,
-                                        normalized_question=normalize_vietnamese_text(question),
-                                    ))
+                                        records.append(QARecord(
+                                            record_id=rec_id,
+                                            word=word,
+                                            sheet=sheet_name,
+                                            source=source,
+                                            level=level,
+                                            question=question,
+                                            answer=answer,
+                                            normalized_question=normalize_vietnamese_text(question),
+                                        ))
 
                     # 4. Sheet 4 gốc: danhsachcauhoicotutrongcau
                     elif sheet_name == "danhsachcauhoicotutrongcau":
-                        for row in rows[1:]:
-                            if len(row) >= 2:
-                                question, answer = row[0].strip(), row[1].strip()
-                                if question and answer:
-                                    rec_id = f"EXAMPLE_{len(records) + 1:04d}"
-                                    w_match = re.search(r"từ\s+([a-zA-Z\-]+)", question, re.IGNORECASE)
-                                    word = w_match.group(1).strip() if w_match else ""
+                        col_map = self._detect_column_mapping(rows[0]) if rows else None
+                        if col_map is not None and "source" in col_map:
+                            records.extend(self._parse_custom_sheet(rows, sheet_name, "Vocabulary In Use Examples", len(records)))
+                        else:
+                            for row in rows[1:]:
+                                if len(row) >= 2:
+                                    question, answer = row[0].strip(), row[1].strip()
+                                    source = row[2].strip() if len(row) > 2 and row[2].strip() else "Vocabulary In Use Examples"
+                                    if question and answer:
+                                        rec_id = f"EXAMPLE_{len(records) + 1:04d}"
+                                        w_match = re.search(r"từ\s+([a-zA-Z\-]+)", question, re.IGNORECASE)
+                                        word = w_match.group(1).strip() if w_match else ""
 
-                                    records.append(QARecord(
-                                        record_id=rec_id,
-                                        word=word,
-                                        sheet=sheet_name,
-                                        source="Vocabulary In Use Examples",
-                                        level="",
-                                        question=question,
-                                        answer=answer,
-                                        normalized_question=normalize_vietnamese_text(question),
-                                    ))
+                                        records.append(QARecord(
+                                            record_id=rec_id,
+                                            word=word,
+                                            sheet=sheet_name,
+                                            source=source,
+                                            level="",
+                                            question=question,
+                                            answer=answer,
+                                            normalized_question=normalize_vietnamese_text(question),
+                                        ))
 
                     # 5. Sheet tùy chỉnh do người dùng đưa vào
                     else:

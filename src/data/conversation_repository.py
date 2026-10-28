@@ -55,6 +55,7 @@ class Conversation:
     updated_at: str
     archived_at: Optional[str] = None
     message_count: int = 0
+    is_pinned: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -65,6 +66,7 @@ class Conversation:
             "updated_at": self.updated_at,
             "archived_at": self.archived_at,
             "message_count": self.message_count,
+            "is_pinned": self.is_pinned,
         }
 
 
@@ -102,6 +104,7 @@ class ConversationRepository:
             updated_at=now_iso,
             archived_at=None,
             message_count=0,
+            is_pinned=False,
         )
 
     def get_conversation(self, user_id: int, conversation_id: str) -> Optional[Conversation]:
@@ -120,6 +123,8 @@ class ConversationRepository:
             row = cursor.fetchone()
             if not row:
                 return None
+            row_keys = row.keys() if hasattr(row, "keys") else []
+            is_pinned_val = bool(row["is_pinned"]) if "is_pinned" in row_keys else False
             return Conversation(
                 id=row["id"],
                 user_id=row["user_id"],
@@ -128,35 +133,76 @@ class ConversationRepository:
                 updated_at=row["updated_at"],
                 archived_at=row["archived_at"],
                 message_count=row["msg_count"],
+                is_pinned=is_pinned_val,
             )
 
     def list_conversations(self, user_id: int, limit: int = 50) -> List[Conversation]:
-        """Liệt kê danh sách cuộc hội thoại thuộc quyền sở hữu của user_id."""
+        """Liệt kê danh sách cuộc hội thoại thuộc quyền sở hữu của user_id (ưu tiên ghim trước)."""
         with self.db.connection() as conn:
+            # Kiểm tra xem cột is_pinned có sẵn trong schema không
+            cursor_check = conn.execute("PRAGMA table_info(conversations)")
+            has_pinned = any(r[1] == "is_pinned" for r in cursor_check.fetchall())
+            order_by = "c.is_pinned DESC, c.updated_at DESC" if has_pinned else "c.updated_at DESC"
+
             cursor = conn.execute(
-                """
+                f"""
                 SELECT c.*, COUNT(m.id) as msg_count
                 FROM conversations c
                 LEFT JOIN messages m ON c.id = m.conversation_id
                 WHERE c.user_id = ?
                 GROUP BY c.id
-                ORDER BY c.updated_at DESC
+                ORDER BY {order_by}
                 LIMIT ?
                 """,
                 (user_id, limit),
             )
-            return [
-                Conversation(
-                    id=row["id"],
-                    user_id=row["user_id"],
-                    title=row["title"],
-                    created_at=row["created_at"],
-                    updated_at=row["updated_at"],
-                    archived_at=row["archived_at"],
-                    message_count=row["msg_count"],
+            convs = []
+            for row in cursor.fetchall():
+                row_keys = row.keys() if hasattr(row, "keys") else []
+                is_pinned_val = bool(row["is_pinned"]) if "is_pinned" in row_keys else False
+                convs.append(
+                    Conversation(
+                        id=row["id"],
+                        user_id=row["user_id"],
+                        title=row["title"],
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                        archived_at=row["archived_at"],
+                        message_count=row["msg_count"],
+                        is_pinned=is_pinned_val,
+                    )
                 )
-                for row in cursor.fetchall()
-            ]
+            return convs
+
+    def toggle_pin_conversation(self, user_id: int, conversation_id: str) -> bool:
+        """Bật/tắt trạng thái ghim cuộc trò chuyện (chỉ thực hiện nếu thuộc đúng user_id)."""
+        now_iso = get_utc_now_iso()
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE conversations
+                SET is_pinned = CASE WHEN is_pinned = 1 THEN 0 ELSE 1 END,
+                    updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (now_iso, conversation_id, user_id),
+            )
+            return cursor.rowcount > 0
+
+    def set_pin_conversation(self, user_id: int, conversation_id: str, is_pinned: bool) -> bool:
+        """Đặt trạng thái ghim cuộc trò chuyện (chỉ thực hiện nếu thuộc đúng user_id)."""
+        now_iso = get_utc_now_iso()
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE conversations
+                SET is_pinned = ?,
+                    updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (1 if is_pinned else 0, now_iso, conversation_id, user_id),
+            )
+            return cursor.rowcount > 0
 
     def update_title(self, user_id: int, conversation_id: str, new_title: str) -> bool:
         """Đổi tên cuộc trò chuyện (chỉ thực hiện nếu thuộc đúng user_id)."""

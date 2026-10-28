@@ -21,6 +21,20 @@ from src.core.models import QARecord
 
 logger = logging.getLogger(__name__)
 
+import threading
+
+_chroma_client_lock = threading.Lock()
+_shared_chroma_client: Optional[chromadb.PersistentClient] = None
+
+
+def get_shared_chroma_client(path: str) -> chromadb.PersistentClient:
+    """Trả về client PersistentClient dùng chung, bảo đảm an toàn khởi tạo đa luồng."""
+    global _shared_chroma_client
+    with _chroma_client_lock:
+        if _shared_chroma_client is None:
+            _shared_chroma_client = chromadb.PersistentClient(path=path)
+        return _shared_chroma_client
+
 
 class BGEChromaRetriever:
     """Lớp quản lý ChromaDB cục bộ và mô hình embedding BGE-M3."""
@@ -28,7 +42,7 @@ class BGEChromaRetriever:
     def __init__(self, records: List[QARecord]):
         self.records = records
         self.rec_map: Dict[str, QARecord] = {r.record_id: r for r in records}
-        self.client = chromadb.PersistentClient(path=str(settings.CHROMA_DIR))
+        self.client = get_shared_chroma_client(path=str(settings.CHROMA_DIR))
         self.model: Optional[SentenceTransformer] = None
         self._collection = None
 
