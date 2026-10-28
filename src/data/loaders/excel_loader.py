@@ -31,7 +31,9 @@ class ExcelLoader(BaseFileLoader):
         from src.data.loaders.base import clean_source_name, generate_stable_record_id
         clean_name = clean_source_name(file_path.name)
         for idx, r in enumerate(records, start_index):
-            r.source = clean_name
+            # Bảo toàn nguồn dữ liệu gốc nếu có sẵn trong cột 'Nguồn' của tệp Excel
+            if not r.source or not r.source.strip() or r.source == file_path.name:
+                r.source = clean_name
             if not r.record_id or r.record_id.startswith("APPEND_") or r.record_id.startswith("REC_") or r.record_id.startswith("CUSTOM_"):
                 r.record_id = generate_stable_record_id(clean_name, r.question)
 

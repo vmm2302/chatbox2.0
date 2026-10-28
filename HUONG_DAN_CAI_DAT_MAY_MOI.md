@@ -1,30 +1,50 @@
 # HƯỚNG DẪN CÀI ĐẶT & THIẾT LẬP MÔI TRƯỜNG CHATBOX 2.0 TRÊN MÁY MỚI
 
-Tài liệu này hướng dẫn chi tiết quy trình thiết lập toàn bộ môi trường từ đầu khi chuyển sang máy tính mới (Windows, macOS hoặc Linux) hoàn toàn thông qua **Terminal / Dòng lệnh**, không phụ thuộc vào bất kỳ tệp `.bat` nào.
+Tài liệu này cung cấp hướng dẫn chi tiết từ A đến Z để thiết lập môi trường và khởi chạy thành công toàn bộ hệ thống **Chatbox 2.0 — Trợ Lý Tra Cứu Từ Vựng Tiếng Anh A1–B2** trên một máy tính hoàn toàn mới (Windows 10/11, macOS hoặc Ubuntu/Linux) thông qua Terminal / Dòng lệnh.
 
 ---
 
-## 1. YÊU CẦU HỆ THỐNG (PREREQUISITES)
+## 1. YÊU CẦU HỆ THỐNG (SYSTEM PREREQUISITES)
 
-| Thành phần | Yêu cầu khuyến nghị | Ghi chú |
-| :--- | :--- | :--- |
-| **Hệ điều hành** | Windows 10/11, Ubuntu 20.04+, macOS | Tương thích đa nền tảng |
-| **Python** | **Python 3.10** hoặc **3.11** (Khuyên dùng 3.11) | Tải từ [python.org](https://www.python.org/downloads/) |
-| **Git** | Phiên bản mới nhất | Tải từ [git-scm.com](https://git-scm.com/) |
-| **Ollama** | Phiên bản mới nhất | Tải từ [ollama.com](https://ollama.com/) |
-| **RAM** | Tối thiểu 8 GB (Khuyên dùng 16 GB) | Đủ để chạy mô hình LLM và Embedding |
-| **Dung lượng đĩa** | Tối thiểu 15 GB trống | Lưu trữ các checkpoint mô hình NLP và LLM |
+| Thành phần | Yêu cầu tối thiểu | Yêu cầu khuyến nghị | Ghi chú |
+| :--- | :--- | :--- | :--- |
+| **Hệ điều hành** | Windows 10/11, macOS 12+, Ubuntu 20.04+ | Windows 11 / Ubuntu 22.04 LTS | Tương thích đa nền tảng 100% |
+| **Python** | **Python 3.10** hoặc **3.11** | **Python 3.11.x** | Tải từ [python.org](https://www.python.org/downloads/) |
+| **Node.js & npm** | **Node.js v18+** | **Node.js v20 LTS** kèm npm | Tải từ [nodejs.org](https://nodejs.org/) (để build Frontend React) |
+| **Git** | Bản mới nhất | Bản mới nhất | Tải từ [git-scm.com](https://git-scm.com/) |
+| **Ollama** | Bản mới nhất | Bản mới nhất | Tải từ [ollama.com](https://ollama.com/) |
+| **RAM** | Tối thiểu 8 GB | **16 GB trở lên** | Để chạy mô hình LLM và Embedding trong RAM |
+| **Dung lượng ổ đĩa** | Tối thiểu 15 GB trống | SSD trống 25 GB+ | Lưu trữ trọng số mô hình Qwen, PhoBERT, BGE-M3 |
+| **Card đồ họa (GPU)**| Không bắt buộc (Chạy CPU tự động) | **NVIDIA RTX / GTX (VRAM $\ge$ 4GB)** | Tăng tốc độ truy xuất Embedding và suy luận LLM |
 
 > [!IMPORTANT]
-> Khi cài đặt Python trên Windows, hãy nhớ tích chọn **"Add Python to PATH"** để có thể chạy lệnh `python` từ bất kỳ cửa sổ dòng lệnh nào.
+> **Khi cài đặt Python trên Windows:**  
+> Bắt buộc phải tích chọn ô **"Add Python to PATH"** ở màn hình cài đặt đầu tiên để có thể chạy lệnh `python` và `pip` trong mọi cửa sổ dòng lệnh.
+
+> [!IMPORTANT]
+> **Khi cài đặt Node.js trên Windows:**  
+> Chọn cài đặt mặc định (Default Setup) để công cụ tự động thêm `node` và `npm` vào biến môi trường hệ thống. Sau khi cài, mở cửa sổ Terminal mới để kiểm tra: `node -v` và `npm -v`.
 
 ---
 
-## 2. QUY TRÌNH THIẾT LẬP TỪNG BƯỚC (STEP-BY-STEP SETUP)
+## 2. QUY TRÌNH CÀI ĐẶT TỪNG BƯỚC (STEP-BY-STEP SETUP)
+
+```mermaid
+flowchart TD
+    A["Bước 1: Clone mã nguồn từ GitHub"] --> B["Bước 2: Cài đặt thư viện Python (requirements.txt)"]
+    B --> C["Bước 3: Cài đặt & Build Frontend React"]
+    C --> D["Bước 4: Cài đặt Ollama & Tải mô hình Qwen2.5:7B"]
+    D --> E["Bước 5: Tải cache mô hình NLP Local (PhoBERT & BGE-M3)"]
+    E --> F["Bước 6: Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên"]
+    F --> G["Bước 7: Khởi chạy Web App 1 lệnh (python run_vocab_web.py)"]
+    G --> H["Mở trình duyệt: http://localhost:8000"]
+```
+
+---
 
 ### Bước 1: Tải mã nguồn về máy (Clone Repository)
 
-Mở Terminal (PowerShell / Command Prompt / Bash) và thực thi:
+Mở Terminal (PowerShell / Command Prompt trên Windows hoặc Bash trên macOS/Linux) và chạy:
 
 ```bash
 git clone https://github.com/vmm2302/chatbox2.0.git
@@ -33,16 +53,14 @@ cd chatbox2.0
 
 ---
 
-### Bước 2: Cài đặt các thư viện bắt buộc (Dependencies)
+### Bước 2: Cài đặt các thư viện Python (Backend Dependencies)
 
 > [!WARNING]
-> **LƯU Ý QUAN TRỌNG VỀ MÔI TRƯỜNG ẢO VÀ LỆNH NÂNG CẤP PIP TRÊN WINDOWS:**  
-> - **Không tạo môi trường ảo `.venv`:** Khuyến nghị cài đặt trực tiếp vào môi trường Python của hệ thống.
-> - **Tuyệt đối KHÔNG chạy lệnh `python -m pip install --upgrade pip`:** Trên hệ điều hành Windows, khi pip tự cập nhật (đặc biệt trong môi trường ảo `.venv`), cơ chế khóa tệp (file locking) của Windows sẽ chặn tiến trình ghi đè. Pip tự động đổi tên thư mục chính của nó thành `~ip` để chuẩn bị thay thế nhưng bị ngắt quãng.
-> - **Hậu quả:** Thư mục `pip` bị mất (chỉ còn thư mục lỗi `~ip`), khiến tất cả các lệnh `pip` hoặc `python -m pip` sau đó đều lập tức báo lỗi: `No module named pip` và không thể tiếp tục cài đặt bất kỳ thư viện nào.
-> - Cài đặt trực tiếp không qua `.venv` vừa loại bỏ hoàn toàn rủi ro này, vừa giúp bạn không gặp lỗi chính sách chặn script (`ExecutionPolicy`) của Windows PowerShell.
+> **LƯU Ý QUAN TRỌNG VỀ PIP TRÊN WINDOWS:**  
+> - **Tuyệt đối KHÔNG chạy lệnh `python -m pip install --upgrade pip`:** Trên hệ điều hành Windows, cơ chế khóa tệp (file locking) sẽ chặn tiến trình ghi đè, khiến thư mục pip bị đổi tên thành `~ip` và gây ra lỗi mất module pip (`No module named pip`).
+> - Cài đặt trực tiếp danh sách thư viện từ file `requirements.txt`.
 
-Cài đặt toàn bộ danh sách thư viện từ `requirements.txt`:
+Cài đặt toàn bộ danh sách thư viện backend:
 
 ```bash
 pip install -r requirements.txt
@@ -50,171 +68,177 @@ pip install -r requirements.txt
 *(Hoặc `python -m pip install -r requirements.txt`)*
 
 > [!TIP]
-> **Kích hoạt GPU cho BGE-M3 (Khuyên dùng nếu máy có card NVIDIA RTX / GTX):**  
-> Mặc định pip cài bản PyTorch CPU. Để tăng tốc độ mã hóa dữ liệu gấp **15 – 20 lần** (từ 240+ từ/giây) và giải phóng 100% CPU/RAM, hãy chạy thêm lệnh:
+> **Kích hoạt tăng tốc GPU NVIDIA (Khuyên dùng nếu máy có card RTX / GTX):**  
+> Mặc định pip sẽ cài bản PyTorch chạy trên CPU. Để tăng tốc độ trích xuất đặc trưng BGE-M3 gấp **15 – 20 lần** (từ 240+ từ/giây) và giải phóng CPU, hãy chạy thêm lệnh:
 > ```bash
 > pip install torch --index-url https://download.pytorch.org/whl/cu124
 > ```
-> Hệ thống sẽ tự động nhận diện và đẩy toàn bộ tác vụ Embedding sang card đồ họa NVIDIA.
-
-Danh sách các thư viện chính bao gồm:
-- **Giao diện Web:** `streamlit`, `gradio`
-- **Vector & Tìm kiếm:** `chromadb`, `rank-bm25`
-- **Mô hình NLP:** `torch`, `transformers`, `sentence-transformers`
-- **Khung RAG & LLM:** `langchain-core`, `langchain-ollama`, `pydantic`
-- **Xử lý tài liệu:** `pymupdf`, `pypdf`, `openpyxl`
+> Hệ thống sẽ tự động phát hiện GPU và chuyển toàn bộ tác vụ Embedding sang card NVIDIA.
 
 ---
 
-### Bước 3: Thiết lập tệp cấu hình biến môi trường (`.env`)
+### Bước 3: Cài đặt & Biên dịch Frontend Web React (Vite + Tailwind)
 
-Tạo tệp cấu hình `.env` từ tệp mẫu `.env.example`:
+Mở Terminal tại thư mục dự án và thực hiện:
 
-- **Windows PowerShell:**
-  ```powershell
-  Copy-Item .env.example .env
-  ```
-- **Windows CMD:**
-  ```cmd
-  copy .env.example .env
-  ```
-- **macOS / Linux:**
-  ```bash
-  cp .env.example .env
-  ```
+```bash
+cd vocab_frontend
+npm install
+npm run build
+cd ..
+```
+
+Lệnh trên sẽ:
+1. Cài đặt các thư viện giao diện: React 18, Vite, Tailwind CSS, Lucide Icons, Canvas Confetti.
+2. Biên dịch mã nguồn Frontend thành gói tĩnh siêu nhẹ đặt tại `vocab_frontend/dist`.
+3. Backend FastAPI sẽ tự động phục vụ trực tiếp thư mục `dist` này.
 
 ---
 
 ### Bước 4: Cài đặt Ollama & Tải mô hình LLM Qwen2.5:7B
 
 1. Tải và cài đặt Ollama từ [https://ollama.com](https://ollama.com).
-2. Khởi động dịch vụ Ollama trong Terminal (hoặc mở ứng dụng Ollama):
-   ```bash
-   ollama serve
-   ```
-3. Mở một cửa sổ Terminal mới và kéo mô hình:
+2. Khởi động dịch vụ Ollama:
+   - Trên Windows: Mở ứng dụng Ollama từ Start Menu (icon con lạc đà trên Taskbar).
+   - Hoặc chạy trên Terminal:
+     ```bash
+     ollama serve
+     ```
+3. Mở một cửa sổ Terminal mới và tải mô hình ngôn ngữ:
    ```bash
    ollama pull qwen2.5:7b
    ```
-   *(Nếu máy tính có cấu hình RAM dưới 8 GB, bạn có thể tải bản nhẹ hơn: `ollama pull qwen2.5:3b` hoặc `ollama pull qwen2.5:1.5b` và đổi tên model trong file `.env`)*
+   > [!NOTE]
+   > Nếu máy tính có RAM dưới 8 GB hoặc không có GPU rời, bạn có thể tải bản gọn nhẹ hơn:
+   > ```bash
+   > ollama pull qwen2.5:3b
+   > ```
+   > Sau đó đặt biến môi trường trong file `.env`: `OLLAMA_MODEL=qwen2.5:3b`.
 
 ---
 
 ### Bước 5: Tải trước các mô hình NLP cục bộ (PhoBERT & BGE-M3)
 
-Chạy script tải tự động các trọng số mô hình vào bộ nhớ đệm máy tính (hỗ trợ chạy 100% offline):
+Chạy script tải tự động trọng số mô hình vào cache máy tính để phục vụ chế độ chạy **100% Offline**:
 
 ```bash
 python scripts/download_models.py
 ```
 
-Script này sẽ tải:
-- **vinai/phobert-base-v2**: Nhận diện ý định câu hỏi (Query Understanding & Intent Routing).
-- **BAAI/bge-m3**: Trích xuất đặc trưng ngữ nghĩa đa ngữ 1024 chiều cho ChromaDB.
+Script sẽ tải và lưu trữ vào Hugging Face local cache:
+- **`vinai/phobert-base-v2`**: Nhận diện ý định câu hỏi tiếng Việt (Intent Classification).
+- **`BAAI/bge-m3`**: Mã hóa ngữ nghĩa đa ngữ 1024 chiều (Dense Retrieval) cho ChromaDB.
 
 ---
 
-### Bước 6: Đồng bộ & Khởi tạo Chỉ mục Kho Tri Thức (ChromaDB & BM25)
+### Bước 6: Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên
 
-Sau khi clone repo mới, cơ sở dữ liệu vector ChromaDB chưa được tạo sẵn để tiết kiệm dung lượng repo.
+Chạy script khởi tạo tài khoản quản trị hệ thống:
 
-1. **Khởi tạo cơ sở dữ liệu Vector ChromaDB và BM25 từ tệp Q&A có sẵn:**
-   ```bash
-   python ingest_data.py --file "data/processed/qa_records.jsonl" --mode replace
-   ```
+```bash
+python scripts/create_admin.py
+```
 
-2. **(Tùy chọn) Đồng bộ lại từ tệp Oxford 3000 PDF & Từ điển SQLite:**
-   ```bash
-   python scripts/sync_oxford_knowledge.py
-   ```
-
-3. **(Tùy chọn) Nạp thêm dữ liệu từ vựng mới từ tệp Excel / PDF / Word / CSV:**
-   ```bash
-   python ingest_data.py --file "data/raw/du_lieu_tu_vung_RAG_chuan_hoa_v3.xlsx" --mode append
-   ```
-
-4. **Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên:**
-   ```bash
-   python scripts/create_admin.py
-   ```
-   > Script sẽ yêu cầu nhập tên đăng nhập và mật khẩu an toàn qua console (không hiển thị ký tự mật khẩu). Mật khẩu được băm một chiều bằng Bcrypt trước khi ghi vào cơ sở dữ liệu `data/app_data.db`.
-
-> [!TIP]
-> **Nhận diện PDF dạng scan (Tùy chọn OCR):**  
-> Dự án hỗ trợ trích xuất văn bản từ trang scan qua OCR cục bộ (`pytesseract`). Để sử dụng, hãy cài đặt [Tesseract OCR for Windows](https://github.com/UB-Mannheim/tesseract/wiki) (hoặc `sudo apt install tesseract-ocr` trên Ubuntu). Nếu chưa cài, hệ thống vẫn xử lý văn bản bình thường và bỏ qua OCR kèm cảnh báo rõ ràng.
+Nhập thông tin theo hướng dẫn trên màn hình:
+- **Username**: Ví dụ `admin`
+- **Tên hiển thị (Display Name)**: Ví dụ `Quản Trị Viên`
+- **Mật khẩu**: Tối thiểu 8 ký tự, có chữ hoa, chữ thường và số (Mật khẩu được băm một chiều bằng Bcrypt an toàn).
 
 ---
 
-## 3. KHỞI CHẠY ỨNG DỤNG TỪ TERMINAL (RUN APPLICATION)
+### Bước 7: Khởi chạy ứng dụng Web (Chỉ 1 lệnh duy nhất)
 
-Mở Terminal tại thư mục gốc của dự án (`chatbox2.0`) và thực thi các lệnh sau:
+Chạy lệnh khởi động ứng dụng web hiện đại:
 
-### 1. Giao diện Web Streamlit (Khuyên dùng cho trải nghiệm Chatbox hiện đại)
+```bash
+python run_vocab_web.py
+```
 
+*(Hoặc trên Windows PowerShell: `.\run_vocab_web.ps1`)*
+
+**Tính năng tự động thông minh của script:**
+- Tự động kiểm tra và giải phóng cổng `8000` nếu có tiến trình cũ chiếm dụng.
+- Khởi động backend FastAPI và nạp các mô hình AI trong nền.
+- Cơ chế Smart Readiness: Tự động mở trình duyệt web tại địa chỉ **`http://localhost:8000`** ngay khi hệ thống và mô hình đã sẵn sàng 100%.
+
+---
+
+## 3. CÁC PHƯƠNG THỨC KHỞI CHẠY KHÁC (ALTERNATIVE INTERFACES)
+
+Nếu bạn muốn chạy giao diện khác hoặc phát triển giao diện React với tính năng Hot-Reloading:
+
+### 1. Chế độ Phát triển Frontend React (Hot Reload)
+Nếu bạn muốn chỉnh sửa mã nguồn React và thấy thay đổi ngay lập tức:
+```bash
+# Terminal 1: Chạy backend FastAPI
+python -m uvicorn vocab_backend.api_server:app --port 8000 --reload
+
+# Terminal 2: Chạy Vite dev server
+cd vocab_frontend
+npm run dev
+```
+> Truy cập tại: **`http://localhost:5173`** (Vite sẽ tự động proxy các request `/api` sang cổng 8000).
+
+### 2. Giao diện Streamlit (Giao diện truyền thống)
 ```bash
 streamlit run src/ui/app.py --server.port 8501
 ```
-> Truy cập trình duyệt tại địa chỉ: **`http://localhost:8501`**  
-> Giao diện hỗ trợ 4 Tabs: Tra cứu từ vựng, Cài đặt tham số RAG, Provenance Audit Inspector, và Quản trị kho tri thức đa tệp.
+> Truy cập tại: **`http://localhost:8501`**.
 
-### 2. Giao diện Web Gradio (Phong cách Soft Slate chuẩn rag-chatbot-main)
-
-```bash
-python src/ui/gradio_app.py
-```
-> Truy cập trình duyệt tại địa chỉ: **`http://localhost:7860`**
-
-### 3. Giao diện Dòng lệnh (Terminal CLI)
-
-Dành cho kiểm tra nhanh không cần mở trình duyệt web:
-
+### 3. Giao diện Dòng lệnh (CLI)
 ```bash
 python src/ui/cli.py
 ```
 
 ---
 
-## 4. CHẠY BỘ KIỂM THỬ HỆ THỐNG (TESTING & VERIFICATION)
+## 4. KIỂM THỬ TỰ ĐỘNG HỆ THỐNG (AUTOMATED VERIFICATION)
 
-Để kiểm tra tính toàn vẹn của tất cả các module trên máy tính mới:
+Để kiểm tra toàn diện hoạt động của tất cả các module trên máy tính mới:
 
 ```bash
-# 1. Chạy bộ kiểm thử Xác thực, Phân quyền RBAC & Cách ly Dữ liệu (Mới):
-python -m unittest tests.test_auth_rbac_isolation
+# Kiểm thử toàn diện Auth, Admin, SSE Streaming, Chống trùng lặp tệp raw và Xóa tri thức:
+python tests/test_vocab_auth_admin.py
+```
 
-# 2. Chạy toàn bộ các bài kiểm thử tự động:
-python -m unittest discover -s tests -p "test_*.py"
-
-# Hoặc chạy kiểm thử các module cốt lõi:
-python -m unittest tests.test_safety_gate tests.test_query_router tests.test_small_talk_handler tests.test_exception_handler tests.test_dictionary_db tests.test_oxford_pdf_loader tests.test_upsert_deduplication
+Kết quả mong đợi:
+```
+ALL ADMIN & MULTI-FILE UPLOAD TESTS PASSED!
 ```
 
 ---
 
 ## 5. XỬ LÝ SỰ CỐ THƯỜNG GẶP (TROUBLESHOOTING)
 
-### 1. Lỗi `No module named pip` hoặc xuất hiện thư mục lỗi `~ip`
-- **Nguyên nhân:** Lỗi kinh điển trên Windows khi chạy lệnh `python -m pip install --upgrade pip` (đặc biệt trong môi trường ảo `.venv`). Cơ chế khóa tệp (file locking) của Windows chặn tiến trình ghi đè tập tin đang chạy, pip tự đổi tên thư mục chính thành `~ip` để chuẩn bị thay thế nhưng bị ngắt quãng giữa chừng, làm mất module `pip`.
-- **Cách khắc phục:**
-  - **Nếu gặp trong thư mục `.venv`:** Xóa sạch thư mục `.venv` bị lỗi:
-    - CMD: `rmdir /s /q .venv`
-    - PowerShell: `Remove-Item -Recurse -Force .venv`  
-    Sau đó cài đặt trực tiếp vào Python máy: `pip install -r requirements.txt` (không cần và không nên tạo lại `.venv`).
-  - **Nếu gặp trên Python hệ thống của máy:** Truy cập thư mục `site-packages` (ví dụ `C:\Python311\Lib\site-packages`), tìm thư mục `~ip` và đổi tên lại thành `pip`, hoặc chạy lệnh khôi phục:
-    ```bash
-    python -m ensurepip --default-pip
-    ```
-
-### 2. Lỗi `ConnectionRefusedError: [WinError 10061]` khi gọi Ollama
-- **Nguyên nhân:** Dịch vụ Ollama chưa được khởi động trên máy tính.
-- **Cách khắc phục:** Mở một cửa sổ Terminal và gõ `ollama serve`, hoặc mở ứng dụng Ollama từ Start Menu.
-
-### 3. Lỗi hiển thị tiếng Việt trên Windows CMD
-- **Cách khắc phục:** Chuyển mã trang CMD sang UTF-8 trước khi chạy:
-  ```cmd
-  chcp 65001
+### 1. Lỗi `No module named pip` hoặc thư mục `~ip` trên Windows
+- **Nguyên nhân:** Chạy lệnh nâng cấp pip `python -m pip install --upgrade pip` bị khóa file trên Windows.
+- **Cách khắc phục:** Chạy lệnh khôi phục pip tích hợp:
+  ```bash
+  python -m ensurepip --default-pip
   ```
 
-### 4. Lỗi thiếu VRAM / Máy tính không có card đồ họa rời (GPU)
-- Hệ thống được cấu hình tự động nhận diện thiết bị (`device='cuda'` nếu có GPU NVIDIA, hoặc tự động fallback về `device='cpu'`).
-- Với máy tính chỉ có CPU, mô hình Qwen2.5:7B chạy thông qua RAM hệ thống mượt mà hoặc bạn có thể chuyển sang model `qwen2.5:3b`.
+### 2. Lỗi `ConnectionRefusedError: [WinError 10061]` khi gọi Ollama
+- **Nguyên nhân:** Dịch vụ Ollama chưa được bật trên máy tính.
+- **Cách khắc phục:** Mở ứng dụng Ollama từ Start Menu hoặc mở một cửa sổ Terminal và gõ:
+  ```bash
+  ollama serve
+  ```
+
+### 3. Lỗi `npm` hoặc `node` không được nhận diện (`command not found`)
+- **Nguyên nhân:** Chưa cài Node.js hoặc chưa thêm Node.js vào biến môi trường PATH.
+- **Cách khắc phục:** Tải và cài đặt Node.js LTS từ [nodejs.org](https://nodejs.org/), sau đó **tắt và mở lại cửa sổ Terminal** để hệ thống nhận PATH mới.
+
+### 4. Lỗi cổng 8000 bị chiếm dụng (`Port 8000 is already in use`)
+- Script `run_vocab_web.py` đã tích hợp sẵn tính năng tự động tìm và tắt tiến trình cũ chiếm cổng.
+- Nếu muốn giải phóng thủ công trên Windows PowerShell:
+  ```powershell
+  Get-Process -Id (Get-NetTCPConnection -LocalPort 8000).OwningProcess | Stop-Process -Force
+  ```
+
+### 5. Máy tính cấu hình yếu / Không có card GPU rời
+- Hệ thống được cấu hình tự động nhận diện phần cứng: nếu không có GPU NVIDIA, hệ thống sẽ tự động fallback về chạy trên CPU an toàn.
+- Bạn có thể chuyển sang sử dụng mô hình nhẹ hơn của Ollama:
+  ```bash
+  ollama pull qwen2.5:3b
+  ```
+  Sau đó chỉnh sửa tham số `OLLAMA_MODEL` trong `config/settings.py` hoặc file `.env` thành `qwen2.5:3b`.

@@ -58,49 +58,32 @@ flowchart TD
 
 ```text
 chatbox2.0/
-├── config/
-│   ├── __init__.py
-│   ├── exception_intent.json    # Quy tắc bắt ngoại lệ và small-talk sub-millisecond
-│   └── settings.py              # Cấu hình đường dẫn, mô hình, siêu tham số RRF và ngưỡng
+├── config/                      # Cấu hình đường dẫn, siêu tham số RRF, Ollama model, settings
 ├── data/
-│   ├── raw/                     # Tài liệu nguồn: Oxford 3000 PDF, Từ điển SQLite, Excel
-│   └── processed/               # qa_records.jsonl chuẩn hóa & sources_manifest.json
+│   ├── raw/                     # Tài liệu nguồn: Oxford 3000 PDF, Excel, dictionary_en_vi.db (SQLite)
+│   └── processed/               # qa_records.jsonl (8,300+ cặp Q&A) & sources_manifest.json
+├── vocab_backend/               # Web Backend FastAPI: Streaming SSE, REST API, Auth, Admin, Sổ tay
+├── vocab_frontend/              # Web Frontend React + Vite + Tailwind CSS (Chuẩn ChatGPT/Gemini)
+├── run_vocab_web.py             # Script 1-Click khởi chạy thống nhất Backend & Frontend (Cổng 8000)
+├── run_vocab_web.ps1            # PowerShell script khởi chạy siêu tốc trên Windows
 ├── assets/                      # Ảnh đại diện bot/user, flowchart kiến trúc RAG
-├── docs/                        # Tài liệu hướng dẫn chuyên sâu & Báo cáo Rubric
-│   ├── IMPLEMENTATION_REPORT.md # Báo cáo tổng kết hoàn thiện đồ án theo Rubric A-G
-│   ├── DEMO_AND_DEFENSE_GUIDE.md# Kịch bản Demo 10 bước & 12 câu hỏi bảo vệ (Viva Q&A)
-│   ├── CHATBOT_TEST_REPORT.md   # Báo cáo thực thi 15 ca kiểm thử Rubric (15/15 PASS)
-│   ├── RUBRIC_GAP_ANALYSIS.md   # Phân tích khoảng cách rubric & kế hoạch thực hiện
-│   └── huong_dan_nap_du_lieu_excel.md # Hướng dẫn nạp tri thức từ file Excel
+├── docs/                        # Báo cáo kỹ thuật, Rubric review, hướng dẫn nghiệp vụ
 ├── scripts/
 │   ├── create_admin.py          # Khởi tạo Quản trị viên (Admin) đầu tiên an toàn qua CLI
 │   ├── download_models.py       # Tải trước PhoBERT-base-v2 và BGE-M3 vào local cache
-│   ├── sync_oxford_knowledge.py # Đồng bộ từ vựng Oxford 3000 và tra cứu SQLite
-│   └── prune_dictionary_db.py   # Thu gọn dung lượng cơ sở dữ liệu từ điển SQLite
+│   └── sync_oxford_knowledge.py # Đồng bộ từ vựng Oxford 3000 và tra cứu SQLite
 ├── src/
 │   ├── auth/                    # Module xác thực & phân quyền (Bcrypt, Session, RBAC)
-│   │   ├── __init__.py
-│   │   ├── security.py          # Băm mật khẩu Bcrypt + salt, chính sách bảo mật
-│   │   └── service.py           # Nghiệp vụ đăng ký, đăng nhập, phân quyền backend
-│   ├── chat/                    # Topic Tracker & Engine điều phối pipeline
+│   ├── chat/                    # Topic Tracker & Engine điều phối pipeline RAG
 │   ├── core/                    # DTO Models & Exceptions
 │   ├── data/                    # Quản lý dữ liệu ứng dụng & nạp Knowledge Base
-│   │   ├── app_db.py            # SQLite database riêng cho tài khoản & hội thoại (app_data.db)
-│   │   ├── user_repository.py   # Quản lý tài khoản User & Admin (Parameterized SQL)
-│   │   ├── conversation_repository.py # Lưu trữ hội thoại & tin nhắn cách ly theo user_id
-│   │   ├── audit_repository.py  # Ghi nhận nhật ký kiểm toán hệ thống
-│   │   ├── batch_ingestion.py   # Quản lý nạp tri thức đa tệp
-│   │   └── loaders/             # Trích xuất dữ liệu đa định dạng (PDF, SQLite, Excel...)
 │   ├── llm/                     # LangChain LCEL & Ollama Client
 │   ├── nlp/                     # PhoBERT Query Understanding & Intent Classifier
 │   ├── retriever/               # BGE-M3 ChromaDB + BM25Okapi + RRF Fusion (k=60)
-│   └── ui/                      # Giao diện Streamlit phân quyền đa vai trò, Admin Dashboard
-├── tests/                       # Toàn bộ bài kiểm thử tự động (Unit & Integration Tests)
-├── HUONG_DAN_CAI_DAT_MAY_MOI.md # Hướng dẫn chi tiết thiết lập môi trường qua Terminal
-├── ingest_data.py               # Công cụ CLI nạp và cập nhật tri thức đa định dạng
+│   └── ui/                      # Giao diện Streamlit & Gradio truyền thống
+├── tests/                       # Toàn bộ bài kiểm thử tự động (Unit, Integration & E2E Tests)
+├── HUONG_DAN_CAI_DAT_MAY_MOI.md # Cẩm nang chi tiết thiết lập môi trường máy mới từ A-Z
 ├── requirements.txt             # Danh sách thư viện Python bắt buộc
-├── .env.example                 # Cấu hình biến môi trường mẫu
-├── .gitignore                   # Loại trừ file rác, venv, cache, dữ liệu tạm
 └── README.md                    # Tài liệu kỹ thuật dự án
 ```
 
@@ -108,66 +91,52 @@ chatbox2.0/
 
 ## 4. HƯỚNG DẪN CÀI ĐẶT & CHẠY DỰ ÁN TRÊN MÁY MỚI (QUICK START)
 
-> 📘 Xem hướng dẫn từng bước đầy đủ nhất tại: [HUONG_DAN_CAI_DAT_MAY_MOI.md](HUONG_DAN_CAI_DAT_MAY_MOI.md)
+> 📘 **Xem cẩm nang hướng dẫn từng bước đầy đủ nhất tại:** [HUONG_DAN_CAI_DAT_MAY_MOI.md](HUONG_DAN_CAI_DAT_MAY_MOI.md)
 
-### Bước 1: Tạo môi trường ảo & Cài đặt thư viện
+### Bước 1: Cài đặt thư viện Python & Frontend React
+
 ```bash
-# 1. Tạo môi trường ảo
-python -m venv .venv
-
-# 2. Kích hoạt môi trường ảo
-# Windows PowerShell:
-.\.venv\Scripts\Activate.ps1
-# Windows CMD:
-.venv\Scripts\activate.bat
-# Linux / macOS:
-source .venv/bin/activate
-
-# 3. Cài đặt các thư viện bắt buộc
-python -m pip install --upgrade pip
+# 1. Cài đặt toàn bộ thư viện Python bắt buộc:
 pip install -r requirements.txt
 
 # (Khuyên dùng cho máy có GPU NVIDIA) Tăng tốc độ nạp dữ liệu gấp 15-20x:
 pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+# 2. Cài đặt và build giao diện React:
+cd vocab_frontend
+npm install
+npm run build
+cd ..
 ```
 
-### Bước 2: Tải mô hình cục bộ & Cấu hình (Bắt buộc cho lần đầu)
-
-> [!IMPORTANT]
-> **Trạng thái bản Clone mới (Fresh Clone State):**  
-> Để giữ kích thước repository nhẹ, các trọng số mô hình lớn (`models/`) và cơ sở dữ liệu vector (`data/chroma_db/`) được loại trừ trong `.gitignore`.  
-> Hệ thống tuân thủ **Strict Offline Mode** (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`) — trong runtime, ứng dụng tuyệt đối **không tự ý kết nối Internet để tải ngầm mô hình**. Nếu thiếu mô hình, hệ thống sẽ trả về lỗi kèm câu lệnh hướng dẫn setup cụ thể.
+### Bước 2: Tải mô hình cục bộ & Cấu hình (100% Offline)
 
 ```bash
-# 1. Tạo file cấu hình môi trường .env
-copy .env.example .env    # Windows CMD/PowerShell (hoặc cp .env.example .env trên Linux/macOS)
-
-# 2. Tải trước mô hình PhoBERT-base-v2 và BGE-M3 vào local models cache (Bắt buộc chạy trước khi khởi động)
-python scripts/download_models.py
-
-# 3. Kéo mô hình Qwen2.5:7B qua Ollama
+# 1. Khởi động Ollama và tải mô hình Qwen2.5:7B:
 ollama pull qwen2.5:7b
 
-# 4. Khởi tạo / Đồng bộ chỉ mục Vector ChromaDB & BM25 lần đầu (từ 3,725 cặp Q&A có sẵn):
-python ingest_data.py --file "data/processed/qa_records.jsonl" --mode replace
+# 2. Tải trước mô hình PhoBERT-base-v2 và BGE-M3 vào local cache:
+python scripts/download_models.py
 
-# 5. Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên:
+# 3. Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên:
 python scripts/create_admin.py
 ```
 
-> [!TIP]
-> **Khởi tạo Admin đầu tiên (Bootstrap Admin):**  
-> Lệnh `python scripts/create_admin.py` yêu cầu nhập username và password an toàn qua terminal (không in mật khẩu ra màn hình). Mật khẩu được băm bằng Bcrypt với Salt ngẫu nhiên và lưu vào cơ sở dữ liệu `data/app_data.db`.
+### Bước 3: Khởi chạy ứng dụng Web (Chỉ 1 lệnh duy nhất)
 
----
+```bash
+python run_vocab_web.py
+```
 
-### Bước 3: Khởi chạy ứng dụng qua Terminal
+*(Hoặc trên Windows PowerShell: `.\run_vocab_web.ps1`)*
 
-- **Khởi chạy giao diện Web Streamlit (Khuyên dùng):**
-  ```bash
-  streamlit run src/ui/app.py --server.port 8501
-  ```
-  *(Truy cập: `http://localhost:8501`)*
+> 🌐 **Hệ thống sẽ tự động khởi động máy chủ và mở trình duyệt tại: `http://localhost:8000`**  
+> - Giao diện tra cứu từ vựng hiện đại, tối giản theo chuẩn ChatGPT/Gemini.
+> - Streaming SSE trực tiếp câu trả lời, phiên âm IPA, phát âm audio chuẩn, thẻ từ vựng tương tác.
+> - Sổ tay từ vựng & Flashcards lật thẻ thông minh.
+> - Cổng Quản trị hệ thống (VocabAdmin Portal) độc lập toàn màn hình.
+
+*(Tùy chọn khác: Chạy giao diện Streamlit qua lệnh `streamlit run src/ui/app.py --server.port 8501`)*
 
 - **Đăng nhập & Sử dụng:**
   - Khách chưa có tài khoản có thể chuyển sang tab **"📝 Đăng ký tài khoản"** để tự tạo tài khoản Người dùng (`user`).

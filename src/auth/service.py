@@ -372,11 +372,9 @@ class AuthService:
         if not target:
             return False, "Không tìm thấy tài khoản người dùng tương ứng."
 
-        # Bảo vệ: Không cho phép vô hiệu hóa Admin cuối cùng đang hoạt động
-        if not is_active and target.role == "admin" and target.is_active:
-            active_admins = self.user_repo.count_active_admins()
-            if active_admins <= 1:
-                return False, "Không thể vô hiệu hóa Quản trị viên cuối cùng của hệ thống."
+        # Bảo vệ: Tuyệt đối không cho phép vô hiệu hóa tài khoản Quản trị viên (Admin)
+        if not is_active and target.role == "admin":
+            return False, "Không thể vô hiệu hóa tài khoản Quản trị viên (Admin)."
 
         ok = self.user_repo.set_active_status(target_user_id, is_active)
         if ok:
@@ -481,10 +479,9 @@ class AuthService:
         if actor.id == target_user_id:
             return False, "Không thể tự xóa tài khoản quản trị bạn đang sử dụng."
 
-        # Bảo vệ 2: Không cho phép xóa admin cuối cùng
+        # Bảo vệ 2: Tuyệt đối không cho phép xóa tài khoản Quản trị viên (Admin)
         if target.role == "admin":
-            if self.user_repo.count_active_admins() <= 1:
-                return False, "Không thể xóa Quản trị viên cuối cùng của hệ thống."
+            return False, "Không thể xóa tài khoản Quản trị viên (Admin)."
 
         target_username = target.username
         ok = self.user_repo.delete_user(target_user_id)

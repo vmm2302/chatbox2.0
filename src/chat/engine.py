@@ -127,11 +127,13 @@ class ChatEngine:
         active_word: Optional[str] = None,
         candidate: Optional[RetrievalCandidate] = None,
         candidates: Optional[List[RetrievalCandidate]] = None,
+        tracker: Optional[TopicTracker] = None,
     ) -> ChatResponse:
         """Ghi nhận lượt hội thoại vào TopicTracker và đóng gói kết quả ChatResponse."""
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         matched_id = candidate.record.record_id if candidate else None
-        self.tracker.add_turn(
+        active_trk = tracker if tracker is not None else self.tracker
+        active_trk.add_turn(
             user_query=clean_query,
             resolved_query=resolved_query,
             intent=intent,
@@ -146,6 +148,7 @@ class ChatEngine:
             record_id=matched_id,
             word=candidate.record.word if candidate else None,
             source=candidate.record.source if candidate else None,
+            sheet=candidate.record.sheet if candidate else None,
             bm25_score=candidate.bm25_score if candidate else 0.0,
             bge_score=candidate.bge_score if candidate else 0.0,
             rrf_score=candidate.rrf_score if candidate else 0.0,
@@ -154,10 +157,11 @@ class ChatEngine:
             candidates=candidates if candidates is not None else [],
         )
 
-    def ask(self, query: str) -> ChatResponse:
-        """Xử lý câu hỏi người dùng ở chế độ đồng bộ."""
+    def ask(self, query: str, tracker: Optional[TopicTracker] = None) -> ChatResponse:
+        """Xử lý câu hỏi người dùng ở chế độ đồng bộ (hỗ trợ session tracker cô lập)."""
         start_time = time.perf_counter()
         clean_query, normalized_query = normalize_query_text(query)
+        active_tracker = tracker if tracker is not None else self.tracker
 
         if not clean_query:
             return ChatResponse(
@@ -179,7 +183,7 @@ class ChatEngine:
         self.warm_up()
 
         # Bước 1: Query Router điều phối 3 nhánh (Small Talk, Out of Scope, Vocab Query)
-        routing = self.query_router.route(normalized_query, self.tracker)
+        routing = self.query_router.route(normalized_query, active_tracker)
 
         # 1.1 NHÁNH SMALL TALK: Phản hồi xã giao không đưa vào Hybrid Retrieval
         if routing.route_type == "SMALL_TALK":
@@ -197,7 +201,8 @@ class ChatEngine:
                 answer=answer,
                 mode="SMALL_TALK",
                 start_time=start_time,
-                active_word=self.tracker.active_word,
+                active_word=active_tracker.active_word,
+                tracker=active_tracker,
             )
 
         # 1.2 Kiểm tra Knowledge Base rỗng (Empty Knowledge Base Gate)
@@ -211,6 +216,7 @@ class ChatEngine:
                 mode="NO_MATCH",
                 start_time=start_time,
                 active_word=None,
+                tracker=active_tracker,
             )
 
         # 1.3 NHÁNH OUT OF SCOPE: Từ chối câu hỏi ngoài phạm vi không đưa vào Hybrid Retrieval
@@ -223,12 +229,13 @@ class ChatEngine:
                 answer=answer,
                 mode="NO_MATCH",
                 start_time=start_time,
-                active_word=self.tracker.active_word,
+                active_word=active_tracker.active_word,
+                tracker=active_tracker,
             )
 
         # 1.4 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
         # Bước 2: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
-        resolved_query, target_word, is_follow_up, is_ambiguous = self.tracker.resolve_query(clean_query)
+        resolved_query, target_word, is_follow_up, is_ambiguous = active_tracker.resolve_query(clean_query)
 
         # Bước 2: Xử lý trạng thái MƠ HỒ (Thiếu từ vựng và chưa có active_word)
         if is_ambiguous:
@@ -240,14 +247,15 @@ class ChatEngine:
                 mode="CLARIFICATION",
                 start_time=start_time,
                 active_word=None,
+                tracker=active_tracker,
             )
 
         # Bước 3: Phân loại ý định qua PhoBERT
-        has_active_topic = bool(self.tracker.active_word)
+        has_active_topic = bool(active_tracker.active_word)
         intent_res = self.intent_classifier.classify_intent(
             resolved_query,
             has_active_topic=has_active_topic,
-            tracker=self.tracker
+            tracker=active_tracker
         )
 
         # Nếu PhoBERT phát hiện mơ hồ
@@ -260,11 +268,12 @@ class ChatEngine:
                 mode="CLARIFICATION",
                 start_time=start_time,
                 active_word=None,
+                tracker=active_tracker,
             )
 
         # Nếu câu hỏi hoàn toàn ngoài phạm vi (OUT_OF_SCOPE) và không có từ tiếng Anh nào được phát hiện
-        if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not self.tracker.active_word:
-            if not any(token.lower().strip("?,.!") in self.tracker.vocab_words for token in clean_query.split()):
+        if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not active_tracker.active_word:
+            if not any(token.lower().strip("?,.!") in active_tracker.vocab_words for token in clean_query.split()):
                 return self._create_and_log_response(
                     clean_query=clean_query,
                     resolved_query=resolved_query,
@@ -273,6 +282,7 @@ class ChatEngine:
                     mode="NO_MATCH",
                     start_time=start_time,
                     active_word=None,
+                    tracker=active_tracker,
                 )
 
         # Bước 4: Truy xuất Hybrid dưới khóa đọc IndexAccessCoordinator
@@ -301,13 +311,14 @@ class ChatEngine:
                 answer=settings.OUT_OF_SCOPE_RESPONSE,
                 mode="NO_MATCH",
                 start_time=start_time,
-                active_word=self.tracker.active_word,
+                active_word=active_tracker.active_word,
                 candidates=candidates,
+                tracker=active_tracker,
             )
 
         # Cập nhật thực thể đang nói đến nếu tìm được ứng viên phù hợp
         if best_candidate.record.word:
-            self.tracker.active_word = best_candidate.record.word.strip().lower()
+            active_tracker.active_word = best_candidate.record.word.strip().lower()
 
         # Bước 6: Xử lý theo Response Mode
         query_word = best_candidate.record.word if (best_candidate and best_candidate.record.word) else target_word
@@ -322,9 +333,10 @@ class ChatEngine:
                 answer=answer,
                 mode="DIRECT_MATCH",
                 start_time=start_time,
-                active_word=self.tracker.active_word,
+                active_word=active_tracker.active_word,
                 candidate=best_candidate,
                 candidates=candidates,
+                tracker=active_tracker,
             )
 
         # 6.2 Tổng hợp và diễn đạt qua LLM (RAG_GENERATION) hoàn toàn NGOÀI khóa dữ liệu
@@ -350,19 +362,22 @@ class ChatEngine:
             answer=formatted_answer,
             mode="RAG_GENERATION",
             start_time=start_time,
-            active_word=self.tracker.active_word,
+            active_word=active_tracker.active_word,
             candidate=best_candidate,
             candidates=candidates,
+            tracker=active_tracker,
         )
 
 
     def ask_stream(
         self,
-        query: str
+        query: str,
+        tracker: Optional[TopicTracker] = None,
     ) -> Generator[Tuple[str, Optional[ChatResponse]], None, None]:
-        """Xử lý câu hỏi người dùng theo dạng stream token phục vụ UI."""
+        """Xử lý câu hỏi người dùng theo dạng stream token phục vụ UI (hỗ trợ session tracker cô lập)."""
         start_time = time.perf_counter()
         clean_query, normalized_query = normalize_query_text(query)
+        active_tracker = tracker if tracker is not None else self.tracker
 
         if not clean_query:
             resp = ChatResponse(
@@ -388,7 +403,7 @@ class ChatEngine:
         self.warm_up()
 
         # Bước 1: Query Router điều phối 3 nhánh (Small Talk, Out of Scope, Vocab Query)
-        routing = self.query_router.route(normalized_query, self.tracker)
+        routing = self.query_router.route(normalized_query, active_tracker)
 
         # 1.1 NHÁNH SMALL TALK: Phản hồi xã giao không đưa vào Hybrid Retrieval
         if routing.route_type == "SMALL_TALK":
@@ -406,7 +421,8 @@ class ChatEngine:
                 answer=answer,
                 mode="SMALL_TALK",
                 start_time=start_time,
-                active_word=self.tracker.active_word,
+                active_word=active_tracker.active_word,
+                tracker=active_tracker,
             )
             yield resp.answer, resp
             return
@@ -422,6 +438,7 @@ class ChatEngine:
                 mode="NO_MATCH",
                 start_time=start_time,
                 active_word=None,
+                tracker=active_tracker,
             )
             yield resp.answer, resp
             return
@@ -436,14 +453,15 @@ class ChatEngine:
                 answer=answer,
                 mode="NO_MATCH",
                 start_time=start_time,
-                active_word=self.tracker.active_word,
+                active_word=active_tracker.active_word,
+                tracker=active_tracker,
             )
             yield resp.answer, resp
             return
 
         # 1.4 NHÁNH VOCAB QUERY: Thực hiện tuần tự Sequential Pipeline
         # Bước 2: Quản lý ngữ cảnh và phân giải thực thể qua TopicTracker
-        resolved_query, target_word, is_follow_up, is_ambiguous = self.tracker.resolve_query(clean_query)
+        resolved_query, target_word, is_follow_up, is_ambiguous = active_tracker.resolve_query(clean_query)
 
         # Bước 2: Kiểm tra MƠ HỒ
         if is_ambiguous:
@@ -455,6 +473,7 @@ class ChatEngine:
                 mode="CLARIFICATION",
                 start_time=start_time,
                 active_word=None,
+                tracker=active_tracker,
             )
             yield resp.answer, resp
             return
@@ -462,8 +481,8 @@ class ChatEngine:
         # Bước 3: Phân loại ý định
         intent_res = self.intent_classifier.classify_intent(
             resolved_query,
-            has_active_topic=bool(self.tracker.active_word),
-            tracker=self.tracker
+            has_active_topic=bool(active_tracker.active_word),
+            tracker=active_tracker
         )
 
         if intent_res.is_ambiguous:
@@ -475,12 +494,13 @@ class ChatEngine:
                 mode="CLARIFICATION",
                 start_time=start_time,
                 active_word=None,
+                tracker=active_tracker,
             )
             yield resp.answer, resp
             return
 
-        if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not self.tracker.active_word:
-            if not any(token.lower().strip("?,.!") in self.tracker.vocab_words for token in clean_query.split()):
+        if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not active_tracker.active_word:
+            if not any(token.lower().strip("?,.!") in active_tracker.vocab_words for token in clean_query.split()):
                 resp = self._create_and_log_response(
                     clean_query=clean_query,
                     resolved_query=resolved_query,
@@ -489,6 +509,7 @@ class ChatEngine:
                     mode="NO_MATCH",
                     start_time=start_time,
                     active_word=None,
+                    tracker=active_tracker,
                 )
                 yield resp.answer, resp
                 return
@@ -519,14 +540,15 @@ class ChatEngine:
                 answer=settings.OUT_OF_SCOPE_RESPONSE,
                 mode="NO_MATCH",
                 start_time=start_time,
-                active_word=self.tracker.active_word,
+                active_word=active_tracker.active_word,
                 candidates=candidates,
+                tracker=active_tracker,
             )
             yield resp.answer, resp
             return
 
         if best_candidate.record.word:
-            self.tracker.active_word = best_candidate.record.word.strip().lower()
+            active_tracker.active_word = best_candidate.record.word.strip().lower()
 
         query_word = best_candidate.record.word if (best_candidate and best_candidate.record.word) else target_word
 
@@ -540,9 +562,10 @@ class ChatEngine:
                 answer=answer,
                 mode="DIRECT_MATCH",
                 start_time=start_time,
-                active_word=self.tracker.active_word,
+                active_word=active_tracker.active_word,
                 candidate=best_candidate,
                 candidates=candidates,
+                tracker=active_tracker,
             )
             yield resp.answer, resp
             return
@@ -581,9 +604,10 @@ class ChatEngine:
             answer=formatted_final,
             mode="RAG_GENERATION",
             start_time=start_time,
-            active_word=self.tracker.active_word,
+            active_word=active_tracker.active_word,
             candidate=best_candidate,
             candidates=candidates,
+            tracker=active_tracker,
         )
         yield "", final_resp
 
@@ -598,11 +622,12 @@ import threading
 _shared_engine_lock = threading.Lock()
 _shared_engine_instance: Optional[ChatEngine] = None
 _shared_engine_future: Optional[concurrent.futures.Future] = None
+_shared_warmup_error: Optional[str] = None
 _shared_warmup_started: bool = False
 
 
 def start_engine_warmup() -> None:
-    """Kích hoạt tác vụ nạp và làm nóng ChatEngine dưới luồng nền (idempotent)."""
+    """Kích hoạt tác vụ nạp và làm nóng ChatEngine dưới luồng nền (idempotent, cùng tiến trình)."""
     global _shared_warmup_started, _shared_engine_future
     with _shared_engine_lock:
         if _shared_warmup_started or _shared_engine_instance is not None:
@@ -612,7 +637,7 @@ def start_engine_warmup() -> None:
         _shared_engine_future = fut
 
     def _worker():
-        global _shared_engine_instance
+        global _shared_engine_instance, _shared_warmup_error
         try:
             t0 = time.perf_counter()
             logger.info("[WARMUP] Bắt đầu khởi tạo ChatEngine trong tiến trình nền...")
@@ -623,45 +648,101 @@ def start_engine_warmup() -> None:
             fut.set_result(eng)
             logger.info("[WARMUP] ChatEngine đã sẵn sàng sau %.3f giây.", time.perf_counter() - t0)
         except Exception as exc:
+            err_msg = str(exc)
             logger.error("[WARMUP] Lỗi khi nạp ChatEngine dưới nền: %s", exc, exc_info=True)
+            with _shared_engine_lock:
+                _shared_warmup_error = err_msg
             fut.set_exception(exc)
 
     t = threading.Thread(target=_worker, name="chatbox-engine-warmup", daemon=True)
     t.start()
 
 
-def is_engine_ready() -> bool:
-    """Kiểm tra ChatEngine đã sẵn sàng phục vụ chưa."""
+def get_engine_state() -> Tuple[str, Optional[str]]:
+    """Trả về trạng thái hiện tại của ChatEngine và thông báo lỗi (nếu có).
+
+    Returns:
+        (state, error):
+        - ("READY", None): Động cơ AI đã sẵn sàng phục vụ.
+        - ("ERROR", error_msg): Khởi tạo gặp lỗi, không thể phục vụ.
+        - ("WARMING_UP", None): Đang nạp mô hình dưới luồng nền.
+        - ("NOT_STARTED", None): Chưa kích hoạt khởi tạo.
+    """
+    global _shared_engine_instance, _shared_engine_future, _shared_warmup_error, _shared_warmup_started
     with _shared_engine_lock:
         if _shared_engine_instance is not None:
-            return True
-        if _shared_engine_future is not None and _shared_engine_future.done():
-            return _shared_engine_future.exception() is None
-    return False
+            return "READY", None
+        if _shared_warmup_error is not None:
+            return "ERROR", _shared_warmup_error
+        fut = _shared_engine_future
+
+    if fut is not None:
+        if fut.done():
+            exc = fut.exception()
+            if exc is not None:
+                err_msg = str(exc)
+                with _shared_engine_lock:
+                    _shared_warmup_error = err_msg
+                return "ERROR", err_msg
+            return "READY", None
+        return "WARMING_UP", None
+
+    if _shared_warmup_started:
+        return "WARMING_UP", None
+
+    return "NOT_STARTED", None
 
 
-def get_shared_chat_engine() -> ChatEngine:
-    """Trả về singleton ChatEngine dùng chung, đồng bộ an toàn qua Future/Lock."""
-    global _shared_engine_instance, _shared_engine_future
+def is_engine_ready() -> bool:
+    """Kiểm tra ChatEngine đã hoàn tất khởi tạo và sẵn sàng phục vụ chưa."""
+    state, _ = get_engine_state()
+    return state == "READY"
+
+
+def get_shared_chat_engine(timeout: Optional[float] = None) -> ChatEngine:
+    """Trả về singleton ChatEngine dùng chung, đồng bộ an toàn qua Future/Lock.
+
+    - Nếu đã sẵn sàng: Trả về ngay lập tức (O(1)).
+    - Nếu đang nạp nền: Chờ tối đa `timeout` giây (nếu truyền).
+    - Nếu gặp lỗi: Ném ngoại lệ rõ ràng, tuyệt đối không lặp lại vô hạn.
+    - Nếu chưa warm-up: Khởi tạo một lần an toàn trong lock.
+    """
+    global _shared_engine_instance, _shared_engine_future, _shared_warmup_error
     with _shared_engine_lock:
         if _shared_engine_instance is not None:
             return _shared_engine_instance
+        if _shared_warmup_error is not None:
+            raise RuntimeError(f"ChatEngine khởi tạo thất bại: {_shared_warmup_error}")
         fut = _shared_engine_future
 
     if fut is not None:
         try:
-            eng = fut.result()
+            eng = fut.result(timeout=timeout)
             with _shared_engine_lock:
                 _shared_engine_instance = eng
             return eng
+        except concurrent.futures.TimeoutError as to_err:
+            raise TimeoutError("ChatEngine đang khởi tạo dưới nền, chưa hoàn tất.") from to_err
         except Exception as exc:
-            logger.error("[WARMUP] Nạp nền thất bại, chuyển sang nạp trực tiếp: %s", exc)
+            with _shared_engine_lock:
+                _shared_warmup_error = str(exc)
+            logger.error("[WARMUP] Nạp nền thất bại: %s", exc)
+            raise RuntimeError(f"ChatEngine khởi tạo thất bại: {exc}") from exc
 
-    # Nạp trực tiếp nếu chưa có warmup nền hoặc warmup gặp lỗi
-    t0 = time.perf_counter()
-    eng = ChatEngine()
-    eng.warm_up()
+    # Khởi tạo trực tiếp nếu chưa có warmup nền
     with _shared_engine_lock:
-        _shared_engine_instance = eng
-    logger.info("[WARMUP] ChatEngine đã khởi tạo trực tiếp sau %.3f giây.", time.perf_counter() - t0)
-    return eng
+        if _shared_engine_instance is not None:
+            return _shared_engine_instance
+        if _shared_warmup_error is not None:
+            raise RuntimeError(f"ChatEngine khởi tạo thất bại: {_shared_warmup_error}")
+        try:
+            t0 = time.perf_counter()
+            logger.info("[WARMUP] Khởi tạo ChatEngine trực tiếp...")
+            eng = ChatEngine()
+            eng.warm_up()
+            _shared_engine_instance = eng
+            logger.info("[WARMUP] ChatEngine đã khởi tạo trực tiếp sau %.3f giây.", time.perf_counter() - t0)
+            return eng
+        except Exception as exc:
+            _shared_warmup_error = str(exc)
+            raise RuntimeError(f"ChatEngine khởi tạo thất bại: {exc}") from exc

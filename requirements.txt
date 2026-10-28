@@ -3,7 +3,11 @@
 # Danh sách thư viện bắt buộc để cài đặt và chạy ứng dụng trên máy mới
 # ==============================================================================
 
-# Giao diện người dùng Web (User Interfaces)
+# Giao diện người dùng Web & FastAPI Backend (User Interfaces & Web APIs)
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-multipart>=0.0.6
+httpx>=0.24.0
 streamlit>=1.30.0
 gradio>=4.0.0
 

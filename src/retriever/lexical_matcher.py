@@ -58,18 +58,35 @@ class LexicalMatcher:
 
     def _rebuild_maps(self) -> None:
         """Xây dựng lại các bản đồ ánh xạ phục vụ so khớp nhanh."""
-        # Ánh xạ câu hỏi gốc viết thường -> QARecord (ưu tiên bản ghi từ điển chuẩn xuất hiện trước)
+        def _source_priority(rec: QARecord) -> int:
+            """Đánh giá độ ưu tiên của bản ghi: ưu tiên nguồn từ điển URL/Excel chi tiết."""
+            s = (rec.source or "").strip()
+            score = 0
+            if s.startswith("http://") or s.startswith("https://"):
+                score += 100  # Nguồn liên kết từ điển trực tiếp từ cột Nguồn Excel
+            elif "cambridge" in s.lower() or "oxford" in s.lower():
+                score += 50
+            if rec.sheet and rec.sheet.lower() not in ("csv_data", ""):
+                score += 10   # Bản ghi có sheet từ bảng tính Excel
+            return score
+
+        # Ánh xạ câu hỏi gốc viết thường -> QARecord (ưu tiên bản ghi có nguồn chi tiết)
         self.exact_map: Dict[str, QARecord] = {}
         for r in self.records:
             q_clean = r.question.strip().lower()
             if q_clean not in self.exact_map:
                 self.exact_map[q_clean] = r
+            elif _source_priority(r) > _source_priority(self.exact_map[q_clean]):
+                self.exact_map[q_clean] = r
 
         # Ánh xạ câu hỏi đã chuẩn hóa (bỏ dấu tiếng Việt) -> QARecord
         self.normalized_map: Dict[str, QARecord] = {}
         for r in self.records:
-            if r.normalized_question and r.normalized_question not in self.normalized_map:
-                self.normalized_map[r.normalized_question] = r
+            if r.normalized_question:
+                if r.normalized_question not in self.normalized_map:
+                    self.normalized_map[r.normalized_question] = r
+                elif _source_priority(r) > _source_priority(self.normalized_map[r.normalized_question]):
+                    self.normalized_map[r.normalized_question] = r
 
         # Chỉ mục từ tiếng Anh trong sheet danhsachtutienganhA1-B2 hoặc bản ghi từ vựng
         self.vocab_en_map: Dict[str, QARecord] = {}
@@ -79,11 +96,11 @@ class LexicalMatcher:
                 m = re.match(r"^([a-zA-Z0-9_\s,\-]+)\s+nghĩa là gì", r.question, re.IGNORECASE)
                 if m:
                     word = m.group(1).strip().lower()
-                    if word not in self.vocab_en_map:
+                    if word not in self.vocab_en_map or _source_priority(r) > _source_priority(self.vocab_en_map[word]):
                         self.vocab_en_map[word] = r
             if r.word and r.word.lower() not in ("list", ""):
                 w = r.word.strip().lower()
-                if w not in self.vocab_en_map:
+                if w not in self.vocab_en_map or _source_priority(r) > _source_priority(self.vocab_en_map[w]):
                     self.vocab_en_map[w] = r
 
     @staticmethod

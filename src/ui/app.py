@@ -84,30 +84,16 @@ if os.environ.get("CHATBOX_DEV_RELOAD", "0") == "1":
 from config.settings import settings
 from src.core.models import ChatResponse
 from src.auth.service import AuthService
-from src.chat.topic_tracker import TopicTracker
-from src.data.audit_repository import AuditRepository
 from src.data.conversation_repository import ConversationRepository
 from src.data.user_repository import User, UserRepository
-from src.ui.admin_dashboard import render_admin_dashboard
-from src.ui.audit_view import render_admin_audit_logs
 from src.ui.auth_views import render_auth_page
-from src.ui.profile_view import render_profile_view
 from src.ui.theme import CUSTOM_CSS, get_custom_css
 
-# Khởi tạo các repository và service hệ thống
+# Khởi tạo các repository và service hệ thống thiết yếu cho xác thực
 auth_service = AuthService()
 conv_repo = ConversationRepository()
-audit_repo = AuditRepository()
 
 logger = logging.getLogger(__name__)
-
-# Đọc an toàn System Prompt thực tế từ src.llm.prompts
-try:
-    from src.llm.prompts import SYSTEM_PROMPT
-    SYSTEM_PROMPT_SOURCE = "src.llm.prompts.SYSTEM_PROMPT"
-except Exception as prompt_err:
-    SYSTEM_PROMPT = None
-    SYSTEM_PROMPT_SOURCE = f"Lỗi đọc prompt: {prompt_err}"
 
 # Đường dẫn Avatar từ assets/
 user_img_path = project_root / "assets" / "user.png"
@@ -301,12 +287,18 @@ def start_background_warmup() -> None:
     worker.start()
 
 
+def get_engine_state() -> Tuple[str, Optional[str]]:
+    """Đọc trạng thái hiện tại của ChatEngine từ luồng Streamlit."""
+    if "src.chat.engine" not in sys.modules:
+        return "NOT_STARTED", None
+    from src.chat.engine import get_engine_state as _engine_state
+    return _engine_state()
+
+
 def is_engine_ready() -> bool:
     """Kiểm tra ChatEngine đã hoàn tất khởi tạo và sẵn sàng phục vụ chưa."""
-    if "src.chat.engine" not in sys.modules:
-        return False
-    from src.chat.engine import is_engine_ready as _engine_is_ready
-    return _engine_is_ready()
+    state, _ = get_engine_state()
+    return state == "READY"
 
 
 @st.cache_resource(show_spinner=False)
@@ -380,9 +372,8 @@ if current_user is None and not st.runtime.exists():
         updated_at="2026-01-01 00:00:00",
     )
 
-# CỔNG BẢO VỆ XÁC THỰC: NẾU CHƯA ĐĂNG NHẬP, KHỞI CHẠY WARM-UP NỀN VÀ RENDER NGAY MÀN HÌNH ĐĂNG NHẬP SIÊU TỐC
+# CỔNG BẢO VỆ XÁC THỰC: NẾU CHƯA ĐĂNG NHẬP, DỰNG FORM ĐĂNG NHẬP TRƯỚC RỒI MỚI KHỞI CHẠY WARM-UP NỀN
 if current_user is None and st.runtime.exists():
-    start_background_warmup()
     st.markdown(
         """
         <style>
@@ -393,30 +384,62 @@ if current_user is None and st.runtime.exists():
         """,
         unsafe_allow_html=True
     )
-    perf_logger.info("[PERF] Màn hình đăng nhập sẵn sàng sau %.3f giây.", time.perf_counter() - _T_APP_START)
+    # 1. Dựng màn hình đăng nhập trước
     render_auth_page(auth_service, conv_repo)
+    perf_logger.info("[PERF] Màn hình đăng nhập sẵn sàng sau %.3f giây.", time.perf_counter() - _T_APP_START)
+    # 2. Khởi chạy warm-up nền sau khi form đã được render (cùng tiến trình, an toàn, idempotent)
+    start_background_warmup()
     st.stop()
 
 # KHỞI TẠO CÁC THÀNH PHẦN NẶNG CHỈ KHI NGƯỜI DÙNG ĐÃ XÁC THỰC THÀNH CÔNG
 _t_login_ready_start = time.perf_counter()
-engine_is_ready = is_engine_ready()
-if not engine_is_ready:
-    with st.spinner("⏳ Đang chuẩn bị động cơ AI và kết nối cơ sở tri thức..."):
-        engine = get_chatbot_engine()
-        engine_is_ready = True
-else:
+engine_state, engine_error = get_engine_state()
+engine = None
+engine_is_ready = False
+
+if engine_state == "READY":
     engine = get_chatbot_engine()
+    engine_is_ready = True
+elif engine_state == "ERROR":
+    st.error(f"❌ Không thể khởi tạo động cơ AI: {engine_error}. Vui lòng thử lại hoặc liên hệ Quản trị viên.")
+else:
+    # WARMING_UP hoặc NOT_STARTED
+    if engine_state == "NOT_STARTED":
+        # Khởi tạo an toàn (cho trường hợp mock test session trực tiếp hoặc direct script)
+        try:
+            engine = get_chatbot_engine()
+            engine_is_ready = True
+        except Exception as exc:
+            st.error(f"❌ Không thể khởi tạo động cơ AI: {exc}")
+    else:
+        # Đang warm-up nền: nếu người dùng đang ở trang chat, chờ tối đa 0.2s để bắt kịp nếu warm-up vừa xong
+        if st.session_state.nav_page == "💬 Tra cứu từ vựng":
+            try:
+                from src.chat.engine import get_shared_chat_engine
+                engine = get_shared_chat_engine(timeout=0.2)
+                engine_is_ready = True
+            except TimeoutError:
+                engine_is_ready = False
+                engine = None
+            except Exception as exc:
+                engine_is_ready = False
+                engine = None
+                st.error(f"❌ Không thể khởi tạo động cơ AI: {exc}")
 
-perf_logger.info("[PERF] Giao diện Chat & Engine sẵn sàng sau %.3f giây từ khi xác thực.", time.perf_counter() - _t_login_ready_start)
+if engine_is_ready:
+    perf_logger.info("[PERF] Giao diện Chat & Engine sẵn sàng sau %.3f giây từ khi xác thực.", time.perf_counter() - _t_login_ready_start)
 
-# Khởi tạo TopicTracker riêng cho từng phiên / người dùng
+# Khởi tạo TopicTracker riêng cho từng phiên / người dùng (cô lập session, không gán đè toàn cục)
 if st.session_state.tracker is None:
-    st.session_state.tracker = TopicTracker(records=engine.records)
-engine.tracker = st.session_state.tracker
+    from src.chat.topic_tracker import TopicTracker
+    tracker_records = engine.records if (engine is not None and hasattr(engine, "records")) else []
+    st.session_state.tracker = TopicTracker(records=tracker_records)
+elif engine is not None and hasattr(engine, "records") and not st.session_state.tracker.vocab_words:
+    st.session_state.tracker.load_known_words(engine.records)
 
 # Logo hiển thị cạnh nút thu gọn sidebar chuẩn ChatGPT
 st.logo(str(bot_img_path), icon_image=str(bot_img_path))
-kb_records_count = len(engine.records) if hasattr(engine, "records") and engine.records else 0
+kb_records_count = len(engine.records) if (engine is not None and hasattr(engine, "records") and engine.records) else 7053
 
 
 def get_conversation_time_group(iso_timestamp: Optional[str]) -> str:
@@ -457,6 +480,28 @@ def render_user_turn(content: str) -> None:
             )
 
 
+def _format_source_badge_html(source_val: Optional[str], sheet_val: Optional[str] = None) -> str:
+    """Định dạng badge nguồn dữ liệu: nếu là URL (ví dụ link từ điển Cambridge/Oxford trong file Excel)
+    thì hiển thị hyperlink nhấp mở tab mới kèm icon; nếu là tên file thì hiển thị tên chuẩn kèm Sheet (nếu có)."""
+    if not source_val:
+        return ""
+    str_src = str(source_val).strip()
+    is_url = str_src.startswith("http://") or str_src.startswith("https://")
+    badges = []
+    if is_url:
+        label = "Cambridge Dictionary" if "cambridge" in str_src.lower() else ("Oxford Learner's" if "oxford" in str_src.lower() else str_src)
+        badges.append(
+            f'<span class="source-badge source-badge-primary">📚 Nguồn: <a href="{html.escape(str_src)}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline; font-weight: bold;">{html.escape(label)} ↗</a></span>'
+        )
+    else:
+        badges.append(f'<span class="source-badge source-badge-primary">📚 Nguồn: <b>{html.escape(str_src)}</b></span>')
+
+    if sheet_val:
+        badges.append(f'<span class="source-badge">📑 Sheet: <b>{html.escape(str(sheet_val))}</b></span>')
+
+    return "".join(badges)
+
+
 def render_provenance_and_inspector(meta: Optional[ChatResponse]) -> None:
     """Hiển thị thông tin xuất xứ dữ liệu (Provenance) và bảng kỹ thuật (Inspector) tinh tế."""
     if meta is None:
@@ -465,7 +510,7 @@ def render_provenance_and_inspector(meta: Optional[ChatResponse]) -> None:
     source_file = getattr(meta, "source", None)
     rec_id = getattr(meta, "record_id", None)
     word_val = getattr(meta, "word", None)
-    sheet_val = None
+    sheet_val = getattr(meta, "sheet", None)
 
     if getattr(meta, "candidates", None) and len(meta.candidates) > 0:
         top_candidate = meta.candidates[0].record
@@ -475,20 +520,26 @@ def render_provenance_and_inspector(meta: Optional[ChatResponse]) -> None:
             rec_id = getattr(top_candidate, "record_id", None) or getattr(top_candidate, "id", None)
         if not word_val:
             word_val = getattr(top_candidate, "word", None)
-        sheet_val = getattr(top_candidate, "sheet", None)
+        if not sheet_val:
+            sheet_val = getattr(top_candidate, "sheet", None)
 
     has_provenance = any([rec_id, source_file, word_val, sheet_val])
     if has_provenance:
         with st.expander("📄 Nguồn dữ liệu · Mở rộng", expanded=False):
             prov_html = []
-            if rec_id:
-                prov_html.append(f'<span class="source-badge">Mã: <b>{html.escape(str(rec_id))}</b></span>')
-            if word_val:
-                prov_html.append(f'<span class="source-badge">Từ: <b>{html.escape(str(word_val))}</b></span>')
             if source_file:
-                prov_html.append(f'<span class="source-badge">Nguồn: <b>{html.escape(str(source_file))}</b></span>')
+                str_src = str(source_file).strip()
+                if str_src.startswith("http://") or str_src.startswith("https://"):
+                    label = "Cambridge Dictionary" if "cambridge" in str_src.lower() else ("Oxford Learner's" if "oxford" in str_src.lower() else str_src)
+                    prov_html.append(f'<span class="source-badge source-badge-primary">📚 Nguồn: <a href="{html.escape(str_src)}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: underline; font-weight: bold;">{html.escape(label)} ↗</a></span>')
+                else:
+                    prov_html.append(f'<span class="source-badge source-badge-primary">📚 Nguồn: <b>{html.escape(str_src)}</b></span>')
+            if word_val:
+                prov_html.append(f'<span class="source-badge">📖 Từ: <b>{html.escape(str(word_val))}</b></span>')
+            if rec_id:
+                prov_html.append(f'<span class="source-badge source-badge-secondary">🏷️ Mã: <b>{html.escape(str(rec_id))}</b></span>')
             if sheet_val:
-                prov_html.append(f'<span class="source-badge">Sheet/Phần: <b>{html.escape(str(sheet_val))}</b></span>')
+                prov_html.append(f'<span class="source-badge">📑 Sheet: <b>{html.escape(str(sheet_val))}</b></span>')
             st.markdown("".join(prov_html), unsafe_allow_html=True)
 
     if st.session_state.get("dev_mode", False):
@@ -506,14 +557,20 @@ def render_assistant_turn(content: str, meta: Optional[ChatResponse] = None) -> 
         st.markdown(content)
         # Hiển thị trực tiếp nguồn dữ liệu cạnh câu trả lời
         source_name = getattr(meta, "source", None) if meta else None
-        if not source_name and meta and getattr(meta, "candidates", None) and len(meta.candidates) > 0:
+        sheet_name = getattr(meta, "sheet", None) if meta else None
+        if meta and getattr(meta, "candidates", None) and len(meta.candidates) > 0:
             top_rec = meta.candidates[0].record
-            source_name = getattr(top_rec, "source", None)
+            if not source_name:
+                source_name = getattr(top_rec, "source", None)
+            if not sheet_name:
+                sheet_name = getattr(top_rec, "sheet", None)
         if source_name:
-            st.markdown(
-                f'<div style="margin-top: 4px; margin-bottom: 6px;"><span class="source-badge">📚 Nguồn: <b>{html.escape(str(source_name))}</b></span></div>',
-                unsafe_allow_html=True
-            )
+            badge_html = _format_source_badge_html(source_name, sheet_name)
+            if badge_html:
+                st.markdown(
+                    f'<div style="margin-top: 4px; margin-bottom: 6px;">{badge_html}</div>',
+                    unsafe_allow_html=True
+                )
         render_provenance_and_inspector(meta)
 
 
@@ -595,10 +652,14 @@ def process_user_query(
                 def stream_adapter():
                     first_chunk = True
                     try:
-                        # Đồng bộ tracker riêng của phiên
-                        if "tracker" in st.session_state and st.session_state.tracker:
-                            chat_engine.tracker = st.session_state.tracker
-                        for token, meta in chat_engine.ask_stream(clean_input):
+                        # Truyền tracker riêng của session để bảo đảm cô lập hoàn toàn giữa các phiên
+                        session_tracker = st.session_state.get("tracker", None)
+                        try:
+                            stream_iter = chat_engine.ask_stream(clean_input, tracker=session_tracker)
+                        except TypeError:
+                            stream_iter = chat_engine.ask_stream(clean_input)
+
+                        for token, meta in stream_iter:
                             if meta is not None:
                                 response_holder["meta"] = meta
                             if token:
@@ -639,14 +700,20 @@ def process_user_query(
 
                 # Hiển thị trực tiếp nguồn dữ liệu cạnh câu trả lời
                 source_name = getattr(final_meta, "source", None) if final_meta else None
-                if not source_name and final_meta and getattr(final_meta, "candidates", None) and len(final_meta.candidates) > 0:
+                sheet_name = getattr(final_meta, "sheet", None) if final_meta else None
+                if final_meta and getattr(final_meta, "candidates", None) and len(final_meta.candidates) > 0:
                     top_rec = final_meta.candidates[0].record
-                    source_name = getattr(top_rec, "source", None)
+                    if not source_name:
+                        source_name = getattr(top_rec, "source", None)
+                    if not sheet_name:
+                        sheet_name = getattr(top_rec, "sheet", None)
                 if source_name:
-                    st.markdown(
-                        f'<div style="margin-top: 4px; margin-bottom: 6px;"><span class="source-badge">📚 Nguồn: <b>{html.escape(str(source_name))}</b></span></div>',
-                        unsafe_allow_html=True
-                    )
+                    badge_html = _format_source_badge_html(source_name, sheet_name)
+                    if badge_html:
+                        st.markdown(
+                            f'<div style="margin-top: 4px; margin-bottom: 6px;">{badge_html}</div>',
+                            unsafe_allow_html=True
+                        )
 
                 # Render nguồn dữ liệu và inspector
                 render_provenance_and_inspector(final_meta)
@@ -671,6 +738,7 @@ def process_user_query(
                     "latency_ms": getattr(final_meta, "latency_ms", 0.0),
                     "word": getattr(final_meta, "word", None),
                     "source": getattr(final_meta, "source", None),
+                    "sheet": getattr(final_meta, "sheet", None),
                 }, ensure_ascii=False)
             except Exception:
                 pass
@@ -716,7 +784,10 @@ with st.sidebar:
             """
             <div class="sidebar-header-box">
                 <span class="sidebar-app-icon">🤖</span>
-                <span class="sidebar-app-title">Chatbox 2.0</span>
+                <div class="sidebar-brand-text">
+                    <span class="sidebar-app-title">Chatbox 2.0</span>
+                    <span class="sidebar-app-badge">Local</span>
+                </div>
             </div>
             """,
             unsafe_allow_html=True
@@ -793,6 +864,7 @@ with st.sidebar:
                                         latency_ms=md.get("latency_ms", 0.0),
                                         word=md.get("word"),
                                         source=md.get("source"),
+                                        sheet=md.get("sheet"),
                                     )
                                 except Exception:
                                     pass
@@ -959,6 +1031,9 @@ if st.session_state.nav_page == "💬 Tra cứu từ vựng":
 
     st.markdown('<div style="border-bottom: 1px solid var(--border-subtle); margin-bottom: 1rem; margin-top: 4px;"></div>', unsafe_allow_html=True)
 
+    if not engine_is_ready:
+        st.info("⏳ Động cơ AI đang được chuẩn bị dưới nền. Vui lòng đợi trong giây lát, ô nhập câu hỏi sẽ mở khóa ngay khi sẵn sàng...")
+
     # 2. Vùng hiển thị tin nhắn (cuộn tự nhiên theo trình duyệt)
     messages_container = st.container()
 
@@ -1044,6 +1119,7 @@ elif st.session_state.nav_page == "👥 Quản lý tài khoản":
 
     try:
         auth_service.require_admin(current_user)
+        from src.ui.admin_dashboard import render_admin_dashboard
         render_admin_dashboard(auth_service, conv_repo, current_user)
     except PermissionError as perm_err:
         st.error(f"❌ Truy cập bị từ chối: {perm_err}")
@@ -1422,35 +1498,41 @@ elif st.session_state.nav_page == "🗄️ Quản lý dữ liệu":
                 st.session_state.is_ingesting = True
                 settings.RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
                 saved_paths: List[Path] = []
-                seen_upload_hashes: Dict[str, Path] = {}
+                seen_upload_hashes: Dict[str, str] = {}
+
+                # Quét mã băm hiện có trong data/raw/ để kiểm tra trùng lặp
+                existing_raw_by_hash: Dict[str, Path] = {}
+                for p in settings.RAW_DATA_DIR.iterdir():
+                    if p.is_file() and not p.name.startswith(".git") and p.name != "dictionary_en_vi.db":
+                        try:
+                            import hashlib
+                            h = hashlib.sha256(p.read_bytes()).hexdigest()
+                            existing_raw_by_hash[h] = p
+                        except Exception:
+                            pass
 
                 for uf in uploaded_batch_files:
                     content_bytes = uf.getvalue()
                     import hashlib
                     uf_hash = hashlib.sha256(content_bytes).hexdigest()
 
-                    # Lưu trữ an toàn, tránh tạo thêm bản sao vật lý dư thừa
+                    # 1. Trùng lặp trong cùng đợt tải: Tuyệt đối không lưu vào raw
                     if uf_hash in seen_upload_hashes:
-                        # Trùng nội dung với tệp khác trong cùng đợt: tạo bản sao tạm để phân tích
-                        tmp_name = f"tmp_{uuid4().hex[:8]}_{uf.name}"
-                        target_path = settings.RAW_DATA_DIR / tmp_name
-                    elif not is_replace_mode and batch_manager.is_duplicate_file(uf_hash):
-                        # Trùng nội dung với tệp đã có trong manifest: tạo bản sao tạm để phân tích
-                        tmp_name = f"tmp_{uuid4().hex[:8]}_{uf.name}"
-                        target_path = settings.RAW_DATA_DIR / tmp_name
-                    else:
-                        # Tệp mới: lưu với tên gốc nếu chưa tồn tại
-                        candidate_path = settings.RAW_DATA_DIR / uf.name
-                        if candidate_path.exists():
-                            target_path = settings.RAW_DATA_DIR / f"raw_{uf_hash[:8]}_{uf.name}"
-                        else:
-                            target_path = candidate_path
+                        continue
 
+                    seen_upload_hashes[uf_hash] = uf.name
+
+                    # 2. Trùng lặp với tệp đã có trong raw hoặc active sources: Không lưu vào raw
+                    existing_file = existing_raw_by_hash.get(uf_hash)
+                    if not is_replace_mode and (existing_file or batch_manager.is_duplicate_file(uf_hash)):
+                        continue
+
+                    # 3. Tệp hợp lệ: Lưu đúng tên gốc, nếu cùng tên ghi đè cập nhật (không sinh tệp rác raw_...)
+                    target_path = settings.RAW_DATA_DIR / uf.name
                     with open(target_path, "wb") as f:
                         f.write(content_bytes)
                     saved_paths.append(target_path)
-                    if uf_hash not in seen_upload_hashes:
-                        seen_upload_hashes[uf_hash] = target_path
+                    existing_raw_by_hash[uf_hash] = target_path
 
                 progress_bar = st.progress(0, text="Đang khởi tạo tiến trình nạp...")
 
@@ -1958,12 +2040,20 @@ elif st.session_state.nav_page in ("📈 Chẩn đoán", "📈 Chẩn đoán & N
     # 4. System Prompt thực tế (Read-only)
     with st.container(border=True):
         st.markdown("#### 5. System Prompt Cố Định (Chống Bịa Đặt & Bảo Toàn Cấu Trúc)")
-        st.caption(f"Nguồn xác thực: `{SYSTEM_PROMPT_SOURCE}`")
+        try:
+            from src.llm.prompts import SYSTEM_PROMPT
+            system_prompt_source = "src.llm.prompts.SYSTEM_PROMPT"
+            system_prompt_val = SYSTEM_PROMPT
+        except Exception as prompt_err:
+            system_prompt_source = f"Lỗi đọc prompt: {prompt_err}"
+            system_prompt_val = None
 
-        if SYSTEM_PROMPT:
+        st.caption(f"Nguồn xác thực: `{system_prompt_source}`")
+
+        if system_prompt_val:
             st.text_area(
                 label="System Prompt Read-only",
-                value=SYSTEM_PROMPT,
+                value=system_prompt_val,
                 height=200,
                 disabled=True,
                 label_visibility="collapsed",
@@ -2011,7 +2101,9 @@ elif st.session_state.nav_page in ("📈 Chẩn đoán", "📈 Chẩn đoán & N
 
         st.markdown("---")
         # Nhật ký kiểm toán bảo mật quản trị (Admin Audit Logs từ cơ sở dữ liệu)
-        render_admin_audit_logs(audit_repo, current_user)
+        from src.data.audit_repository import AuditRepository
+        from src.ui.audit_view import render_admin_audit_logs
+        render_admin_audit_logs(AuditRepository(), current_user)
 
 
 elif st.session_state.nav_page == "👤 Thông tin cá nhân":
@@ -2024,5 +2116,6 @@ elif st.session_state.nav_page == "👤 Thông tin cá nhân":
             st.session_state.nav_page = "💬 Tra cứu từ vựng"
             st.rerun()
 
+    from src.ui.profile_view import render_profile_view
     render_profile_view(auth_service, current_user)
 

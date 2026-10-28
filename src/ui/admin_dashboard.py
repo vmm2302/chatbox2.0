@@ -108,5 +108,48 @@ def render_admin_dashboard(
                 "Đăng nhập gần nhất (UTC)": u.last_login_at[:19].replace("T", " ") if u.last_login_at else "Chưa từng",
             })
         st.dataframe(table_data, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("#### ⚡ Thao Tác Quản Lý Tài Khoản")
+
+        user_options = {f"#{u.id} - {u.username} ({u.display_name}) [{u.role.upper()}]": u for u in users_list}
+        selected_label = st.selectbox("Chọn tài khoản để thực hiện thao tác", options=list(user_options.keys()), key="sb_admin_user_op")
+        selected_user = user_options[selected_label]
+
+        is_target_admin = (selected_user.role == "admin")
+        is_self = (selected_user.id == current_user.id)
+
+        col_act1, col_act2 = st.columns(2)
+
+        with col_act1:
+            st.markdown("**1. Trạng thái hoạt động:**")
+            if is_target_admin:
+                st.info("🛡️ Tài khoản Quản trị viên (Admin) được bảo vệ: Không thể vô hiệu hóa.")
+            else:
+                next_status = not selected_user.is_active
+                btn_status_label = "🔓 Mở khóa tài khoản" if not selected_user.is_active else "🔒 Khóa tài khoản"
+                if st.button(btn_status_label, key=f"btn_st_status_{selected_user.id}", use_container_width=True):
+                    ok, msg = auth_service.admin_toggle_active(current_user, selected_user.id, next_status)
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+        with col_act2:
+            st.markdown("**2. Xóa tài khoản:**")
+            if is_target_admin:
+                st.info("🛡️ Tài khoản Quản trị viên (Admin) được bảo vệ: Không thể xóa.")
+            elif is_self:
+                st.warning("⚠️ Không thể tự xóa tài khoản của chính mình.")
+            else:
+                confirm_del = st.checkbox(f"Xác nhận xóa vĩnh viễn tài khoản '{selected_user.username}'", key=f"cb_del_{selected_user.id}")
+                if st.button("🗑️ Xóa tài khoản người dùng", key=f"btn_st_del_{selected_user.id}", type="primary", disabled=not confirm_del, use_container_width=True):
+                    ok, msg = auth_service.admin_delete_user(current_user, selected_user.id)
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
     else:
         st.info("Không tìm thấy tài khoản nào phù hợp với điều kiện tìm kiếm.")

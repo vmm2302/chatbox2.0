@@ -31,12 +31,10 @@ def render_auth_page(
     # Hiển thị tiêu đề chính
     st.markdown(
         """
-        <div style="text-align: center; margin-top: 1.5rem; margin-bottom: 1.75rem;">
-            <div style="font-size: 3rem; margin-bottom: 0.5rem;">🤖</div>
-            <h1 style="font-size: 1.85rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.25rem;">
-                Chatbox 2.0
-            </h1>
-            <p style="color: var(--text-muted); font-size: 0.95rem; max-width: 500px; margin: 0 auto;">
+        <div class="auth-header-box">
+            <div class="auth-header-icon">🤖</div>
+            <h1 class="auth-header-title">Chatbox 2.0</h1>
+            <p class="auth-header-desc">
                 Hệ thống tra cứu từ vựng tiếng Anh thông minh với AI cục bộ. Đăng nhập để lưu và cá nhân hóa lịch sử trò chuyện của bạn.
             </p>
         </div>
@@ -66,17 +64,17 @@ def render_auth_page(
 
             st.markdown(
                 f"""
-                <div style="background-color: #1E293B; border: 1px solid #0284C7; border-radius: 12px; padding: 16px 20px; margin-bottom: 1.5rem; color: #E0F2FE;">
-                    <div style="font-size: 1.1rem; font-weight: 600; color: #38BDF8; margin-bottom: 6px;">
+                <div class="admin-setup-card">
+                    <div class="admin-setup-title">
                         🛡️ Hệ thống chưa có Quản trị viên (Admin)
                     </div>
-                    <p style="margin: 0 0 10px 0; font-size: 0.92rem; line-height: 1.5; color: #BAE6FD;">
+                    <p class="admin-setup-desc">
                         {admin_notice_subtitle} Để đảm bảo an toàn phân quyền, hệ thống yêu cầu khởi tạo tài khoản <b>Quản trị viên đầu tiên</b> qua terminal an toàn trước khi mở đăng ký người dùng:
                     </p>
-                    <div style="background-color: #0F172A; padding: 10px 14px; border-radius: 8px; font-family: monospace; font-size: 0.95rem; color: #38BDF8; border: 1px solid #1E293B; margin-bottom: 10px;">
+                    <div class="admin-setup-code">
                         python scripts/create_admin.py
                     </div>
-                    <p style="margin: 0; font-size: 0.85rem; color: #94A3B8;">
+                    <p class="admin-setup-note">
                         Lệnh CLI sẽ bảo mật mật khẩu (không in ra màn hình) và băm bảo mật bằng thuật toán Bcrypt / Salt ngẫu nhiên.
                     </p>
                 </div>

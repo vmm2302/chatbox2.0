@@ -153,7 +153,11 @@ class UserRepository:
             return cursor.rowcount > 0
 
     def set_active_status(self, user_id: int, is_active: bool) -> bool:
-        """Vô hiệu hóa hoặc kích hoạt lại tài khoản."""
+        """Vô hiệu hóa hoặc kích hoạt lại tài khoản. Không cho phép vô hiệu hóa tài khoản Admin."""
+        if not is_active:
+            user = self.get_by_id(user_id)
+            if user and user.role == "admin":
+                return False
         now_iso = get_utc_now_iso()
         with self.db.transaction() as conn:
             cursor = conn.execute(
@@ -242,7 +246,10 @@ class UserRepository:
             return [self._row_to_user(r) for r in cursor.fetchall()]
 
     def delete_user(self, user_id: int) -> bool:
-        """Xóa hoàn toàn tài khoản người dùng và dữ liệu hội thoại liên quan."""
+        """Xóa hoàn toàn tài khoản người dùng và dữ liệu hội thoại liên quan. Không cho phép xóa tài khoản Admin."""
+        user = self.get_by_id(user_id)
+        if user and user.role == "admin":
+            return False
         with self.db.transaction() as conn:
             cursor = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
             return cursor.rowcount > 0

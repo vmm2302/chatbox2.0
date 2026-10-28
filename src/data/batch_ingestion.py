@@ -285,14 +285,25 @@ class BatchIngestionManager:
 
         deleted_files: List[str] = []
         preserved_files: List[str] = []
+        manifest_updated = False
 
         for f_hash, flist in files_by_hash.items():
-            canonical = canonical_by_hash.get(f_hash)
-            if canonical and any(p.resolve() == canonical.resolve() for p in flist):
-                kept = canonical
+            # Ưu tiên tệp có tên chuẩn gốc không có tiền tố raw_... / tmp_...
+            clean_candidates = [p for p in flist if clean_source_name(p.name) == p.name]
+            if clean_candidates:
+                kept = sorted(clean_candidates, key=lambda p: (len(p.name), p.name))[0]
             else:
-                sorted_flist = sorted(flist, key=lambda p: (len(p.name), p.name))
-                kept = sorted_flist[0]
+                first_p = sorted(flist, key=lambda p: (len(p.name), p.name))[0]
+                target_clean_name = clean_source_name(first_p.name)
+                clean_target_path = first_p.parent / target_clean_name
+                if not clean_target_path.exists():
+                    try:
+                        first_p.rename(clean_target_path)
+                        kept = clean_target_path
+                    except Exception:
+                        kept = first_p
+                else:
+                    kept = first_p
 
             preserved_files.append(kept.name)
 
@@ -307,6 +318,17 @@ class BatchIngestionManager:
                 except Exception as err:
                     logger.warning("Không thể dọn dẹp bản sao '%s': %s", p.name, err)
 
+            # Đồng bộ lại đường dẫn trong manifest nếu đường dẫn cũ thay đổi
+            for sinfo in active_sources.values():
+                if sinfo.get("file_hash") == f_hash and sinfo.get("file_path"):
+                    if Path(sinfo["file_path"]).resolve() != kept.resolve():
+                        sinfo["file_path"] = str(kept.resolve())
+                        sinfo["file_name"] = kept.name
+                        manifest_updated = True
+
+        if manifest_updated:
+            self.save_manifest(manifest)
+
         return {
             "scanned": sum(len(fl) for fl in files_by_hash.values()) + len(skipped_system_files),
             "deleted": deleted_files,
@@ -318,24 +340,28 @@ class BatchIngestionManager:
 
     def ingest_batch(
         self,
-        files: List[Path],
+        files: Optional[List[Path]] = None,
         mode: str = "add",
         progress_callback: Optional[Callable[[str, float, FileIngestionResult], None]] = None,
         batch_size: int = 16,
         sqlite_mappings: Optional[Dict[str, Any]] = None,
+        file_paths: Optional[List[Path]] = None,
     ) -> BatchIngestionReport:
         """Thực thi pipeline Batch Multi-File Ingestion với xử lý độc lập từng tệp.
 
         Args:
-            files: Danh sách đường dẫn tệp cần nạp.
+            files: Danh sách đường dẫn tệp cần nạp (hỗ trợ cả alias file_paths).
             mode: "add" (bổ sung / update theo ID) hoặc "replace" (xóa làm mới toàn bộ).
             progress_callback: Hàm nhận callback (thông_điệp, tiến_độ_0_đến_1, kết_quả_tệp_hiện_tại).
             batch_size: Kích thước batch embedding BGE-M3 (an toàn cho CPU/RAM).
             sqlite_mappings: Ánh xạ cấu hình SQLite mapping tùy chọn theo file_hash hoặc tên tệp.
+            file_paths: Tham số dự phòng đồng nghĩa với files.
 
         Returns:
             BatchIngestionReport: Báo cáo tổng thể toàn bộ batch.
         """
+        target_files = files if files is not None else (file_paths or [])
+        files = target_files
         batch_start_time = time.perf_counter()
         total_files = len(files)
         file_results: List[FileIngestionResult] = []
@@ -807,6 +833,32 @@ class BatchIngestionManager:
         )
         return report
 
+    def process_batch(
+        self,
+        files: Optional[List[Path]] = None,
+        file_paths: Optional[List[Path]] = None,
+        mode: str = "add",
+        progress_callback: Optional[Callable[[str, float, FileIngestionResult], None]] = None,
+        batch_size: int = 16,
+        sqlite_mappings: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> BatchIngestionReport:
+        """Bí danh (alias) tương thích ngược cho `ingest_batch`.
+
+        Hỗ trợ cả tham số `files` và `file_paths`, đồng thời chuẩn hóa chế độ `mode`
+        (chuyển đổi 'replace'/'overwrite' hoặc 'add'/'merge').
+        """
+        target_files = files if files is not None else (file_paths or [])
+        norm_mode = "replace" if str(mode).lower() == "replace" else "add"
+        return self.ingest_batch(
+            files=target_files,
+            mode=norm_mode,
+            progress_callback=progress_callback,
+            batch_size=batch_size,
+            sqlite_mappings=sqlite_mappings,
+            **kwargs,
+        )
+
     # --- QUẢN TRỊ NGUỒN: XÓA NGUỒN (DELETE SOURCE) ---
 
     def delete_source(self, source_identifier: str) -> Dict[str, Any]:
@@ -1202,7 +1254,7 @@ class BatchIngestionManager:
                 empty_manifest = {"sources": {}}
                 self.save_manifest(empty_manifest)
 
-                # 8. Xóa an toàn các bản sao tệp nguồn do KB quản lý
+                # 8. Xóa an toàn tất cả các tệp nguồn đã nạp do KB quản lý
                 if delete_managed_raw_files:
                     protected_exact_names = {
                         "dictionary_en_vi.db",
@@ -1215,43 +1267,40 @@ class BatchIngestionManager:
                         protected_exact_names.add(Path(settings.DICTIONARY_DB_PATH).name)
 
                     # Thu thập các tệp nguồn được ghi nhận trong manifest
-                    source_paths_to_consider: List[Path] = []
+                    source_paths_to_consider: Set[Path] = set()
                     for sinfo in original_manifest.get("sources", {}).values():
                         fpath_str = sinfo.get("file_path")
                         if fpath_str:
                             p = Path(fpath_str)
                             if p.exists() and p.is_file():
-                                source_paths_to_consider.append(p)
+                                source_paths_to_consider.add(p)
 
-                    # Thu thập các tệp tạm/managed trong data/raw/
+                    # Thu thập TẤT CẢ các tệp dữ liệu đã nạp trong data/raw/
                     target_raw_dir = Path(settings.RAW_DATA_DIR)
                     if target_raw_dir.exists():
                         for p in target_raw_dir.iterdir():
-                            if p.is_file() and p not in source_paths_to_consider:
-                                is_managed = bool(re.match(r"^(?:raw|batch|doc|upload|tmp|temp|inspect)_[0-9a-fA-F\-]{6,36}_", p.name))
-                                if is_managed:
-                                    source_paths_to_consider.append(p)
+                            if p.is_file():
+                                source_paths_to_consider.add(p)
 
                     # Thực hiện xóa an toàn
                     for p in source_paths_to_consider:
-                        # Kiểm tra an toàn tuyệt đối
-                        if p.name in protected_exact_names:
+                        # Kiểm tra an toàn tuyệt đối: không xóa tệp hệ thống cốt lõi
+                        if p.name in protected_exact_names or p.name.startswith(".git"):
                             continue
-                        if p.suffix.lower() in [".db", ".sqlite", ".sqlite3", ".backup"]:
+                        if p.name == "dictionary_en_vi.db" or p.name.startswith("dictionary_en_vi.db"):
                             continue
-                        if p.name.startswith(".git"):
-                            continue
-                        # Phải nằm trong thư mục data hoặc temp của dự án
+
+                        # Phải nằm trong thư mục data hoặc temp của dự án (tuyệt đối không xóa src, .venv)
                         try:
                             resolved_p = p.resolve()
                             resolved_raw = target_raw_dir.resolve()
                             p_str = str(resolved_p).lower()
                             if "\\src\\" in p_str or "/src/" in p_str or "\\.venv\\" in p_str or "/.venv/" in p_str:
                                 continue
-                            if resolved_raw in resolved_p.parents or "temp" in p_str:
+                            if resolved_raw in resolved_p.parents or resolved_p.parent == resolved_raw or "temp" in p_str:
                                 p.unlink(missing_ok=True)
                                 deleted_raw_files.append(p.name)
-                                logger.info("Clear KB: Đã xóa bản sao tệp nguồn '%s'.", p.name)
+                                logger.info("Clear KB: Đã xóa tệp nguồn đã nạp '%s'.", p.name)
                         except Exception as del_err:
                             logger.warning("Không thể xóa tệp nguồn '%s': %s", p, del_err)
 

@@ -137,6 +137,7 @@ class ChatResponse:
     record_id: Optional[str] = None
     word: Optional[str] = None
     source: Optional[str] = None
+    sheet: Optional[str] = None
     bm25_score: float = 0.0
     bge_score: float = 0.0
     rrf_score: float = 0.0

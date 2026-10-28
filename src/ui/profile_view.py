@@ -38,8 +38,8 @@ def render_profile_view(
             st.markdown("#### 📋 Thông Tin Tài Khoản")
             st.markdown(f"- **Tên đăng nhập:** `{fresh_user.username}`")
             st.markdown(f"- **Tên hiển thị:** {fresh_user.display_name}")
-            role_badge = "👑 Quản trị viên (Admin)" if fresh_user.role == "admin" else "👤 Người dùng (User)"
-            st.markdown(f"- **Vai trò:** {role_badge}")
+            role_badge_html = '<span class="role-badge-admin">👑 Quản trị viên (Admin)</span>' if fresh_user.role == "admin" else '<span class="role-badge-user">👤 Người dùng (User)</span>'
+            st.markdown(f"- **Vai trò:** {role_badge_html}", unsafe_allow_html=True)
             status_badge = "🟢 Đang hoạt động" if fresh_user.is_active else "🔴 Đã khóa"
             st.markdown(f"- **Trạng thái:** {status_badge}")
             created_str = fresh_user.created_at[:19].replace("T", " ") if fresh_user.created_at else "N/A"

@@ -31,16 +31,30 @@ cached_embs.pkl
 .coverage
 htmlcov/
 
-# 5. Dữ liệu Knowledge Base & Tệp mẫu cục bộ (Không đẩy lên Git)
+# 5. Dữ liệu Knowledge Base & Tệp nguồn
 data/*
 !data/raw/
 !data/raw/.gitkeep
+!data/raw/dictionary_en_vi.db
+!data/raw/du_lieu_tu_vung_chuan_trinh_do.xlsx
+!data/raw/The_Oxford_3000_by_CEFR_level.pdf
 data/raw/*
 !data/raw/.gitkeep
+!data/raw/dictionary_en_vi.db
+!data/raw/du_lieu_tu_vung_chuan_trinh_do.xlsx
+!data/raw/The_Oxford_3000_by_CEFR_level.pdf
 !data/processed/
 !data/processed/.gitkeep
+!data/processed/qa_records.jsonl
+!data/processed/sources_manifest.json
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/qa_records.jsonl
+!data/processed/sources_manifest.json
+data/app_data.db*
+data/vocab_notebook.db*
+data/*.db-wal
+data/*.db-shm
 storage/
 
 # 6. Cơ sở dữ liệu Vector cục bộ
@@ -59,3 +73,9 @@ rag-chatbot-main/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 9. Frontend Dependencies & Build Cục bộ
+vocab_frontend/node_modules/
+vocab_frontend/dist/
+vocab_frontend/dist-ssr/
+vocab_frontend/*.local
