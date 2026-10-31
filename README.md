@@ -2,7 +2,7 @@
 ## MASTER ARCHITECTURE DOCUMENTATION & TECHNICAL REVIEW PACKAGE
 
 > **Dự án Chatbot Tra cứu Từ vựng Tiếng Anh bằng Ngôn ngữ Tự nhiên chạy 100% Cục bộ (Local-Only).**  
-> Tuân thủ nghiêm ngặt **Project Constraints**: Không dùng API bên ngoài, không Cloud LLM, không hallucination, hoạt động hoàn toàn offline với **Qwen2.5:7B (Ollama)**, **PhoBERT-base-v2 (VinAI)**, **BGE-M3 (BAAI)**, **BM25Okapi**, **ChromaDB Local**, và tập tri thức gồm **3,725 cặp Q&A**.
+> Ứng dụng hỗ trợ kho tri thức do người triển khai cung cấp và nạp vào máy local. Các corpus nguồn và dữ liệu đã xử lý không được phân phối trong repository.
 
 ---
 
@@ -60,8 +60,8 @@ flowchart TD
 chatbox2.0/
 ├── config/                      # Cấu hình đường dẫn, siêu tham số RRF, Ollama model, settings
 ├── data/
-│   ├── raw/                     # Tài liệu nguồn: Oxford 3000 PDF, Excel, dictionary_en_vi.db (SQLite)
-│   └── processed/               # qa_records.jsonl (8,300+ cặp Q&A) & sources_manifest.json
+│   ├── raw/                     # Tệp nguồn do người dùng cung cấp (không theo dõi trong Git)
+│   └── processed/               # Q&A và manifest được tạo local (không theo dõi trong Git)
 ├── vocab_backend/               # Web Backend FastAPI: Streaming SSE, REST API, Auth, Admin, Sổ tay
 ├── vocab_frontend/              # Web Frontend React + Vite + Tailwind CSS (Chuẩn ChatGPT/Gemini)
 ├── run_vocab_web.py             # Script 1-Click khởi chạy thống nhất Backend & Frontend (Cổng 8000)
@@ -92,6 +92,8 @@ chatbox2.0/
 ## 4. HƯỚNG DẪN CÀI ĐẶT & CHẠY DỰ ÁN TRÊN MÁY MỚI (QUICK START)
 
 > 📘 **Xem cẩm nang hướng dẫn từng bước đầy đủ nhất tại:** [HUONG_DAN_CAI_DAT_MAY_MOI.md](HUONG_DAN_CAI_DAT_MAY_MOI.md)
+
+> **Dữ liệu:** Repository không chứa bộ từ vựng hay corpus Q&A. Sau khi khởi chạy, hãy nạp một tệp nguồn mà bạn có quyền sử dụng qua trang quản trị hoặc CLI (`python ingest_data.py --file PATH_TO_YOUR_FILE --mode append`). Các tệp raw và processed sẽ được giữ local và bỏ qua bởi Git.
 
 ### Bước 1: Cài đặt thư viện Python & Frontend React
 
@@ -192,7 +194,7 @@ Hệ thống tài khoản và phân quyền của Chatbox 2.0 được phát tri
 - **Cơ sở dữ liệu ứng dụng riêng biệt (`data/app_data.db`):**
   - Quản lý 4 bảng: `users`, `conversations`, `messages`, `audit_logs`.
   - Bật chế độ `WAL` (Write-Ahead Logging) và ràng buộc khóa ngoại `PRAGMA foreign_keys = ON;`.
-  - **Tuyệt đối không xâm phạm:** Cơ sở dữ liệu từ điển (`data/raw/dictionary_en_vi.db`), tệp `qa_records.jsonl`, và ChromaDB (`chroma_db/`) được giữ nguyên vẹn 100%.
+  - Dữ liệu từ điển và kho tri thức là dữ liệu local do người triển khai cung cấp; corpus, manifest và chỉ mục ChromaDB không được lưu trong Git.
 - **Bảo vệ quyền sở hữu ở tầng Backend:**
   - Mọi thao tác đọc, ghi, cập nhật hoặc xóa cuộc hội thoại và tin nhắn đều bắt buộc phải kèm điều kiện `WHERE id = ? AND user_id = ?`. Người dùng không thể truy cập hội thoại của người khác chỉ bằng cách thay đổi mã `conversation_id`.
   - Khi Admin vô hiệu hóa một tài khoản, mọi lượt truy vấn hoặc thao tác tiếp theo từ tài khoản đó đều bị chặn tức thì ở backend.
@@ -241,7 +243,7 @@ Hệ thống đã triển khai và thực thi thành công bộ kiểm thử 15 
 
 1. **100% Local Execution:** Toàn bộ quá trình suy luận của LLM (`Qwen2.5:7B`), Embeddings (`BGE-M3`), NLU (`PhoBERT-base-v2`) và Vector Search (`ChromaDB`) đều thực thi tại máy cục bộ của người dùng.
 2. **Zero External API:** Không kết nối đến OpenAI, Anthropic, Gemini, HuggingFace Hub trong quá trình vận hành bình thường (`HF_HUB_OFFLINE=1`).
-3. **No Hallucination:** Qwen2.5:7B chỉ được phép tổng hợp thông tin từ ngữ cảnh trích xuất. Khi thông tin không có trong 3,725 bản ghi, hệ thống kiên quyết từ chối thay vì suy đoán tự do.
+3. **No Hallucination:** Qwen2.5:7B chỉ được phép tổng hợp thông tin từ ngữ cảnh trích xuất. Khi kho tri thức local không có thông tin phù hợp, hệ thống từ chối thay vì suy đoán tự do.
 4. **Transparent Provenance:** Mọi câu trả lời trên giao diện đều có Provenance Inspector đi kèm, cho phép người dùng và giảng viên chấm bài kiểm tra tức thì Record ID, điểm BM25, điểm BGE-M3 và thứ hạng RRF.
 
 ---
@@ -253,7 +255,7 @@ Hệ thống cho phép bạn đưa thêm từ vựng mới hoặc thay thế to�
 ### 7.1. Cấu trúc tệp Excel hỗ trợ
 - **Kiểu 1 (Tự do):** Tệp Excel 1 sheet có các cột: `Câu hỏi` (bắt buộc), `Câu trả lời` (bắt buộc), `Từ vựng` (tùy chọn), `Trình độ` (tùy chọn), `Nguồn` (tùy chọn).
 - **Kiểu 2 (Mặc định đồ án):** Tệp có 4 sheet gốc (`danhsachtutienganhA1-B2`, `danhsachtheotrinhdoA1-B2`, `tiengvietsangtienganh`, `danhsachcauhoicotutrongcau`).
-- *Tệp mẫu có sẵn tại:* `data/mau_nhap_lieu_tuvung.xlsx`.
+- Repository không kèm corpus hay workbook mẫu. Hãy dùng tệp Excel mà bạn có quyền sử dụng và chọn tệp đó khi nạp dữ liệu.
 
 ### 7.2. Hai cách cập nhật dữ liệu:
 1. **Qua giao diện Web Streamlit (Trực quan):**
@@ -262,7 +264,7 @@ Hệ thống cho phép bạn đưa thêm từ vựng mới hoặc thay thế to�
 2. **Qua công cụ dòng lệnh (CLI Ingestion):**
    - Chạy lệnh trực tiếp từ Terminal:
      ```bash
-     python ingest_data.py --file "data/mau_nhap_lieu_tuvung.xlsx" --mode append
+     python ingest_data.py --file "data/raw/my_vocabulary.xlsx" --mode append
      ```
 - Chi tiết xem tại tài liệu: `docs/huong_dan_nap_du_lieu_excel.md`.
 

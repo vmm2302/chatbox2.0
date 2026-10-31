@@ -2,6 +2,8 @@
 
 Tài liệu này cung cấp hướng dẫn chi tiết từ A đến Z để thiết lập môi trường và khởi chạy thành công toàn bộ hệ thống **Chatbox 2.0 — Trợ Lý Tra Cứu Từ Vựng Tiếng Anh A1–B2** trên một máy tính hoàn toàn mới (Windows 10/11, macOS hoặc Ubuntu/Linux) thông qua Terminal / Dòng lệnh.
 
+> **Lưu ý về dữ liệu:** Repository không phân phối corpus từ vựng, file nguồn hay manifest. Sau khi khởi chạy, hãy nạp qua trang quản trị một tệp mà bạn có quyền sử dụng. Các file raw/processed và chỉ mục được tạo sẽ chỉ nằm trên máy local.
+
 ---
 
 ## 1. YÊU CẦU HỆ THỐNG (SYSTEM PREREQUISITES)

@@ -40,14 +40,14 @@ Bạn chỉ cần mở Excel, tạo 1 sheet bất kỳ (ví dụ `TuVung`, `Shee
 - Nếu bạn không nhập cột `Từ vựng` hoặc `Trình độ`, hệ thống tự động dùng biểu thức chính quy (Regex) bóc tách từ trong câu hỏi/câu trả lời.
 - Tiêu đề cột không phân biệt chữ hoa, chữ thường hay dấu tiếng Việt.
 
-### Kiểu 2: Tệp Excel Nhiều Sheet Chuẩn Đồ Án (Giống file gốc)
-Nếu bạn cập nhật trực tiếp trên bộ dữ liệu gốc `data/raw/datahotrohoctuvungtienganhtuA1-B2fix.xlsx`, tệp gồm 4 sheet:
+### Kiểu 2: Tệp Excel Nhiều Sheet Chuẩn Đồ Án
+Nếu bạn có workbook nhiều sheet theo định dạng đồ án, hệ thống nhận diện các sheet sau:
 1. `danhsachtutienganhA1-B2`: Cột [Thứ tự, Câu hỏi, Thông tin trả lời, Nguồn]
 2. `danhsachtheotrinhdoA1-B2`: Cột [Câu hỏi, Thông tin trả lời]
 3. `tiengvietsangtienganh`: Cột [Câu hỏi, Thông tin trả lời]
 4. `danhsachcauhoicotutrongcau`: Cột [Câu hỏi, Thông tin trả lời]
 
-> 💡 **Tệp mẫu có sẵn:** Hệ thống đã tạo sẵn tệp mẫu chuẩn tại `data/mau_nhap_lieu_tuvung.xlsx`. Bạn có thể mở tệp này để xem cách trình bày.
+> 💡 Repository không phân phối workbook mẫu hoặc corpus từ vựng. Hãy cung cấp tệp Excel mà bạn có quyền sử dụng; dữ liệu bạn nạp được lưu local và không được theo dõi trong Git.
 
 ---
 
@@ -64,7 +64,7 @@ Nếu bạn cập nhật trực tiếp trên bộ dữ liệu gốc `data/raw/da
 3. Nhấp mở rộng và bấm **Browse files** (hoặc kéo thả file `.xlsx` của bạn vào).
 4. Hệ thống sẽ kiểm tra tệp và hiển thị danh sách các sheet cùng số dòng phát hiện được.
 5. Chọn chế độ:
-   - **Bổ sung từ mới (Append - Khuyên dùng):** Giữ lại toàn bộ 3,725 từ vựng cũ, tự động lọc bỏ các câu trùng, chỉ mã hóa các từ vựng mới thêm vào (chỉ mất ~2-5 giây).
+   - **Bổ sung từ mới (Append - Khuyên dùng):** Giữ lại các bản ghi hiện có, lọc câu trùng và thêm các bản ghi mới. Nếu kho đang trống, dữ liệu trong workbook sẽ được nạp làm dữ liệu ban đầu.
    - **Làm mới toàn bộ (Replace):** Xóa toàn bộ DB cũ và lập chỉ mục lại từ đầu.
 6. Bấm nút **🚀 Bắt Đầu Nạp Dữ Liệu**.
 7. Thanh tiến trình chạy đến 100% và thông báo thành công. Bạn có thể chat và hỏi ngay các từ mới vừa nạp!
@@ -80,11 +80,11 @@ Nếu bạn cập nhật trực tiếp trên bộ dữ liệu gốc `data/raw/da
 
 #### Lựa chọn B — Chạy bằng lệnh dòng lệnh (Terminal / PowerShell):
 ```powershell
-# Chế độ bổ sung từ mới (Khuyên dùng)
-python ingest_data.py --file "data/mau_nhap_lieu_tuvung.xlsx" --mode append
+# Dùng đường dẫn tới workbook của bạn
+python ingest_data.py --file "data/raw/my_vocabulary.xlsx" --mode append
 
-# Hoặc chế độ làm mới toàn bộ từ tệp Excel mặc định
-python ingest_data.py --mode replace
+# Hoặc thay thế toàn bộ kho tri thức bằng workbook được chỉ định
+python ingest_data.py --file "data/raw/my_vocabulary.xlsx" --mode replace
 ```
 
 ---

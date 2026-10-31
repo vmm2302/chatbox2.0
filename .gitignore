@@ -35,26 +35,12 @@ htmlcov/
 data/*
 !data/raw/
 !data/raw/.gitkeep
-!data/raw/dictionary_en_vi.db
-!data/raw/du_lieu_tu_vung_chuan_trinh_do.xlsx
-!data/raw/The_Oxford_3000_by_CEFR_level.pdf
 data/raw/*
 !data/raw/.gitkeep
-!data/raw/dictionary_en_vi.db
-!data/raw/du_lieu_tu_vung_chuan_trinh_do.xlsx
-!data/raw/The_Oxford_3000_by_CEFR_level.pdf
 !data/processed/
 !data/processed/.gitkeep
-!data/processed/qa_records.jsonl
-!data/processed/sources_manifest.json
 data/processed/*
 !data/processed/.gitkeep
-!data/processed/qa_records.jsonl
-!data/processed/sources_manifest.json
-data/app_data.db*
-data/vocab_notebook.db*
-data/*.db-wal
-data/*.db-shm
 storage/
 
 # 6. Cơ sở dữ liệu Vector cục bộ

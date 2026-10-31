@@ -8,6 +8,8 @@
 
 # PHẦN 1: QUY TRÌNH CHUẨN BỊ TRƯỚC KHI DEMO (PRE-FLIGHT CHECKLIST)
 
+> Repository không kèm corpus Q&A. Trước buổi demo, nạp bộ dữ liệu bạn có quyền sử dụng; số bản ghi hiển thị sẽ phụ thuộc vào corpus local đó. Con số trong các kịch bản bên dưới phản ánh bộ dữ liệu của lần đánh giá đồ án, không phải dữ liệu được clone cùng mã nguồn.
+
 Để buổi bảo vệ diễn ra trôi chảy, sinh viên cần thực hiện tuần tự các bước kiểm tra trước khi hội đồng gọi tên:
 
 ### 1.1. Kiểm tra tài nguyên máy tính
@@ -36,7 +38,7 @@ Trình duyệt tự động mở tại địa chỉ: `http://localhost:8501`.
 
 ### 1.4. Kiểm tra sẵn sàng trong giao diện
 1. Nhìn vào thanh bên (Sidebar): Trạng thái hiển thị **🟢 Hệ thống Sẵn Sàng** (Ollama Connected, ChromaDB Connected, PhoBERT Ready).
-2. Kiểm tra số lượng bản ghi: **3,725 Q&A Records** hiển thị trong Knowledge Base stats.
+2. Kiểm tra số lượng bản ghi hiển thị trong Knowledge Base stats và xác nhận corpus local đã được nạp.
 
 ---
 
@@ -138,7 +140,7 @@ flowchart LR
 ### Bước 9: Nạp thêm tri thức mới không cần huấn luyện lại (Admin Knowledge Update)
 - **Thao tác UI:**
   1. Trên Sidebar, chọn mục **📥 Quản lý Tri thức / Nạp Dữ Liệu**.
-  2. Chọn tệp `data/mau_nhap_lieu_tuvung.xlsx` (hoặc một tệp mẫu).
+  2. Chọn workbook local mà bạn có quyền sử dụng.
   3. Chọn chế độ nạp: **Bổ sung (Append)**.
   4. Nhấn **🚀 Bắt Đầu Nạp Dữ Liệu**.
 - **Kết quả hiển thị:**
@@ -274,7 +276,7 @@ Dưới đây là 12 câu hỏi kinh điển các thầy cô trong hội đồng
 - **Trả lời:**
   - Sự phân biệt rõ ràng:
     - **Ngoài phạm vi (Out-of-Scope):** Câu hỏi về chủ đề hoàn toàn không liên quan đến từ vựng (thời tiết, địa lý, chính trị, code). PhoBERT phân loại nhãn `OUT_OF_SCOPE` ngay từ đầu, chatbot từ chối: *"Câu hỏi này nằm ngoài phạm vi tra cứu từ vựng tiếng Anh"*.
-    - **Không tìm thấy dữ liệu (No match / Unseen Vocabulary):** Câu hỏi đúng về cấu trúc từ vựng tiếng Anh (VD: *"từ zzzzqqqxyz nghĩa là gì?"*), nhưng từ vựng này không có trong tập 3,725 từ của hệ thống. Câu hỏi vượt qua PhoBERT nhưng có điểm RRF $< 0.005$. Chatbot phản hồi: *"Xin lỗi, hiện tại dữ liệu từ điển chưa có thông tin về từ này"*.
+    - **Không tìm thấy dữ liệu (No match / Unseen Vocabulary):** Câu hỏi đúng về cấu trúc từ vựng tiếng Anh (VD: *"từ zzzzqqqxyz nghĩa là gì?"*), nhưng từ vựng này không có trong corpus đã nạp. Câu hỏi vượt qua PhoBERT nhưng có điểm RRF $< 0.005$. Chatbot phản hồi: *"Xin lỗi, hiện tại dữ liệu từ điển chưa có thông tin về từ này"*.
   - **File tham chiếu:** `src/chat/engine.py#L260-L315`.
 
 ---

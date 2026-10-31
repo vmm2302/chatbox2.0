@@ -34,7 +34,7 @@ Dự án giải quyết bài toán hỗ trợ người học tiếng Anh tra c�
 - Người dùng mong muốn một giải pháp chatbot riêng tư, bảo mật, hoạt động hoàn toàn offline không cần Internet, phù hợp trên máy tính cá nhân hoặc thiết bị cục bộ của tổ chức.
 
 ### 2.3. Phạm vi dữ liệu và giới hạn hệ thống
-- **Dữ liệu hạt nhân:** 3,725 cặp câu hỏi - câu trả lời đã chuẩn hóa (`data/processed/qa_records.jsonl`), bao phủ từ vựng Oxford 3000 từ trình độ A1 đến B2.
+- **Dữ liệu hạt nhân:** Bản corpus 3,725 cặp Q&A được dùng trong lần đánh giá đồ án là dữ liệu local, không được phân phối trong repository. Người triển khai cần nạp corpus mà mình có quyền sử dụng.
 - **Ranh giới chức năng (Boundary):**
   - Hệ thống chuyên biệt cho tra cứu từ vựng tiếng Anh.
   - Các câu hỏi thuộc chủ đề khác (toán học, thời tiết, tin tức, lập trình) được phân loại là **Ngoài phạm vi (Out-of-Scope)** và bị từ chối một cách lịch sự, có hướng dẫn.
@@ -109,7 +109,7 @@ Hệ thống sử dụng LangChain LCEL làm xương sống cho luồng sinh câ
 
 ### 4.3. Phân biệt rõ rệt giữa Out-of-Scope và No Match
 - **Out-of-Scope (Ngoài phạm vi):** Phát hiện qua PhoBERT NLU. Chatbot từ chối câu hỏi thời tiết, địa lý, chính trị.
-- **No Match (Không tìm thấy):** Câu hỏi đúng phạm vi từ vựng nhưng từ cần tìm không tồn tại trong kho tri thức 3,725 từ (Điểm RRF $< 0.005$). Chatbot thông báo chưa có dữ liệu cho từ này.
+- **No Match (Không tìm thấy):** Câu hỏi đúng phạm vi từ vựng nhưng không có bản ghi phù hợp trong kho tri thức hiện tại (Điểm RRF $< 0.005$). Chatbot thông báo chưa có dữ liệu cho từ này.
 
 ### 4.4. Cơ chế Fallback và Xử lý ngoại lệ an toàn
 - Khi Ollama offline hoặc bị lỗi kết nối mạng nội bộ, `ChatEngine` tự động bắt biệt lệ và chuyển sang chế độ dự phòng (Fallback): trích xuất nội dung từ bản ghi `QARecord` có điểm RRF cao nhất để trả lời, không để ứng dụng bị crash.
