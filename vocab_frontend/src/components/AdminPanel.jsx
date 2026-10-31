@@ -41,6 +41,7 @@ import {
   resetAdminUserPassword,
   deleteAdminUser,
 } from '../services/api';
+import ConfirmModal from './ConfirmModal';
 
 export default function AdminPanel({ currentUser }) {
   const [activeSubTab, setActiveSubTab] = useState('users'); // 'users' | 'kb' | 'telemetry' | 'audit'
@@ -105,6 +106,15 @@ export default function AdminPanel({ currentUser }) {
   // Reset password modal state
   const [resetModalUser, setResetModalUser] = useState(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Xác nhận',
+    type: 'danger',
+    showCancel: true,
+    onConfirm: null,
+  });
 
   const adminUserId = currentUser?.id || 1;
 
@@ -162,75 +172,116 @@ export default function AdminPanel({ currentUser }) {
   };
 
   // User Actions: Lock/Unlock (Protected: Cannot lock Admin)
-  const handleToggleUserStatus = async (user) => {
+  const handleToggleUserStatus = (user) => {
     if (user.role === 'admin') {
-      window.alert('CẢNH BÁO BẢO VỆ: Không thể vô hiệu hóa tài khoản Quản trị viên (Admin).');
+      setConfirmModal({
+        isOpen: true,
+        title: 'Cảnh Báo Bảo Vệ Hệ Thống',
+        message: 'Không thể vô hiệu hóa hoặc khóa tài khoản của Quản trị viên (Admin).',
+        confirmText: 'Đã hiểu',
+        showCancel: false,
+        type: 'warning',
+        onConfirm: () => setConfirmModal((prev) => ({ ...prev, isOpen: false })),
+      });
       return;
     }
     const nextStatus = !user.is_active;
-    const confirmMsg = nextStatus
-      ? `Bạn có chắc muốn mở khóa tài khoản '${user.username}'?`
-      : `Bạn có chắc muốn KHÓA tài khoản '${user.username}'? Người này sẽ không thể đăng nhập tra từ được nữa.`;
-    if (!window.confirm(confirmMsg)) return;
-
-    try {
-      await updateAdminUserStatus(adminUserId, user.id, nextStatus);
-      setMessage({
-        type: 'success',
-        text: `Đã ${nextStatus ? 'mở khóa' : 'khóa'} tài khoản '${user.username}' thành công.`,
-      });
-      loadData();
-    } catch (err) {
-      setMessage({ type: 'error', text: err.message || 'Lỗi cập nhật trạng thái.' });
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: nextStatus ? 'Mở khóa tài khoản?' : 'Khóa tài khoản người dùng?',
+      message: nextStatus
+        ? `Bạn có chắc chắn muốn mở khóa tài khoản "${user.username}" (${user.display_name})? Người này sẽ có thể đăng nhập bình thường.`
+        : `Bạn có chắc chắn muốn KHÓA tài khoản "${user.username}" (${user.display_name})? Người này sẽ bị chặn đăng nhập tra cứu từ vựng.`,
+      confirmText: nextStatus ? 'Mở khóa tài khoản' : 'Khóa tài khoản này',
+      showCancel: true,
+      type: nextStatus ? 'info' : 'warning',
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        try {
+          await updateAdminUserStatus(adminUserId, user.id, nextStatus);
+          setMessage({
+            type: 'success',
+            text: `Đã ${nextStatus ? 'mở khóa' : 'khóa'} tài khoản '${user.username}' thành công.`,
+          });
+          loadData();
+        } catch (err) {
+          setMessage({ type: 'error', text: err.message || 'Lỗi cập nhật trạng thái.' });
+        }
+      },
+    });
   };
 
   // User Actions: Delete User (Protected: Cannot delete Admin)
-  const handleDeleteUser = async (user) => {
+  const handleDeleteUser = (user) => {
     if (user.role === 'admin') {
-      window.alert('CẢNH BÁO BẢO VỆ: Tuyệt đối không thể xóa tài khoản Quản trị viên (Admin).');
+      setConfirmModal({
+        isOpen: true,
+        title: 'Cảnh Báo Bảo Vệ Hệ Thống',
+        message: 'Tuyệt đối không thể xóa tài khoản Quản trị viên (Admin) khỏi hệ thống.',
+        confirmText: 'Đã hiểu',
+        showCancel: false,
+        type: 'danger',
+        onConfirm: () => setConfirmModal((prev) => ({ ...prev, isOpen: false })),
+      });
       return;
     }
-    const confirmMsg = `CẢNH BÁO NGUY HIỂM: Bạn có chắc chắn muốn XÓA VĨNH VIỄN tài khoản người dùng '${user.username}' (${user.display_name})?\n\nToàn bộ dữ liệu, nhật ký học tập và lịch sử tra cứu của người này sẽ bị xóa sạch và không thể hoàn tác!`;
-    if (!window.confirm(confirmMsg)) return;
-
-    try {
-      await deleteAdminUser(adminUserId, user.id);
-      setMessage({
-        type: 'success',
-        text: `Đã xóa vĩnh viễn tài khoản người dùng '${user.username}' thành công.`,
-      });
-      loadData();
-    } catch (err) {
-      setMessage({ type: 'error', text: err.message || 'Lỗi khi xóa người dùng.' });
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xóa vĩnh viễn người dùng?',
+      message: `CẢNH BÁO NGUY HIỂM:\nBạn có chắc chắn muốn XÓA VĨNH VIỄN tài khoản "${user.username}" (${user.display_name})?\n\nToàn bộ dữ liệu, nhật ký học tập và lịch sử tra cứu của người này sẽ bị xóa sạch và không thể hoàn tác!`,
+      confirmText: 'Xóa vĩnh viễn tài khoản',
+      showCancel: true,
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        try {
+          await deleteAdminUser(adminUserId, user.id);
+          setMessage({
+            type: 'success',
+            text: `Đã xóa vĩnh viễn tài khoản người dùng '${user.username}' thành công.`,
+          });
+          loadData();
+        } catch (err) {
+          setMessage({ type: 'error', text: err.message || 'Lỗi khi xóa người dùng.' });
+        }
+      },
+    });
   };
 
   // User Actions: Role Toggle
-  const handleToggleUserRole = async (user) => {
+  const handleToggleUserRole = (user) => {
     const nextRole = user.role === 'admin' ? 'user' : 'admin';
-    const confirmMsg = nextRole === 'admin'
-      ? `Nâng quyền tài khoản '${user.username}' thành Quản trị viên (Admin)?`
-      : `Hạ quyền tài khoản '${user.username}' xuống Học viên thông thường?`;
-    if (!window.confirm(confirmMsg)) return;
-
-    try {
-      await updateAdminUserRole(adminUserId, user.id, nextRole);
-      setMessage({
-        type: 'success',
-        text: `Đã cập nhật vai trò của '${user.username}' thành ${nextRole.toUpperCase()}.`,
-      });
-      loadData();
-    } catch (err) {
-      setMessage({ type: 'error', text: err.message || 'Lỗi cập nhật vai trò.' });
-    }
+    const isPromoting = nextRole === 'admin';
+    setConfirmModal({
+      isOpen: true,
+      title: isPromoting ? 'Nâng quyền Quản trị viên?' : 'Hạ quyền xuống Học viên?',
+      message: isPromoting
+        ? `Nâng quyền tài khoản "${user.username}" thành Quản trị viên (Admin)? Tài khoản này sẽ có toàn quyền can thiệp hệ thống và quản trị các tài khoản khác.`
+        : `Hạ quyền tài khoản "${user.username}" xuống Học viên thông thường? Tài khoản này sẽ mất quyền truy cập Admin Panel.`,
+      confirmText: isPromoting ? 'Nâng quyền Admin' : 'Hạ quyền Học viên',
+      showCancel: true,
+      type: isPromoting ? 'info' : 'warning',
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        try {
+          await updateAdminUserRole(adminUserId, user.id, nextRole);
+          setMessage({
+            type: 'success',
+            text: `Đã cập nhật vai trò của '${user.username}' thành ${nextRole.toUpperCase()}.`,
+          });
+          loadData();
+        } catch (err) {
+          setMessage({ type: 'error', text: err.message || 'Lỗi cập nhật vai trò.' });
+        }
+      },
+    });
   };
 
   // User Actions: Reset Password
   const handleExecuteResetPassword = async (e) => {
     e.preventDefault();
     if (!resetModalUser || !newPasswordInput || newPasswordInput.length < 6) {
-      alert('Mật khẩu mới tối thiểu 6 ký tự.');
+      setMessage({ type: 'error', text: 'Mật khẩu mới tối thiểu phải có 6 ký tự.' });
       return;
     }
 
@@ -285,28 +336,34 @@ export default function AdminPanel({ currentUser }) {
   };
 
   // Handle Clear KB
-  const handleClearKB = async () => {
-    const confirmed = window.confirm(
-      'CẢNH BÁO QUAN TRỌNG: Hành động này sẽ xóa vĩnh viễn toàn bộ dữ liệu tri thức đã nạp, bao gồm tất cả các tệp tài liệu trong thư mục raw, toàn bộ vector ChromaDB, chỉ mục BM25 và bộ nhớ RAM. Bạn có chắc chắn muốn xóa sạch toàn bộ không?'
-    );
-    if (!confirmed) return;
-
-    setLoading(true);
-    try {
-      await clearAdminKnowledgeBase(adminUserId);
-      setMessage({
-        type: 'success',
-        text: 'Đã xóa và đặt lại toàn bộ cơ sở tri thức thành công!',
-      });
-      await loadData();
-    } catch (err) {
-      setMessage({
-        type: 'error',
-        text: `Lỗi xóa tri thức: ${err.message}`,
-      });
-    } finally {
-      setLoading(false);
-    }
+  const handleClearKB = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xóa toàn bộ Cơ sở Tri thức?',
+      message: 'CẢNH BÁO QUAN TRỌNG NGUY HIỂM:\nHành động này sẽ xóa vĩnh viễn toàn bộ dữ liệu tri thức đã nạp, bao gồm tất cả các tệp tài liệu trong thư mục raw, toàn bộ vector ChromaDB, chỉ mục BM25 và bộ nhớ RAM.\n\nBạn có chắc chắn muốn xóa sạch toàn bộ không?',
+      confirmText: 'Xóa sạch tri thức',
+      showCancel: true,
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        setLoading(true);
+        try {
+          await clearAdminKnowledgeBase(adminUserId);
+          setMessage({
+            type: 'success',
+            text: 'Đã xóa và đặt lại toàn bộ cơ sở tri thức thành công!',
+          });
+          await loadData();
+        } catch (err) {
+          setMessage({
+            type: 'error',
+            text: `Lỗi xóa tri thức: ${err.message}`,
+          });
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
   };
 
   // Export audit logs as JSON
@@ -330,16 +387,16 @@ export default function AdminPanel({ currentUser }) {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-indigo-50/90 via-purple-50/40 to-indigo-50/80 dark:from-[#171717] dark:via-[#1c1a24] dark:to-[#171717] text-slate-900 dark:text-[#ececec] rounded-3xl p-6 sm:p-8 shadow-xs dark:shadow-xl border border-indigo-100 dark:border-white/10 flex flex-wrap items-center justify-between gap-4 transition-colors">
         <div>
-          <div className="flex items-center space-x-2 text-emerald-400 text-xs font-black uppercase tracking-widest mb-1">
+          <div className="flex items-center space-x-2 text-indigo-600 dark:text-emerald-400 text-xs font-black uppercase tracking-widest mb-1">
             <ShieldAlert className="w-4 h-4" />
             <span>Hệ Thống Quản Trị Hệ Thống • Chatbox 2.0</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
             Bảng Điều Khiển Quản Trị Viên (Admin Portal)
           </h1>
-          <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-zinc-300 mt-1 max-w-2xl">
             Quản trị toàn diện: Người dùng & phân quyền, nạp kho tri thức 4 tầng lưu trữ, giám sát tài nguyên phần cứng và Ollama LLM.
           </p>
         </div>
@@ -348,7 +405,7 @@ export default function AdminPanel({ currentUser }) {
           <button
             onClick={loadData}
             disabled={loading}
-            className="flex items-center space-x-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/10 transition-all cursor-pointer"
+            className="flex items-center space-x-1.5 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 dark:bg-white/10 dark:hover:bg-white/15 dark:text-white text-xs font-bold border border-slate-200 dark:border-white/10 shadow-xs transition-all cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             <span>Làm mới dữ liệu</span>
@@ -361,8 +418,8 @@ export default function AdminPanel({ currentUser }) {
         <div
           className={`flex items-center justify-between p-4 rounded-2xl border text-xs sm:text-sm font-semibold transition-all shadow-xs ${
             message.type === 'success'
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              : 'bg-rose-50 text-rose-800 border-rose-200'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/40'
+              : 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/40'
           }`}
         >
           <div className="flex items-center space-x-2.5">
@@ -383,13 +440,13 @@ export default function AdminPanel({ currentUser }) {
       )}
 
       {/* Sub-Tabs Navigation (4 Modules Migrated from app.py) */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-white/10 pb-3">
         <button
           onClick={() => setActiveSubTab('users')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeSubTab === 'users'
-              ? 'bg-slate-900 text-white shadow-md'
-              : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              ? 'bg-slate-900 dark:bg-[#2f2f2f] text-white dark:border dark:border-white/10 shadow-md'
+              : 'bg-white dark:bg-[#212121] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 border border-slate-200 dark:border-white/10'
           }`}
         >
           <Users className="w-4 h-4 text-cyan-400" />
@@ -400,8 +457,8 @@ export default function AdminPanel({ currentUser }) {
           onClick={() => setActiveSubTab('kb')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeSubTab === 'kb'
-              ? 'bg-slate-900 text-white shadow-md'
-              : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              ? 'bg-slate-900 dark:bg-[#2f2f2f] text-white dark:border dark:border-white/10 shadow-md'
+              : 'bg-white dark:bg-[#212121] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 border border-slate-200 dark:border-white/10'
           }`}
         >
           <Database className="w-4 h-4 text-emerald-400" />
@@ -412,8 +469,8 @@ export default function AdminPanel({ currentUser }) {
           onClick={() => setActiveSubTab('telemetry')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeSubTab === 'telemetry'
-              ? 'bg-slate-900 text-white shadow-md'
-              : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              ? 'bg-slate-900 dark:bg-[#2f2f2f] text-white dark:border dark:border-white/10 shadow-md'
+              : 'bg-white dark:bg-[#212121] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 border border-slate-200 dark:border-white/10'
           }`}
         >
           <Activity className="w-4 h-4 text-teal-400" />
@@ -424,8 +481,8 @@ export default function AdminPanel({ currentUser }) {
           onClick={() => setActiveSubTab('audit')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeSubTab === 'audit'
-              ? 'bg-slate-900 text-white shadow-md'
-              : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              ? 'bg-slate-900 dark:bg-[#2f2f2f] text-white dark:border dark:border-white/10 shadow-md'
+              : 'bg-white dark:bg-[#212121] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 border border-slate-200 dark:border-white/10'
           }`}
         >
           <Terminal className="w-4 h-4 text-amber-400" />
@@ -441,50 +498,50 @@ export default function AdminPanel({ currentUser }) {
           
           {/* User Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 mb-2">
+            <div className="bg-white dark:bg-[#212121] p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Tổng Số Tài Khoản</span>
-                <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
                   <Users className="w-4 h-4" />
                 </div>
               </div>
-              <div className="text-3xl font-black text-slate-900">
+              <div className="text-3xl font-black text-slate-900 dark:text-[#ececec]">
                 {formatNum(userStats?.total)}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Bao gồm toàn bộ học viên và admin</p>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">Bao gồm toàn bộ học viên và admin</p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 mb-2">
+            <div className="bg-white dark:bg-[#212121] p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Học Viên Hoạt Động</span>
-                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
                   <CheckCircle2 className="w-4 h-4" />
                 </div>
               </div>
-              <div className="text-3xl font-black text-emerald-700">
+              <div className="text-3xl font-black text-emerald-700 dark:text-emerald-400">
                 {formatNum(userStats?.total_users)}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Được phép đăng nhập & tra từ</p>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">Được phép đăng nhập & tra từ</p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 mb-2">
+            <div className="bg-white dark:bg-[#212121] p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Quản Trị Viên (Admin)</span>
-                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
                   <Shield className="w-4 h-4" />
                 </div>
               </div>
-              <div className="text-3xl font-black text-indigo-700">
+              <div className="text-3xl font-black text-indigo-700 dark:text-indigo-400">
                 {formatNum(userStats?.active_admins)}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Có toàn quyền quản trị hệ thống</p>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">Có toàn quyền quản trị hệ thống</p>
             </div>
           </div>
 
           {/* User Search & Filters */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+          <div className="bg-white dark:bg-[#212121] rounded-3xl p-5 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-base font-black text-slate-900 flex items-center space-x-2">
+              <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
                 <Search className="w-4 h-4 text-emerald-600" />
                 <span>Danh Sách Tài Khoản Hệ Thống ({usersList.length})</span>
               </h2>
@@ -496,15 +553,15 @@ export default function AdminPanel({ currentUser }) {
                     value={userSearch}
                     onChange={(e) => setUserSearch(e.target.value)}
                     placeholder="Tìm username hoặc tên hiển thị..."
-                    className="py-1.5 pl-8 pr-3 text-xs bg-slate-50 rounded-xl border border-slate-200 text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20"
+                    className="py-1.5 pl-8 pr-3 text-xs bg-slate-50 dark:bg-[#171717] rounded-xl border border-slate-200 dark:border-white/10 text-slate-800 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20"
                   />
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                  <Search className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute left-2.5 top-2.5" />
                 </div>
 
                 <select
                   value={userRoleFilter}
                   onChange={(e) => setUserRoleFilter(e.target.value)}
-                  className="py-1.5 px-3 text-xs bg-slate-50 rounded-xl border border-slate-200 text-slate-700 font-medium focus:outline-hidden"
+                  className="py-1.5 px-3 text-xs bg-slate-50 dark:bg-[#171717] rounded-xl border border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-200 font-medium focus:outline-hidden cursor-pointer"
                 >
                   <option value="all">Tất cả vai trò</option>
                   <option value="user">Chỉ Học viên (User)</option>
@@ -514,7 +571,7 @@ export default function AdminPanel({ currentUser }) {
                 <select
                   value={userStatusFilter}
                   onChange={(e) => setUserStatusFilter(e.target.value)}
-                  className="py-1.5 px-3 text-xs bg-slate-50 rounded-xl border border-slate-200 text-slate-700 font-medium focus:outline-hidden"
+                  className="py-1.5 px-3 text-xs bg-slate-50 dark:bg-[#171717] rounded-xl border border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-200 font-medium focus:outline-hidden cursor-pointer"
                 >
                   <option value="all">Tất cả trạng thái</option>
                   <option value="active">Đang hoạt động</option>
@@ -523,7 +580,7 @@ export default function AdminPanel({ currentUser }) {
 
                 <button
                   type="submit"
-                  className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-[#2f2f2f] dark:hover:bg-[#383838] dark:border dark:border-white/10 text-white text-xs font-bold transition-all cursor-pointer"
                 >
                   Tìm
                 </button>
@@ -533,7 +590,7 @@ export default function AdminPanel({ currentUser }) {
             {/* User Data Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-black">
+                <thead className="bg-slate-50 dark:bg-[#1a1a1a] border-b border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 uppercase font-black">
                   <tr>
                     <th className="py-3 px-3">ID</th>
                     <th className="py-3 px-4">Tài Khoản</th>
@@ -545,10 +602,10 @@ export default function AdminPanel({ currentUser }) {
                     <th className="py-3 px-3 text-right">Thao Tác Quản Trị</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                   {usersList.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="text-center py-8 text-slate-400">
+                      <td colSpan="8" className="text-center py-8 text-slate-400 dark:text-zinc-500">
                         Không tìm thấy người dùng nào phù hợp với bộ lọc.
                       </td>
                     </tr>
@@ -557,9 +614,9 @@ export default function AdminPanel({ currentUser }) {
                       const isSelf = u.id === currentUser?.id;
                       const isAdmin = u.role === 'admin';
                       return (
-                        <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-3 px-3 font-mono text-slate-400">#{u.id}</td>
-                          <td className="py-3 px-4 font-bold text-slate-900 flex items-center space-x-2">
+                        <tr key={u.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.04] transition-colors">
+                          <td className="py-3 px-3 font-mono text-slate-400 dark:text-zinc-500">#{u.id}</td>
+                          <td className="py-3 px-4 font-bold text-slate-900 dark:text-zinc-100 flex items-center space-x-2">
                             <div className={`w-6 h-6 rounded-lg text-white font-black text-[10px] flex items-center justify-center shrink-0 ${
                               isAdmin ? 'bg-indigo-600' : 'bg-emerald-600'
                             }`}>
@@ -567,17 +624,17 @@ export default function AdminPanel({ currentUser }) {
                             </div>
                             <span>{u.username}</span>
                             {isSelf && (
-                              <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-bold">
+                              <span className="text-[10px] bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-zinc-300 px-1.5 py-0.2 rounded font-bold">
                                 Bạn
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-slate-700">{u.display_name || u.username}</td>
+                          <td className="py-3 px-4 text-slate-700 dark:text-zinc-300">{u.display_name || u.username}</td>
                           <td className="py-3 px-3">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold ${
                               isAdmin
-                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                                ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60'
+                                : 'bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-white/10'
                             }`}>
                               {isAdmin ? '🛡️ ADMIN' : '👤 USER'}
                             </span>
@@ -585,17 +642,17 @@ export default function AdminPanel({ currentUser }) {
                           <td className="py-3 px-3">
                             <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
                               u.is_active
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-rose-100 text-rose-800'
+                                ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
+                                : 'bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${u.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                               <span>{u.is_active ? 'Hoạt động' : 'Đã khóa'}</span>
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
+                          <td className="py-3 px-4 text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
                             {u.created_at ? u.created_at.slice(0, 10) : '-'}
                           </td>
-                          <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
+                          <td className="py-3 px-4 text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
                             {u.last_login_at ? u.last_login_at.slice(0, 16).replace('T', ' ') : 'Chưa từng'}
                           </td>
                           <td className="py-3 px-3 text-right">
@@ -615,10 +672,10 @@ export default function AdminPanel({ currentUser }) {
                                 }
                                 className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
                                   isAdmin
-                                    ? 'border-slate-200 text-slate-300 opacity-40 cursor-not-allowed'
+                                    ? 'border-slate-200 dark:border-white/5 text-slate-300 dark:text-zinc-600 opacity-40 cursor-not-allowed'
                                     : u.is_active
-                                    ? 'border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50'
-                                    : 'border-emerald-300 text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
+                                    ? 'border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                                    : 'border-emerald-300 dark:border-emerald-700/50 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
                                 } disabled:opacity-30 disabled:cursor-not-allowed`}
                               >
                                 {u.is_active ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
@@ -629,7 +686,7 @@ export default function AdminPanel({ currentUser }) {
                                 onClick={() => handleToggleUserRole(u)}
                                 disabled={isSelf}
                                 title={isAdmin ? 'Hạ quyền xuống User' : 'Nâng quyền lên Admin'}
-                                className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                               >
                                 <Shield className="w-3.5 h-3.5" />
                               </button>
@@ -641,7 +698,7 @@ export default function AdminPanel({ currentUser }) {
                                   setNewPasswordInput('');
                                 }}
                                 title="Đặt lại mật khẩu"
-                                className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors cursor-pointer"
                               >
                                 <KeyRound className="w-3.5 h-3.5" />
                               </button>
@@ -659,8 +716,8 @@ export default function AdminPanel({ currentUser }) {
                                 }
                                 className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
                                   isAdmin
-                                    ? 'border-slate-200 text-slate-300 opacity-40 cursor-not-allowed'
-                                    : 'border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-300'
+                                    ? 'border-slate-200 dark:border-white/5 text-slate-300 dark:text-zinc-600 opacity-40 cursor-not-allowed'
+                                    : 'border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:border-rose-300 dark:hover:border-rose-800'
                                 } disabled:opacity-30 disabled:cursor-not-allowed`}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -678,28 +735,28 @@ export default function AdminPanel({ currentUser }) {
 
           {/* Reset Password Modal */}
           {resetModalUser && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-                <div className="flex items-center space-x-2 text-indigo-600">
+            <div className="fixed inset-0 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-[#212121] rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-white/10 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center space-x-2 text-indigo-600 dark:text-indigo-400">
                   <KeyRound className="w-5 h-5" />
-                  <h3 className="text-base font-black text-slate-900">
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
                     Đặt Lại Mật Khẩu Người Dùng
                   </h3>
                 </div>
-                <p className="text-xs text-slate-600">
-                  Nhập mật khẩu mới cho tài khoản: <b className="text-slate-900 font-extrabold">{resetModalUser.username}</b> ({resetModalUser.display_name}).
+                <p className="text-xs text-slate-600 dark:text-zinc-300">
+                  Nhập mật khẩu mới cho tài khoản: <b className="text-slate-900 dark:text-white font-extrabold">{resetModalUser.username}</b> ({resetModalUser.display_name}).
                 </p>
 
                 <form onSubmit={handleExecuteResetPassword} className="space-y-3">
                   <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">Mật khẩu mới (Tối thiểu 6 ký tự):</label>
+                    <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block mb-1">Mật khẩu mới (Tối thiểu 6 ký tự):</label>
                     <input
                       type="password"
                       required
                       value={newPasswordInput}
                       onChange={(e) => setNewPasswordInput(e.target.value)}
                       placeholder="Nhập mật khẩu mới..."
-                      className="w-full py-2 px-3 text-sm rounded-xl border border-slate-300 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                      className="w-full py-2 px-3 text-sm rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-[#171717] text-slate-900 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
                     />
                   </div>
 
@@ -707,7 +764,7 @@ export default function AdminPanel({ currentUser }) {
                     <button
                       type="button"
                       onClick={() => setResetModalUser(null)}
-                      className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                      className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
                     >
                       Hủy bỏ
                     </button>
@@ -736,79 +793,79 @@ export default function AdminPanel({ currentUser }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             
             {/* Card 1: JSONL Records */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:border-emerald-300 transition-all">
-              <div className="flex items-center justify-between text-slate-500 mb-2">
+            <div className="bg-white dark:bg-[#212121] p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-xs hover:border-emerald-300 dark:hover:border-emerald-500/50 transition-all">
+              <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Tệp JSONL Gốc</span>
-                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
                   <FileText className="w-4 h-4" />
                 </div>
               </div>
-              <div className="text-3xl font-black text-slate-900">
+              <div className="text-3xl font-black text-slate-900 dark:text-[#ececec]">
                 {formatNum(metrics?.jsonl_disk_count ?? metrics?.layers?.jsonl_records, 10031)}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Bản ghi từ vựng lưu trữ vĩnh viễn trên đĩa</p>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">Bản ghi từ vựng lưu trữ vĩnh viễn trên đĩa</p>
             </div>
 
             {/* Card 2: RAM Cache */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:border-teal-300 transition-all">
-              <div className="flex items-center justify-between text-slate-500 mb-2">
+            <div className="bg-white dark:bg-[#212121] p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-xs hover:border-teal-300 dark:hover:border-teal-500/50 transition-all">
+              <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">Bộ Nhớ Đệm RAM</span>
-                <div className="p-2 rounded-xl bg-teal-50 text-teal-600">
+                <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400">
                   <Zap className="w-4 h-4" />
                 </div>
               </div>
-              <div className="text-3xl font-black text-slate-900">
+              <div className="text-3xl font-black text-slate-900 dark:text-[#ececec]">
                 {formatNum(metrics?.engine_records_count ?? metrics?.layers?.ram_cache_count, 10031)}
               </div>
-              <p className="text-xs text-teal-600 font-semibold mt-1">Mục từ sẵn sàng truy vấn tức thì 0-latency</p>
+              <p className="text-xs text-teal-600 dark:text-teal-400 font-semibold mt-1">Mục từ sẵn sàng truy vấn tức thì 0-latency</p>
             </div>
 
             {/* Card 3: ChromaDB Vectors */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:border-indigo-300 transition-all">
-              <div className="flex items-center justify-between text-slate-500 mb-2">
+            <div className="bg-white dark:bg-[#212121] p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-500/50 transition-all">
+              <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">ChromaDB Vectors</span>
-                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
                   <Layers className="w-4 h-4" />
                 </div>
               </div>
-              <div className="text-3xl font-black text-slate-900">
+              <div className="text-3xl font-black text-slate-900 dark:text-[#ececec]">
                 {formatNum(metrics?.chroma_count ?? metrics?.layers?.chroma_vectors, 128)}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Vectors ngữ nghĩa (Semantic search)</p>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">Vectors ngữ nghĩa (Semantic search)</p>
             </div>
 
             {/* Card 4: BM25 Index */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:border-amber-300 transition-all">
-              <div className="flex items-center justify-between text-slate-500 mb-2">
+            <div className="bg-white dark:bg-[#212121] p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-xs hover:border-amber-300 dark:hover:border-amber-500/50 transition-all">
+              <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400 mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider">BM25 Lexical Index</span>
-                <div className="p-2 rounded-xl bg-amber-50 text-amber-600">
+                <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
                   <HardDrive className="w-4 h-4" />
                 </div>
               </div>
-              <div className="text-3xl font-black text-slate-900">
+              <div className="text-3xl font-black text-slate-900 dark:text-[#ececec]">
                 {formatNum(metrics?.bm25_count ?? metrics?.layers?.bm25_documents, 10031)}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Chỉ mục từ khóa tìm kiếm chính xác</p>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">Chỉ mục từ khóa tìm kiếm chính xác</p>
             </div>
 
           </div>
 
           {/* Ingestion & Upload Section */}
-          <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-5">
+          <div className="bg-white dark:bg-[#212121] rounded-3xl p-6 sm:p-7 border border-slate-200 dark:border-white/10 shadow-sm space-y-5">
             <div>
-              <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
+              <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center space-x-2">
                 <UploadCloud className="w-5 h-5 text-emerald-600" />
                 <span>Nạp Dữ liệu Tri thức Mới (Multi-format Ingestion)</span>
               </h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Hỗ trợ 8 định dạng: <span className="font-semibold text-slate-700">.xlsx, .xls, .docx, .doc, .pdf, .csv, .tsv, .sqlite, .db</span>. Tự động đồng bộ vào 4 tầng lưu trữ.
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
+                Hỗ trợ 8 định dạng: <span className="font-semibold text-slate-700 dark:text-zinc-200">.xlsx, .xls, .docx, .doc, .pdf, .csv, .tsv, .sqlite, .db</span>. Tự động đồng bộ vào 4 tầng lưu trữ.
               </p>
             </div>
 
             <form onSubmit={handleUpload} className="space-y-4">
               <div className="flex flex-wrap items-center gap-4">
-                <span className="text-xs font-bold text-slate-700">Chế độ nạp:</span>
-                <label className="flex items-center space-x-2 text-xs font-medium cursor-pointer">
+                <span className="text-xs font-bold text-slate-700 dark:text-zinc-300">Chế độ nạp:</span>
+                <label className="flex items-center space-x-2 text-xs font-medium cursor-pointer text-slate-700 dark:text-zinc-300">
                   <input
                     type="radio"
                     name="mode"
@@ -820,7 +877,7 @@ export default function AdminPanel({ currentUser }) {
                   <span>Hợp nhất (Merge - Giữ dữ liệu hiện có)</span>
                 </label>
 
-                <label className="flex items-center space-x-2 text-xs font-medium cursor-pointer">
+                <label className="flex items-center space-x-2 text-xs font-medium cursor-pointer text-slate-700 dark:text-zinc-300">
                   <input
                     type="radio"
                     name="mode"
@@ -840,8 +897,8 @@ export default function AdminPanel({ currentUser }) {
                 onDrop={handleDrop}
                 className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
                   isDragging
-                    ? 'border-emerald-500 bg-emerald-50/60 scale-[1.01]'
-                    : 'border-slate-300 hover:border-emerald-500 bg-slate-50/50'
+                    ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30 scale-[1.01]'
+                    : 'border-slate-300 dark:border-white/15 hover:border-emerald-500 dark:hover:border-emerald-500/80 bg-slate-50/50 dark:bg-white/[0.02]'
                 }`}
               >
                 <input
@@ -858,12 +915,12 @@ export default function AdminPanel({ currentUser }) {
                   className="hidden"
                 />
                 <label htmlFor="admin-file-input" className="cursor-pointer space-y-2 block">
-                  <UploadCloud className={`w-8 h-8 mx-auto transition-colors ${isDragging ? 'text-emerald-600' : 'text-slate-400'}`} />
-                  <div className="text-sm font-bold text-slate-800">
+                  <UploadCloud className={`w-8 h-8 mx-auto transition-colors ${isDragging ? 'text-emerald-600' : 'text-slate-400 dark:text-zinc-500'}`} />
+                  <div className="text-sm font-bold text-slate-800 dark:text-zinc-200">
                     Kéo thả nhiều tệp vào đây hoặc nhấp để chọn tệp tài liệu
                   </div>
-                  <div className="text-xs text-slate-500">
-                    Đã chọn: <span className="font-bold text-emerald-600">{uploadFiles.length}</span> tệp
+                  <div className="text-xs text-slate-500 dark:text-zinc-400">
+                    Đã chọn: <span className="font-bold text-emerald-600 dark:text-emerald-400">{uploadFiles.length}</span> tệp
                     {uploadFiles.length > 0 && ` (~${Math.round(uploadFiles.reduce((acc, f) => acc + f.size, 0) / 1024)} KB)`}
                   </div>
                 </label>
@@ -871,13 +928,13 @@ export default function AdminPanel({ currentUser }) {
                 {uploadFiles.length > 0 && (
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center justify-between px-1">
-                      <span className="text-[11px] font-bold text-slate-600">
+                      <span className="text-[11px] font-bold text-slate-600 dark:text-zinc-300">
                         Danh sách tệp chờ nạp ({uploadFiles.length}):
                       </span>
                       <button
                         type="button"
                         onClick={clearAllUploadFiles}
-                        className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 underline cursor-pointer"
+                        className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 underline cursor-pointer"
                       >
                         Xóa tất cả
                       </button>
@@ -886,7 +943,7 @@ export default function AdminPanel({ currentUser }) {
                       {uploadFiles.map((f, i) => (
                         <span
                           key={`${f.name}-${f.size}-${i}`}
-                          className="inline-flex items-center space-x-1.5 text-[11px] bg-white border border-slate-200 pl-2.5 pr-1.5 py-1 rounded-lg text-slate-700 font-medium shadow-xs"
+                          className="inline-flex items-center space-x-1.5 text-[11px] bg-white dark:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 pl-2.5 pr-1.5 py-1 rounded-lg text-slate-700 dark:text-zinc-200 font-medium shadow-xs"
                         >
                           <span>📄 {f.name} ({Math.round(f.size / 1024)} KB)</span>
                           <button
@@ -895,7 +952,7 @@ export default function AdminPanel({ currentUser }) {
                               ev.stopPropagation();
                               removeUploadFile(i);
                             }}
-                            className="p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-rose-500 cursor-pointer"
+                            className="p-0.5 hover:bg-slate-100 dark:hover:bg-white/10 rounded text-slate-400 dark:text-zinc-400 hover:text-rose-500 cursor-pointer"
                             title="Xóa tệp này khỏi danh sách chờ"
                           >
                             <X className="w-3.5 h-3.5" />
@@ -921,20 +978,20 @@ export default function AdminPanel({ currentUser }) {
           </div>
 
           {/* Active Knowledge Sources Table */}
-          <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-4">
-            <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
+          <div className="bg-white dark:bg-[#212121] rounded-3xl p-6 sm:p-7 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
+            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center space-x-2">
               <HardDrive className="w-5 h-5 text-indigo-600" />
               <span>Danh sách Nguồn Tài liệu Đang Hoạt động ({sources.length})</span>
             </h2>
 
             {sources.length === 0 ? (
-              <div className="text-center py-8 text-xs text-slate-400">
+              <div className="text-center py-8 text-xs text-slate-400 dark:text-zinc-500">
                 Chưa có tệp nạp bổ sung nào. Cơ sở tri thức đang sử dụng bộ dữ liệu Oxford 3,000 mặc định.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-black">
+                  <thead className="bg-slate-50 dark:bg-[#1a1a1a] border-b border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 uppercase font-black">
                     <tr>
                       <th className="py-3 px-4">Tên Nguồn Dữ Liệu</th>
                       <th className="py-3 px-4">Định Dạng</th>
@@ -942,17 +999,17 @@ export default function AdminPanel({ currentUser }) {
                       <th className="py-3 px-4">Thời Gian Nạp</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                     {sources.map((src, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/80">
-                        <td className="py-3 px-4 font-bold text-slate-800">📄 {src.filename || src.name}</td>
+                      <tr key={idx} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.04]">
+                        <td className="py-3 px-4 font-bold text-slate-800 dark:text-zinc-200">📄 {src.filename || src.name}</td>
                         <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-zinc-300 font-mono text-[10px]">
                             {src.format || 'CORPUS'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-emerald-700">{src.record_count || src.count || 0}</td>
-                        <td className="py-3 px-4 text-slate-500">{src.ingested_at || 'Mặc định'}</td>
+                        <td className="py-3 px-4 font-semibold text-emerald-700 dark:text-emerald-400">{src.record_count || src.count || 0}</td>
+                        <td className="py-3 px-4 text-slate-500 dark:text-zinc-400">{src.ingested_at || 'Mặc định'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -962,13 +1019,13 @@ export default function AdminPanel({ currentUser }) {
           </div>
 
           {/* Danger Zone: Clear KB */}
-          <div className="bg-rose-50/50 rounded-3xl p-6 border border-rose-200/80 flex flex-wrap items-center justify-between gap-4">
+          <div className="bg-rose-50/50 dark:bg-rose-950/20 rounded-3xl p-6 border border-rose-200/80 dark:border-rose-900/40 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h3 className="text-base font-black text-rose-900 flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 text-rose-600" />
+              <h3 className="text-base font-black text-rose-900 dark:text-rose-300 flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                 <span>Khu vực Cảnh báo Nguy hiểm (Danger Zone)</span>
               </h3>
-              <p className="text-xs text-rose-700 mt-1 max-w-xl">
+              <p className="text-xs text-rose-700 dark:text-rose-400 mt-1 max-w-xl">
                 Xóa sạch các chỉ mục ChromaDB, BM25 và hoàn nguyên bộ nhớ về trạng thái ban đầu.
               </p>
             </div>
@@ -993,14 +1050,14 @@ export default function AdminPanel({ currentUser }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
             {/* Hardware Resources */}
-            <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
+            <div className="bg-white dark:bg-[#212121] rounded-3xl p-6 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-base font-black text-slate-900 flex items-center space-x-2">
+                <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
                   <Cpu className="w-5 h-5 text-teal-600" />
                   <span>Tài Nguyên Phần Cứng Máy Chủ</span>
                 </h2>
                 {telemetry?.resource_state && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
                     🟢 {telemetry.resource_state}
                   </span>
                 )}
@@ -1009,13 +1066,13 @@ export default function AdminPanel({ currentUser }) {
               <div className="space-y-4 text-xs">
                 {/* RAM Gauge */}
                 <div>
-                  <div className="flex justify-between font-bold text-slate-700 mb-1">
+                  <div className="flex justify-between font-bold text-slate-700 dark:text-zinc-300 mb-1">
                     <span>Bộ nhớ RAM Hệ thống:</span>
                     <span>
                       {telemetry?.ram_used_gb || roundGB(telemetry?.ram?.used_mb)} GB / {telemetry?.ram_total_gb || roundGB(telemetry?.ram?.total_mb)} GB ({telemetry?.ram_percent || telemetry?.ram?.load_pct || 0}%)
                     </span>
                   </div>
-                  <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                  <div className="w-full bg-slate-100 dark:bg-white/10 rounded-full h-3 overflow-hidden">
                     <div
                       className={`h-full transition-all duration-500 ${
                         (telemetry?.ram_percent || telemetry?.ram?.load_pct || 0) > 85
@@ -1030,41 +1087,41 @@ export default function AdminPanel({ currentUser }) {
                 </div>
 
                 {/* VRAM / GPU Info */}
-                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-1.5">
-                  <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                <div className="bg-slate-50 dark:bg-[#1a1a1a] p-3.5 rounded-2xl border border-slate-100 dark:border-white/5 space-y-1.5">
+                  <div className="font-bold text-slate-800 dark:text-zinc-200 flex items-center space-x-1.5">
                     <Zap className="w-3.5 h-3.5 text-amber-500" />
                     <span>Card Đồ Họa & VRAM (GPU):</span>
                   </div>
-                  <p className="text-slate-600">
-                    Thiết bị: <b className="text-slate-900">{telemetry?.gpu_name || telemetry?.vram?.device_name || 'NVIDIA GeForce / CPU Fallback'}</b>
+                  <p className="text-slate-600 dark:text-zinc-400">
+                    Thiết bị: <b className="text-slate-900 dark:text-white">{telemetry?.gpu_name || telemetry?.vram?.device_name || 'NVIDIA GeForce / CPU Fallback'}</b>
                   </p>
-                  <p className="text-slate-600">
-                    VRAM sử dụng: <b className="text-emerald-700">{telemetry?.vram_used_gb || roundGB(telemetry?.vram?.used_mb)} GB</b> / {telemetry?.vram_total_gb || 'Tự động cấp phát'}
+                  <p className="text-slate-600 dark:text-zinc-400">
+                    VRAM sử dụng: <b className="text-emerald-700 dark:text-emerald-400">{telemetry?.vram_used_gb || roundGB(telemetry?.vram?.used_mb)} GB</b> / {telemetry?.vram_total_gb || 'Tự động cấp phát'}
                   </p>
                 </div>
 
                 {/* CPU Threading */}
-                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
-                  <div className="font-bold text-slate-800">Số luồng xử lý CPU (Workers):</div>
-                  <div className="text-slate-600 mt-0.5">
-                    Khả dụng: <b className="text-slate-900">{telemetry?.cpu_threads || telemetry?.cpu?.active_threads || 8} threads</b> • PyTorch & Uvicorn Async Pool
+                <div className="bg-slate-50 dark:bg-[#1a1a1a] p-3.5 rounded-2xl border border-slate-100 dark:border-white/5">
+                  <div className="font-bold text-slate-800 dark:text-zinc-200">Số luồng xử lý CPU (Workers):</div>
+                  <div className="text-slate-600 dark:text-zinc-400 mt-0.5">
+                    Khả dụng: <b className="text-slate-900 dark:text-white">{telemetry?.cpu_threads || telemetry?.cpu?.active_threads || 8} threads</b> • PyTorch & Uvicorn Async Pool
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Ollama LLM Service */}
-            <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
+            <div className="bg-white dark:bg-[#212121] rounded-3xl p-6 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-base font-black text-slate-900 flex items-center space-x-2">
+                <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
                   <Server className="w-5 h-5 text-indigo-600" />
                   <span>Dịch Vụ Mô Hình Ngôn Ngữ Ollama</span>
                 </h2>
                 <span
                   className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold ${
                     ollama?.online
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      : 'bg-amber-100 text-amber-800 border border-amber-200'
+                      ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                      : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
                   }`}
                 >
                   <span
@@ -1077,32 +1134,32 @@ export default function AdminPanel({ currentUser }) {
               </div>
 
               <div className="text-xs space-y-3">
-                <p className="text-slate-600">
-                  Mô hình cấu hình chính: <b className="text-indigo-700 font-mono font-bold">{ollama?.configured_model || 'qwen2.5:7b-instruct-q4_K_M'}</b>
+                <p className="text-slate-600 dark:text-zinc-400">
+                  Mô hình cấu hình chính: <b className="text-indigo-700 dark:text-indigo-400 font-mono font-bold">{ollama?.configured_model || 'qwen2.5:7b-instruct-q4_K_M'}</b>
                 </p>
 
                 <div>
-                  <div className="font-bold text-slate-700 mb-1.5">Mô hình đã cài đặt (Local Models):</div>
+                  <div className="font-bold text-slate-700 dark:text-zinc-300 mb-1.5">Mô hình đã cài đặt (Local Models):</div>
                   {ollama?.installed_models && ollama.installed_models.length > 0 ? (
                     <div className="space-y-1.5 max-h-48 overflow-y-auto">
                       {ollama.installed_models.map((m, idx) => (
                         <div
                           key={idx}
-                          className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 font-mono text-[11px]"
+                          className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-[#1a1a1a] border border-slate-100 dark:border-white/5 font-mono text-[11px]"
                         >
-                          <span className="font-bold text-slate-800">{typeof m === 'string' ? m : m.name}</span>
-                          <span className="text-slate-500 text-[10px]">Ready</span>
+                          <span className="font-bold text-slate-800 dark:text-zinc-200">{typeof m === 'string' ? m : m.name}</span>
+                          <span className="text-slate-500 dark:text-zinc-400 text-[10px]">Ready</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="p-3 bg-slate-50 rounded-xl text-slate-500 text-center">
-                      Mô hình chính: <span className="font-bold text-slate-800">qwen2.5:7b-instruct-q4_K_M</span>
+                    <div className="p-3 bg-slate-50 dark:bg-[#1a1a1a] rounded-xl text-slate-500 dark:text-zinc-400 text-center">
+                      Mô hình chính: <span className="font-bold text-slate-800 dark:text-white">qwen2.5:7b-instruct-q4_K_M</span>
                     </div>
                   )}
                 </div>
 
-                <div className="p-3 rounded-xl bg-teal-50 border border-teal-100 text-teal-800 text-[11px]">
+                <div className="p-3 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-100 dark:border-teal-900/40 text-teal-800 dark:text-teal-300 text-[11px]">
                   💡 <b>Fast Path:</b> Nếu Ollama đang bận hoặc offline, hệ thống tự động tra cứu từ điển RAM 10,031 mục từ mà không gây gián đoạn cho học viên.
                 </div>
               </div>
@@ -1117,21 +1174,21 @@ export default function AdminPanel({ currentUser }) {
       {/* MODULE 4: AUDIT LOGS                                      */}
       {/* ======================================================== */}
       {activeSubTab === 'audit' && (
-        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-4 animate-in fade-in duration-150">
+        <div className="bg-white dark:bg-[#212121] rounded-3xl p-6 sm:p-7 border border-slate-200 dark:border-white/10 shadow-sm space-y-4 animate-in fade-in duration-150">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-black text-slate-900 flex items-center space-x-2">
+              <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center space-x-2">
                 <Terminal className="w-5 h-5 text-amber-600" />
                 <span>Nhật Ký Kiểm Toán Hoạt Động (Audit Trail)</span>
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
                 Ghi nhận chi tiết các thao tác đăng nhập, nạp tệp, tra cứu, quản lý tài khoản và bảo mật.
               </p>
             </div>
 
             <button
               onClick={handleExportAudit}
-              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/15 text-slate-700 dark:text-zinc-300 text-xs font-bold transition-all cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>Xuất Tệp JSON</span>
@@ -1140,7 +1197,7 @@ export default function AdminPanel({ currentUser }) {
 
           <div className="overflow-x-auto max-h-[500px]">
             <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase font-black sticky top-0">
+              <thead className="bg-slate-50 dark:bg-[#1a1a1a] border-b border-slate-200 dark:border-white/10 text-slate-600 dark:text-zinc-400 uppercase font-black sticky top-0">
                 <tr>
                   <th className="py-2.5 px-3">Thời Gian</th>
                   <th className="py-2.5 px-3">Người Dùng</th>
@@ -1149,30 +1206,30 @@ export default function AdminPanel({ currentUser }) {
                   <th className="py-2.5 px-3">Trạng Thái</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-[11px]">
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5 text-[11px]">
                 {auditLogs.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="text-center py-8 text-slate-400">
+                    <td colSpan="5" className="text-center py-8 text-slate-400 dark:text-zinc-500">
                       Chưa có sự kiện kiểm toán nào được ghi lại.
                     </td>
                   </tr>
                 ) : (
                   auditLogs.map((log, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="py-2 px-3 text-slate-500">{log.timestamp || log.created_at || 'Vừa xong'}</td>
-                      <td className="py-2 px-3 font-bold text-slate-800">{log.user_id || log.username || log.actor_username || 'System'}</td>
+                    <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-white/[0.04]">
+                      <td className="py-2 px-3 text-slate-500 dark:text-zinc-400">{log.timestamp || log.created_at || 'Vừa xong'}</td>
+                      <td className="py-2 px-3 font-bold text-slate-800 dark:text-zinc-200">{log.user_id || log.username || log.actor_username || 'System'}</td>
                       <td className="py-2 px-3">
-                        <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 font-bold">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-800 dark:text-zinc-200 font-bold">
                           {log.action || log.event_type}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-slate-600 truncate max-w-xs">{log.target || log.details ? (typeof log.details === 'object' ? JSON.stringify(log.details) : log.details) : '-'}</td>
+                      <td className="py-2 px-3 text-slate-600 dark:text-zinc-400 truncate max-w-xs">{log.target || log.details ? (typeof log.details === 'object' ? JSON.stringify(log.details) : log.details) : '-'}</td>
                       <td className="py-2 px-3">
                         <span
                           className={`px-1.5 py-0.5 rounded font-bold ${
                             log.status === 'success' || log.status === 'SUCCESS' || !log.status
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-100 text-rose-800'
+                              ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                              : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
                           }`}
                         >
                           {log.status || 'OK'}
@@ -1186,6 +1243,19 @@ export default function AdminPanel({ currentUser }) {
           </div>
         </div>
       )}
+
+      {/* In-App Modern Confirmation & Alert Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText || 'Hủy bỏ'}
+        type={confirmModal.type}
+        showCancel={confirmModal.showCancel}
+        onConfirm={confirmModal.onConfirm}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
 
     </div>
   );

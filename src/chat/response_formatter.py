@@ -25,9 +25,9 @@ POS_REGEX = re.compile(
     re.IGNORECASE
 )
 
-RE_LEVEL = re.compile(r"^(?:\*\*)?Trình độ:(?:\*\*)?\s*(.*)$", re.IGNORECASE)
-RE_PRON = re.compile(r"^(?:\*\*)?Phát âm:(?:\*\*)?\s*(.*)$", re.IGNORECASE)
-RE_BULLET = re.compile(r"^(?:[•\-\*]\s*|(?:Ví dụ|Example):\s*)(.+)$", re.IGNORECASE)
+RE_LEVEL = re.compile(r"^\*{0,2}Trình độ\*{0,2}:?\*{0,2}\s*(.*)$", re.IGNORECASE)
+RE_PRON = re.compile(r"^\*{0,2}Phát âm\*{0,2}:?\*{0,2}\s*(.*)$", re.IGNORECASE)
+RE_BULLET = re.compile(r"^(?:[•]\s*|[-*](?!\*)\s+|(?:Ví dụ|Example):\s*)(.+)$", re.IGNORECASE)
 
 
 def format_vocabulary_response(text: str, word: Optional[str] = None) -> str:
@@ -56,7 +56,9 @@ def format_vocabulary_response(text: str, word: Optional[str] = None) -> str:
         for line in raw_lines
     )
     if not has_vocab_feature:
-        # Nếu là câu xã giao, từ chối ngoài phạm vi, hoặc văn bản tự do không theo khuôn từ điển
+        # Nếu là câu từ chối ngoài phạm vi hoặc thông báo lỗi, không chèn tên từ vào đầu câu
+        if "nằm ngoài phạm vi" in text or "chưa có dữ liệu" in text:
+            return text
         if word and isinstance(word, str) and word.strip():
             clean_w = word.strip()
             if clean_w.lower() not in text.lower()[:60]:
@@ -73,6 +75,16 @@ def format_vocabulary_response(text: str, word: Optional[str] = None) -> str:
     while idx < n:
         line = raw_lines[idx]
         if not line:
+            idx += 1
+            continue
+
+        # Bỏ qua các dòng tiền tố tìm kiếm thừa thãi (ví dụ 'Từ bạn tìm kiếm: Bank')
+        low_line = line.lower()
+        if (
+            low_line.startswith("từ bạn tìm kiếm:")
+            or low_line.startswith("từ **")
+            or re.match(r"^(?:\*\*)?(?:\d+[\.\)]\s*)?từ bạn tìm kiếm:", low_line)
+        ):
             idx += 1
             continue
 
@@ -142,6 +154,7 @@ def format_vocabulary_response(text: str, word: Optional[str] = None) -> str:
         m_txt = line.strip()
         m_txt = re.sub(r"^(?:\*\*)?\d+[\.\)]\s*(?:\*\*)?", "", m_txt).strip()
         m_txt = re.sub(r"^\*\*(.*?)\*\*$", r"\1", m_txt).strip()
+        m_txt = m_txt.strip("* ")
 
         examples: List[str] = []
         idx += 1

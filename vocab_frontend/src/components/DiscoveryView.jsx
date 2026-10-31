@@ -48,13 +48,13 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
     <div className="max-w-6xl mx-auto px-4 py-6">
       
       {/* Header */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm mb-6">
+      <div className="bg-white dark:bg-[#1c1c1c] rounded-3xl p-6 border border-slate-200 dark:border-white/10 shadow-sm mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
               <span>🌟 Khám Phá Từ Vựng Chuẩn CEFR</span>
             </h1>
-            <p className="text-sm text-slate-500 font-medium mt-1">
+            <p className="text-sm text-slate-500 dark:text-zinc-400 font-medium mt-1">
               Khám phá vốn từ Oxford 3,000 phân cấp từ A1 đến B2 kèm ngữ cảnh thực tế
             </p>
           </div>
@@ -62,7 +62,7 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
           <button
             onClick={() => fetchDiscovery(level)}
             disabled={isLoading}
-            className="flex items-center space-x-2 px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+            className="flex items-center space-x-2 px-4 py-2 rounded-2xl bg-slate-100 dark:bg-[#262626] hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-zinc-200 font-bold text-xs transition-colors cursor-pointer border border-transparent dark:border-white/10"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             <span>Đổi bộ từ ngẫu nhiên</span>
@@ -81,11 +81,11 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
                 className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                   isSelected
                     ? `bg-gradient-to-r ${conf.gradient} text-white shadow-md border-transparent`
-                    : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200'
+                    : 'bg-white dark:bg-[#262626] hover:bg-slate-50 dark:hover:bg-white/10 text-slate-800 dark:text-zinc-100 border-slate-200 dark:border-white/10'
                 }`}
               >
                 <div className="font-extrabold text-sm">{conf.badge}</div>
-                <div className={`text-[11px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-400'}`}>
+                <div className={`text-[11px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-400 dark:text-zinc-500'}`}>
                   {conf.label}
                 </div>
               </button>
@@ -107,23 +107,23 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
               <div
                 key={card.word}
                 onClick={() => onSelectWord(card.word)}
-                className="bg-white hover:bg-emerald-50/30 rounded-3xl p-5 border border-slate-200 hover:border-emerald-300 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between group"
+                className="bg-white dark:bg-[#212121] hover:bg-emerald-50/30 dark:hover:bg-[#262626] rounded-3xl p-5 border border-slate-200 dark:border-white/10 hover:border-emerald-300 dark:hover:border-white/20 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between group"
               >
                 <div>
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-baseline space-x-2">
-                        <span className="text-2xl font-black text-slate-900 group-hover:text-emerald-700 transition-colors">
+                        <span className="text-2xl font-black text-slate-900 dark:text-white group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
                           {card.word}
                         </span>
                         {card.ipa && (
-                          <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                          <span className="text-xs font-mono text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded-md border border-transparent dark:border-white/10">
                             {card.ipa}
                           </span>
                         )}
                       </div>
                       {card.primary_pos && (
-                        <span className="inline-block text-[11px] font-black uppercase text-slate-400 mt-1">
+                        <span className="inline-block text-[11px] font-black uppercase text-slate-400 dark:text-zinc-500 mt-1">
                           {card.primary_pos}
                         </span>
                       )}
@@ -132,7 +132,7 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
                     <div className="flex items-center space-x-1.5">
                       <button
                         onClick={(e) => handlePlayAudio(e, card.word)}
-                        className="p-2 rounded-xl bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-700 transition-colors cursor-pointer"
+                        className="p-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-emerald-100 dark:hover:bg-white/20 text-slate-600 dark:text-zinc-300 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors cursor-pointer border border-transparent dark:border-white/10"
                         title="Nghe phát âm"
                       >
                         <Volume2 className="w-4 h-4" />
@@ -141,8 +141,8 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
                         onClick={(e) => handleSave(e, card)}
                         className={`p-2 rounded-xl border transition-colors cursor-pointer ${
                           isSaved
-                            ? 'bg-amber-100 text-amber-700 border-amber-300'
-                            : 'bg-white hover:bg-slate-100 text-slate-400 border-slate-200'
+                            ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
+                            : 'bg-white dark:bg-white/10 hover:bg-slate-100 dark:hover:bg-white/20 text-slate-400 dark:text-zinc-300 border-slate-200 dark:border-white/10'
                         }`}
                         title="Lưu sổ tay"
                       >
@@ -151,18 +151,18 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
                     </div>
                   </div>
 
-                  <p className="text-sm font-extrabold text-slate-800 mt-3 line-clamp-2">
+                  <p className="text-sm font-extrabold text-slate-800 dark:text-zinc-100 mt-3 line-clamp-2">
                     {card.primary_meaning || 'Xem chi tiết'}
                   </p>
 
                   {card.primary_example && (
-                    <p className="text-xs text-slate-500 mt-2 bg-slate-50 p-2 rounded-xl border border-slate-100 line-clamp-2">
+                    <p className="text-xs text-slate-500 dark:text-zinc-400 mt-2 bg-slate-50 dark:bg-black/40 p-2 rounded-xl border border-slate-100 dark:border-white/5 line-clamp-2">
                       • {card.primary_example}
                     </p>
                   )}
                 </div>
 
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 text-xs font-bold text-emerald-600">
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-white/10 text-xs font-bold text-emerald-600 dark:text-emerald-400">
                   <span>Hỏi chatbot về từ này</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>

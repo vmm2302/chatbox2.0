@@ -4,6 +4,7 @@ import { Volume2, RotateCcw, CheckCircle2, XCircle, ArrowLeft, ArrowRight, Trash
 import { getNotebookWords, deleteNotebookWord, updateNotebookStatus } from '../services/api';
 import { tts } from '../services/tts';
 import { getLevelConfig } from '../utils/cefr';
+import ConfirmModal from './ConfirmModal';
 
 export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUser }) {
   const [words, setWords] = useState([]);
@@ -13,6 +14,14 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
   const [filterStatus, setFilterStatus] = useState('all');
   const [viewMode, setViewMode] = useState('flashcard'); // 'flashcard' or 'list'
   const [isLoading, setIsLoading] = useState(true);
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Xóa từ này',
+    type: 'danger',
+    onConfirm: null,
+  });
 
   const userId = currentUser?.id || 'default_user';
 
@@ -112,18 +121,27 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
     }
   };
 
-  const handleDelete = async (wordToDelete) => {
-    if (!confirm(`Bạn có chắc muốn xóa từ '${wordToDelete}' khỏi sổ tay?`)) return;
-    try {
-      await deleteNotebookWord(wordToDelete, userId);
-      setWords((prev) => prev.filter((w) => w.word !== wordToDelete));
-      if (currentIndex >= words.length - 1) {
-        setCurrentIndex(Math.max(0, words.length - 2));
-      }
-      if (onStatsUpdate) onStatsUpdate();
-    } catch (err) {
-      console.error('Delete word error:', err);
-    }
+  const handleDelete = (wordToDelete) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xóa từ vựng khỏi sổ tay?',
+      message: `Bạn có chắc chắn muốn xóa từ vựng "${wordToDelete}" khỏi sổ tay học tập không? Thao tác này không thể hoàn tác.`,
+      confirmText: 'Xóa từ này',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        try {
+          await deleteNotebookWord(wordToDelete, userId);
+          setWords((prev) => prev.filter((w) => w.word !== wordToDelete));
+          if (currentIndex >= words.length - 1) {
+            setCurrentIndex(Math.max(0, words.length - 2));
+          }
+          if (onStatsUpdate) onStatsUpdate();
+        } catch (err) {
+          console.error('Delete word error:', err);
+        }
+      },
+    });
   };
 
   const handlePlayAudio = (e, wordText) => {
@@ -135,35 +153,35 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
     <div className="max-w-4xl mx-auto px-4 py-6">
       
       {/* Top Controls Header */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm mb-6">
+      <div className="bg-white dark:bg-[#1c1c1c] rounded-3xl p-5 border border-slate-200 dark:border-white/10 shadow-sm mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
               <span>🗂️ Sổ Tay Từ Vựng & Flashcards</span>
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-zinc-400 font-medium mt-1">
               Ôn tập phản xạ từ vựng CEFR A1–B2 qua thẻ lật tương tác 3D
             </p>
           </div>
 
           {/* Mode Switcher */}
-          <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+          <div className="flex items-center space-x-2 bg-slate-100 dark:bg-[#262626] p-1 rounded-2xl border border-slate-200 dark:border-white/10">
             <button
               onClick={() => setViewMode('flashcard')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 viewMode === 'flashcard'
-                  ? 'bg-white text-emerald-700 shadow-sm font-extrabold'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-[#2f2f2f] text-emerald-700 dark:text-white shadow-sm font-extrabold dark:border dark:border-white/10'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               🎴 Thẻ lật 3D
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 viewMode === 'list'
-                  ? 'bg-white text-emerald-700 shadow-sm font-extrabold'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-[#2f2f2f] text-emerald-700 dark:text-white shadow-sm font-extrabold dark:border dark:border-white/10'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               📋 Danh sách từ
@@ -172,8 +190,8 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-          <span className="text-xs font-bold text-slate-400 flex items-center space-x-1">
+        <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-white/10">
+          <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 flex items-center space-x-1">
             <Filter className="w-3.5 h-3.5" />
             <span>Lọc cấp độ:</span>
           </span>
@@ -182,25 +200,25 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
             <button
               key={lvl}
               onClick={() => setFilterLevel(lvl)}
-              className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition-all ${
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                 filterLevel === lvl
                   ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  : 'bg-white dark:bg-[#262626] text-slate-600 dark:text-zinc-300 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
               }`}
             >
               {lvl}
             </button>
           ))}
 
-          <span className="text-xs font-bold text-slate-400 ml-2">Trạng thái:</span>
+          <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 ml-2">Trạng thái:</span>
           {['all', 'learning', 'mastered'].map((st) => (
             <button
               key={st}
               onClick={() => setFilterStatus(st)}
-              className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition-all ${
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                 filterStatus === st
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  ? 'bg-slate-900 dark:bg-white text-white dark:text-black border-slate-900 dark:border-white shadow-xs'
+                  : 'bg-white dark:bg-[#262626] text-slate-600 dark:text-zinc-300 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/10'
               }`}
             >
               {st === 'all' ? 'Tất cả' : st === 'learning' ? 'Đang học' : 'Đã thuộc'}
@@ -216,12 +234,12 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
         </div>
       ) : words.length === 0 ? (
         /* Empty Notebook State */
-        <div className="bg-white rounded-3xl p-10 border border-slate-200 shadow-sm text-center max-w-lg mx-auto">
-          <div className="w-16 h-16 rounded-3xl bg-amber-100 text-amber-600 flex items-center justify-center text-3xl mx-auto mb-4">
+        <div className="bg-white dark:bg-[#1c1c1c] rounded-3xl p-10 border border-slate-200 dark:border-white/10 shadow-sm text-center max-w-lg mx-auto">
+          <div className="w-16 h-16 rounded-3xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center text-3xl mx-auto mb-4">
             ⭐
           </div>
-          <h2 className="text-xl font-black text-slate-800">Sổ tay chưa có từ vựng nào!</h2>
-          <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+          <h2 className="text-xl font-black text-slate-800 dark:text-white">Sổ tay chưa có từ vựng nào!</h2>
+          <p className="text-sm text-slate-500 dark:text-zinc-400 mt-2 leading-relaxed">
             Khi tra cứu từ vựng trên chatbot, hãy nhấn nút <b>⭐ Lưu sổ tay</b> để gom lại các từ bạn muốn ghi nhớ và ôn tập tại đây.
           </p>
           <button
@@ -235,19 +253,19 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
         /* 3D INTERACTIVE FLASHCARD MODE */
         <div className="space-y-6">
           {/* Progress bar and counter */}
-          <div className="flex items-center justify-between text-xs font-bold text-slate-500 px-2">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-zinc-400 px-2">
             <span>
               Thẻ <b>{currentIndex + 1}</b> / {words.length}
             </span>
             <span>
               Trạng thái:{' '}
-              <b className={currentWord.status === 'mastered' ? 'text-emerald-600' : 'text-amber-600'}>
+              <b className={currentWord.status === 'mastered' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
                 {currentWord.status === 'mastered' ? '✅ Đã thuộc' : '⏳ Đang học'}
               </b>
             </span>
           </div>
 
-          <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+          <div className="w-full bg-slate-200 dark:bg-white/10 h-2 rounded-full overflow-hidden">
             <div
               className="bg-gradient-to-r from-emerald-500 to-teal-600 h-full transition-all duration-300 rounded-full"
               style={{ width: `${((currentIndex + 1) / words.length) * 100}%` }}
@@ -258,73 +276,73 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
           <div className="perspective-1000 w-full min-h-[360px] sm:min-h-[400px] cursor-pointer" onClick={handleFlip}>
             <div
               className={`relative w-full h-full min-h-[360px] sm:min-h-[400px] rounded-3xl transition-transform duration-500 transform-style-3d shadow-xl border-2 ${
-                isFlipped ? 'rotate-y-180 border-teal-300' : 'border-emerald-200'
+                isFlipped ? 'rotate-y-180 border-teal-300 dark:border-teal-500/40' : 'border-emerald-200 dark:border-white/10'
               }`}
             >
               {/* FRONT SIDE */}
-              <div className="absolute inset-0 w-full h-full backface-hidden bg-gradient-to-br from-white via-emerald-50/40 to-teal-50/60 rounded-3xl p-8 flex flex-col justify-between">
+              <div className="absolute inset-0 w-full h-full backface-hidden bg-gradient-to-br from-white via-emerald-50/40 to-teal-50/60 dark:from-[#232323] dark:via-[#212121] dark:to-[#1e1e1e] rounded-3xl p-8 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
-                  <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-100 dark:bg-white/10 text-emerald-800 dark:text-emerald-400 border border-emerald-200 dark:border-white/15">
                     {getLevelConfig(currentWord.level).badge}
                   </span>
                   <button
                     onClick={(e) => handlePlayAudio(e, currentWord.word)}
-                    className="p-2.5 rounded-2xl bg-white shadow-sm border border-slate-200 text-emerald-600 hover:bg-emerald-50 transition-all cursor-pointer"
+                    className="p-2.5 rounded-2xl bg-white dark:bg-white/10 shadow-sm border border-slate-200 dark:border-white/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-white/15 transition-all cursor-pointer"
                   >
                     <Volume2 className="w-5 h-5" />
                   </button>
                 </div>
 
                 <div className="text-center my-auto py-6">
-                  <h2 className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight">
+                  <h2 className="text-4xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
                     {currentWord.word}
                   </h2>
                   {currentWord.ipa && (
-                    <p className="text-lg font-mono font-bold text-slate-500 mt-2 bg-white/80 inline-block px-3 py-1 rounded-xl border border-slate-200/60">
+                    <p className="text-lg font-mono font-bold text-slate-500 dark:text-zinc-300 mt-2 bg-white/80 dark:bg-white/5 inline-block px-3 py-1 rounded-xl border border-slate-200/60 dark:border-white/10">
                       {currentWord.ipa}
                     </p>
                   )}
                   {currentWord.part_of_speech && (
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mt-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mt-3">
                       {currentWord.part_of_speech}
                     </p>
                   )}
                 </div>
 
-                <div className="text-center text-xs font-bold text-slate-400 flex items-center justify-center space-x-1.5">
+                <div className="text-center text-xs font-bold text-slate-400 dark:text-zinc-500 flex items-center justify-center space-x-1.5">
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Chạm hoặc nhấn Phím Cách (Space) để lật xem nghĩa</span>
                 </div>
               </div>
 
               {/* BACK SIDE */}
-              <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 bg-gradient-to-br from-white via-teal-50/50 to-cyan-50/60 rounded-3xl p-8 flex flex-col justify-between overflow-y-auto">
+              <div className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 bg-gradient-to-br from-white via-teal-50/50 to-cyan-50/60 dark:from-[#232323] dark:via-[#212121] dark:to-[#1e1e1e] rounded-3xl p-8 flex flex-col justify-between overflow-y-auto">
                 <div className="flex items-center justify-between">
-                  <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-teal-100 text-teal-800 border border-teal-200">
+                  <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-teal-100 dark:bg-white/10 text-teal-800 dark:text-teal-400 border border-teal-200 dark:border-white/15">
                     Nghĩa & Ví dụ
                   </span>
-                  <span className="text-sm font-bold text-slate-400">{currentWord.word}</span>
+                  <span className="text-sm font-bold text-slate-400 dark:text-zinc-500">{currentWord.word}</span>
                 </div>
 
                 <div className="my-auto py-4 space-y-4">
                   <div>
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Nghĩa tiếng Việt:</span>
-                    <p className="text-xl sm:text-2xl font-black text-slate-900 mt-1 leading-snug">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Nghĩa tiếng Việt:</span>
+                    <p className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-1 leading-snug">
                       {currentWord.meaning || 'Chưa cập nhật nghĩa chi tiết'}
                     </p>
                   </div>
 
                   {currentWord.example && (
-                    <div className="bg-white/90 p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
-                      <span className="text-xs font-bold uppercase tracking-wider text-teal-700">Ví dụ câu:</span>
-                      <p className="text-sm sm:text-base font-semibold text-slate-800 mt-1">
+                    <div className="bg-white/90 dark:bg-black/35 p-4 rounded-2xl border border-slate-200/80 dark:border-white/5 shadow-2xs">
+                      <span className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400">Ví dụ câu:</span>
+                      <p className="text-sm sm:text-base font-semibold text-slate-800 dark:text-zinc-200 mt-1">
                         • {currentWord.example}
                       </p>
                     </div>
                   )}
                 </div>
 
-                <div className="text-center text-xs font-bold text-slate-400">
+                <div className="text-center text-xs font-bold text-slate-400 dark:text-zinc-500">
                   Chạm để lật lại mặt trước
                 </div>
               </div>
@@ -336,16 +354,16 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
             <button
               onClick={handlePrev}
               title="Thẻ trước (←)"
-              className="p-3.5 rounded-2xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer"
+              className="p-3.5 rounded-2xl bg-white dark:bg-[#262626] border border-slate-200 dark:border-white/10 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-white/10 shadow-sm cursor-pointer"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
 
             <button
               onClick={handleMarkReview}
-              className="flex-1 max-w-xs flex items-center justify-center space-x-2 py-3.5 px-4 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-extrabold text-sm shadow-sm transition-all cursor-pointer"
+              className="flex-1 max-w-xs flex items-center justify-center space-x-2 py-3.5 px-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 font-extrabold text-sm shadow-sm transition-all cursor-pointer"
             >
-              <XCircle className="w-4 h-4 text-amber-600" />
+              <XCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               <span>Cần ôn lại</span>
             </button>
 
@@ -360,7 +378,7 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
             <button
               onClick={handleNext}
               title="Thẻ tiếp (→)"
-              className="p-3.5 rounded-2xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm cursor-pointer"
+              className="p-3.5 rounded-2xl bg-white dark:bg-[#262626] border border-slate-200 dark:border-white/10 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-white/10 shadow-sm cursor-pointer"
             >
               <ArrowRight className="w-5 h-5" />
             </button>
@@ -368,31 +386,31 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
         </div>
       ) : (
         /* TABLE / LIST MODE */
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-100">
+        <div className="bg-white dark:bg-[#1c1c1c] rounded-3xl border border-slate-200 dark:border-white/10 shadow-sm overflow-hidden divide-y divide-slate-100 dark:divide-white/10">
           {words.map((item) => (
-            <div key={item.word} className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/80 transition-colors">
+            <div key={item.word} className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/80 dark:hover:bg-white/[0.04] transition-colors">
               <div className="space-y-1">
                 <div className="flex items-center space-x-3">
-                  <span className="text-lg font-black text-slate-900">{item.word}</span>
-                  {item.ipa && <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{item.ipa}</span>}
-                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold ${getLevelConfig(item.level).bgLight} ${getLevelConfig(item.level).text}`}>
+                  <span className="text-lg font-black text-slate-900 dark:text-white">{item.word}</span>
+                  {item.ipa && <span className="text-xs font-mono text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded-md border border-transparent dark:border-white/10">{item.ipa}</span>}
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold ${getLevelConfig(item.level).bgLight} ${getLevelConfig(item.level).text} dark:bg-white/10 dark:border dark:border-white/15 dark:text-zinc-200`}>
                     {item.level}
                   </span>
                 </div>
-                <p className="text-sm font-semibold text-slate-700">{item.meaning}</p>
-                {item.example && <p className="text-xs text-slate-500 truncate max-w-lg">• {item.example}</p>}
+                <p className="text-sm font-semibold text-slate-700 dark:text-zinc-200">{item.meaning}</p>
+                {item.example && <p className="text-xs text-slate-500 dark:text-zinc-400 truncate max-w-lg">• {item.example}</p>}
               </div>
 
               <div className="flex items-center space-x-2 shrink-0">
                 <button
                   onClick={(e) => handlePlayAudio(e, item.word)}
-                  className="p-2 rounded-xl text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 border border-slate-200 transition-colors cursor-pointer"
+                  className="p-2 rounded-xl text-slate-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 transition-colors cursor-pointer"
                 >
                   <Volume2 className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleDelete(item.word)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-200 transition-colors cursor-pointer"
+                  className="p-2 rounded-xl text-slate-400 dark:text-zinc-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 transition-colors cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -402,6 +420,16 @@ export default function FlashcardView({ onSwitchToChat, onStatsUpdate, currentUs
         </div>
       )}
 
+      {/* In-App Modern Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        type={confirmModal.type}
+        onConfirm={confirmModal.onConfirm}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

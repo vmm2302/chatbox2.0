@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 def is_in_scope_domain(query: str, vocab_words: Set[str], knowledge_words: Optional[Set[str]] = None) -> bool:
     """Kiểm tra câu hỏi có thuộc phạm vi tri thức hiện có hay không."""
-    q_lower = query.lower()
+    clean = query.strip()
+    q_lower = clean.lower()
 
     # 1. Có chứa từ vựng hoặc từ khóa nằm trong kho tri thức
     tokens = re.findall(r"\b[\w\-]+\b", q_lower)
@@ -41,7 +42,24 @@ def is_in_scope_domain(query: str, vocab_words: Set[str], knowledge_words: Optio
         if level in q_lower and any(k in q_lower for k in ["trình độ", "trinh do", "cấp độ", "danh sách"]):
             return True
 
-    # 3. Câu hỏi tra cứu từ tiếng Việt sang tiếng Anh hoặc dịch thuật, tra nghĩa
+    # 3. Kiểm tra nếu câu hỏi là tra cứu một từ tiếng Anh cụ thể nhưng từ này không có trong kho tri thức
+    en_vocab_lookup_patterns = [
+        r"^(?:từ\s+|từ vựng\s+)?([a-zA-Z\s\-]{2,})\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*\??$",
+        r"^(?:nghĩa của từ|nghĩa từ|nghĩa của)\s+(?:từ\s+|chữ\s+)?([a-zA-Z\s\-]{2,})\s*\??$",
+        r"^(?:tra từ|giải thích từ)\s+([a-zA-Z\s\-]{2,})\s*\??$",
+        r"^(?:what\s+does\s+)([a-zA-Z\s\-]{2,})\s+mean(?:\s+in\s+vietnamese)?\s*\??$",
+        r"^(?:what\s+is\s+the\s+meaning\s+of\s+|meaning\s+of\s+)([a-zA-Z\s\-]{2,})\s*\??$",
+    ]
+    for pat in en_vocab_lookup_patterns:
+        m = re.match(pat, clean, re.IGNORECASE)
+        if m:
+            cand = m.group(1).strip().lower()
+            cand_clean = re.sub(r"^[^\w]+|[^\w]+$", "", cand)
+            if cand_clean and cand_clean not in VIETNAMESE_STOPWORDS:
+                if cand_clean not in vocab_words:
+                    return False
+
+    # 4. Câu hỏi tra cứu từ tiếng Việt sang tiếng Anh hoặc dịch thuật, tra nghĩa
     tieng_anh_indicators = [
         "tiếng anh", "tieng anh", "dịch sang anh", "dich sang anh",
         "trong tiếng anh", "trong tieng anh", "tiếng anh là gì",

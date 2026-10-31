@@ -195,16 +195,14 @@ async def chat_endpoint(payload: ChatRequest):
 
     # Check direct word dictionary match first for zero-latency response
     clean_lower = clean_query.lower()
-    # Strip common Vietnamese search prefixes if user typed "từ apple nghĩa là gì?"
-    word_candidate = clean_lower
-    for prefix in ["từ ", "nghĩa của từ ", "nghĩa của ", "từ vựng ", "tra từ "]:
-        if word_candidate.startswith(prefix):
-            word_candidate = word_candidate[len(prefix):].strip()
-            break
-    for suffix in [" nghĩa là gì?", " nghĩa là gì", " là gì?", " là gì", " means", " meaning"]:
-        if word_candidate.endswith(suffix):
-            word_candidate = word_candidate[:-len(suffix)].strip()
-            break
+    extracted_word = tracker.extract_target_word(clean_query)
+    word_candidate = extracted_word if extracted_word else clean_lower
+    if not extracted_word:
+        for prefix in ["từ ", "nghĩa của từ ", "nghĩa của ", "từ vựng ", "tra từ "]:
+            if word_candidate.startswith(prefix):
+                word_candidate = word_candidate[len(prefix):].strip()
+                break
+        word_candidate = re.sub(r"\s*(?:nghĩa là gì|là gì|có nghĩa là gì|means?|meaning)\s*\??$", "", word_candidate, flags=re.IGNORECASE).strip()
 
     direct_rec = _WORD_INDEX.get(word_candidate)
     
@@ -232,27 +230,41 @@ async def chat_endpoint(payload: ChatRequest):
         active_word = direct_rec.word
         meta_info = {"mode": "DIRECT_MATCH", "intent": "DEFINE_VOCAB", "latency_ms": 1.2}
     else:
-        answer_text = f"Xin lỗi, hiện tại chưa tìm thấy thông tin cho câu hỏi '{clean_query}'. Bạn hãy thử nhập từ tiếng Anh cụ thể nhé!"
+        answer_text = "Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
         active_word = ""
 
-    # If active_word wasn't resolved, use candidate if it's an English word
-    if not active_word and word_candidate in _WORD_INDEX:
-        active_word = word_candidate
-
-    # Ensure the mandatory prefix is prepended: 'Từ bạn tìm kiếm: <word>'
-    final_text = ensure_required_search_prefix(answer_text, active_word)
-
-    # Parse rich card data
-    rec_level = getattr(direct_rec, "level", "A1") if direct_rec else "A1"
-    structured_card = parse_vocabulary_text(
-        final_text,
-        default_word=active_word or word_candidate,
-        default_level=rec_level,
+    is_out_of_scope = (
+        meta_info.get("mode") == "NO_MATCH"
+        or "nằm ngoài phạm vi" in (answer_text or "").lower()
+        or "chưa có dữ liệu" in (answer_text or "").lower()
     )
 
-    # Dynamic follow-up suggestion chips tailored to CEFR level
-    current_level = structured_card.get("level", "A1")
-    suggestions = _build_level_suggestions(active_word or word_candidate, current_level)
+    if is_out_of_scope:
+        active_word = ""
+        final_text = (answer_text or "").strip()
+        structured_card = None
+        suggestions = []
+        meta_info["record_id"] = None
+        meta_info["word"] = ""
+    else:
+        # If active_word wasn't resolved, use candidate if it's an English word
+        if not active_word and word_candidate in _WORD_INDEX:
+            active_word = word_candidate
+
+        # Ensure the mandatory prefix is prepended: 'Từ bạn tìm kiếm: <word>'
+        final_text = ensure_required_search_prefix(answer_text, active_word)
+
+        # Parse rich card data
+        rec_level = getattr(direct_rec, "level", "A1") if direct_rec else "A1"
+        structured_card = parse_vocabulary_text(
+            final_text,
+            default_word=active_word or word_candidate,
+            default_level=rec_level,
+        )
+
+        # Dynamic follow-up suggestion chips tailored to CEFR level
+        current_level = structured_card.get("level", "A1") if structured_card else "A1"
+        suggestions = _build_level_suggestions(active_word or word_candidate, current_level)
 
     # Check if word is already saved in notebook
     is_saved = False

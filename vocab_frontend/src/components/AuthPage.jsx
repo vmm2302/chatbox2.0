@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Lock, User, Sparkles, BookOpen, ShieldCheck, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import { loginUser, registerUser } from '../services/api';
+import ThemeToggle from './ThemeToggle';
 
-export default function AuthPage({ onLoginSuccess }) {
+export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
   const [tab, setTab] = useState('login'); // 'login' | 'register'
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -48,10 +49,17 @@ export default function AuthPage({ onLoginSuccess }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-teal-950 flex items-center justify-center p-4 sm:p-6 text-slate-100">
+    <div className="min-h-screen bg-slate-100 dark:bg-[#171717] flex items-center justify-center p-4 sm:p-6 text-slate-900 dark:text-[#ececec] relative transition-colors duration-200">
       
+      {/* Floating Theme Toggle (Top Right) */}
+      {onThemeChange && (
+        <div className="absolute top-4 right-4 z-20">
+          <ThemeToggle currentTheme={themeMode} onThemeChange={onThemeChange} />
+        </div>
+      )}
+
       {/* Container Box */}
-      <div className="w-full max-w-5xl bg-white/10 backdrop-blur-xl rounded-3xl border border-white/20 shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+      <div className="w-full max-w-5xl bg-white dark:bg-[#212121] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12">
         
         {/* Left Hero Banner */}
         <div className="lg:col-span-6 p-8 sm:p-12 flex flex-col justify-between bg-gradient-to-br from-emerald-600/90 via-teal-700/80 to-cyan-800/90 text-white relative overflow-hidden">
@@ -95,16 +103,16 @@ export default function AuthPage({ onLoginSuccess }) {
         </div>
 
         {/* Right Auth Forms */}
-        <div className="lg:col-span-6 p-8 sm:p-12 bg-white flex flex-col justify-center text-slate-800">
+        <div className="lg:col-span-6 p-8 sm:p-12 bg-white dark:bg-[#1a1a1a] flex flex-col justify-center text-slate-800 dark:text-[#ececec]">
           
           {/* Tabs */}
-          <div className="flex items-center space-x-2 bg-slate-100 p-1.5 rounded-2xl mb-6">
+          <div className="flex items-center space-x-2 bg-slate-100 dark:bg-[#262626] p-1.5 rounded-2xl mb-6 border border-transparent dark:border-white/5">
             <button
               onClick={() => { setTab('login'); setError(''); setNotice(''); }}
               className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer ${
                 tab === 'login'
-                  ? 'bg-white text-emerald-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900'
+                  ? 'bg-white dark:bg-[#2f2f2f] text-emerald-700 dark:text-emerald-400 shadow-sm dark:border dark:border-white/10'
+                  : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
               }`}
             >
               🔐 Đăng nhập
@@ -113,8 +121,8 @@ export default function AuthPage({ onLoginSuccess }) {
               onClick={() => { setTab('register'); setError(''); setNotice(''); }}
               className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer ${
                 tab === 'register'
-                  ? 'bg-white text-emerald-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-900'
+                  ? 'bg-white dark:bg-[#2f2f2f] text-emerald-700 dark:text-emerald-400 shadow-sm dark:border dark:border-white/10'
+                  : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
               }`}
             >
               📝 Tạo tài khoản mới
@@ -123,10 +131,10 @@ export default function AuthPage({ onLoginSuccess }) {
 
           {/* Heading */}
           <div className="mb-6">
-            <h3 className="text-xl sm:text-2xl font-black text-slate-900">
+            <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
               {tab === 'login' ? 'Chào mừng bạn trở lại 👋' : 'Bắt đầu học ngay hôm nay ✨'}
             </h3>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-zinc-400 mt-1">
               {tab === 'login'
                 ? 'Đăng nhập để tiếp tục buổi học và xem lịch sử tra cứu của bạn.'
                 : 'Tạo tài khoản để cá nhân hóa sổ tay từ vựng và lưu tiến độ ôn tập.'}
@@ -135,13 +143,13 @@ export default function AuthPage({ onLoginSuccess }) {
 
           {/* Notices & Errors */}
           {error && (
-            <div className="flex items-center space-x-2 p-3.5 mb-4 rounded-xl bg-red-50 text-red-700 border border-red-200 text-xs sm:text-sm font-semibold">
+            <div className="flex items-center space-x-2 p-3.5 mb-4 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/40 text-xs sm:text-sm font-semibold">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
           {notice && (
-            <div className="flex items-center space-x-2 p-3.5 mb-4 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs sm:text-sm font-semibold">
+            <div className="flex items-center space-x-2 p-3.5 mb-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/40 text-xs sm:text-sm font-semibold">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{notice}</span>
             </div>
@@ -151,7 +159,7 @@ export default function AuthPage({ onLoginSuccess }) {
           {tab === 'login' ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1.5">
                   Tên đăng nhập
                 </label>
                 <input
@@ -160,12 +168,12 @@ export default function AuthPage({ onLoginSuccess }) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="ví dụ: admin hoặc nguyenvana"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold text-slate-800 focus:outline-hidden transition-all"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1.5">
                   Mật khẩu
                 </label>
                 <input
@@ -174,7 +182,7 @@ export default function AuthPage({ onLoginSuccess }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Nhập mật khẩu"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold text-slate-800 focus:outline-hidden transition-all"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
               </div>
 
@@ -191,7 +199,7 @@ export default function AuthPage({ onLoginSuccess }) {
             /* REGISTER FORM */
             <form onSubmit={handleRegister} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1">
                   Tên đăng nhập *
                 </label>
                 <input
@@ -200,12 +208,12 @@ export default function AuthPage({ onLoginSuccess }) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="3–30 ký tự (chữ cái, số)"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold text-slate-800 focus:outline-hidden transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1">
                   Tên hiển thị
                 </label>
                 <input
@@ -213,12 +221,12 @@ export default function AuthPage({ onLoginSuccess }) {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="Ví dụ: Minh Anh"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold text-slate-800 focus:outline-hidden transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1">
                   Mật khẩu *
                 </label>
                 <input
@@ -227,12 +235,12 @@ export default function AuthPage({ onLoginSuccess }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Tối thiểu 6 ký tự"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold text-slate-800 focus:outline-hidden transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-1">
                   Xác nhận mật khẩu *
                 </label>
                 <input
@@ -241,7 +249,7 @@ export default function AuthPage({ onLoginSuccess }) {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Nhập lại mật khẩu"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold text-slate-800 focus:outline-hidden transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
               </div>
 

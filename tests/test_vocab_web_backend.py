@@ -35,6 +35,12 @@ def test_required_search_prefix():
     res3 = ensure_required_search_prefix(already_fmt, "about")
     assert res3 == already_fmt
 
+    # Test 4: Out of scope responses must NOT have prefix
+    oos_text = "Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
+    res4 = ensure_required_search_prefix(oos_text, "sustainable")
+    assert not res4.startswith("Từ bạn tìm kiếm:"), "Out of scope text must not have search prefix"
+    assert res4 == oos_text
+
 
 def test_parse_vocabulary_text():
     sample = """Từ bạn tìm kiếm: amazing
@@ -55,6 +61,11 @@ Kinh ngạc, sửng sốt, tuyệt vời, phi thường
     assert "Kinh ngạc" in parsed["primary_meaning"]
     assert len(parsed["blocks"]) > 0
     assert len(parsed["blocks"][0]["meanings"][0]["examples"]) == 2
+
+    # Test out-of-scope text should return None instead of creating fake card
+    oos = "Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
+    parsed_oos = parse_vocabulary_text(oos, default_word="sustainable")
+    assert parsed_oos is None, "Out-of-scope response must return None for parsed card"
 
 
 def test_notebook_db():

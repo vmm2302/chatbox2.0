@@ -271,6 +271,19 @@ class ChatEngine:
                 tracker=active_tracker,
             )
 
+        # Kiểm tra nếu người dùng tra cứu một từ tiếng Anh cụ thể nhưng từ đó nằm ngoài kho dữ liệu
+        if target_word and target_word.lower() not in self.retriever.english_vocab_words and not is_follow_up:
+            return self._create_and_log_response(
+                clean_query=clean_query,
+                resolved_query=resolved_query,
+                intent="OUT_OF_SCOPE",
+                answer=settings.OUT_OF_SCOPE_RESPONSE,
+                mode="NO_MATCH",
+                start_time=start_time,
+                active_word=None,
+                tracker=active_tracker,
+            )
+
         # Nếu câu hỏi hoàn toàn ngoài phạm vi (OUT_OF_SCOPE) và không có từ tiếng Anh nào được phát hiện
         if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not active_tracker.active_word:
             if not any(token.lower().strip("?,.!") in active_tracker.vocab_words for token in clean_query.split()):
@@ -300,6 +313,19 @@ class ChatEngine:
             exact_target_match = next((c for c in candidates if c.record.word and c.record.word.strip().lower() == target_word.strip().lower()), None)
             if exact_target_match:
                 best_candidate = exact_target_match
+            else:
+                # Top candidate không phải là từ người dùng hỏi (tránh false positive như lấy 'solar' cho 'sustainable')
+                return self._create_and_log_response(
+                    clean_query=clean_query,
+                    resolved_query=resolved_query,
+                    intent=intent_res.intent,
+                    answer=settings.OUT_OF_SCOPE_RESPONSE,
+                    mode="NO_MATCH",
+                    start_time=start_time,
+                    active_word=None,
+                    candidates=[],
+                    tracker=active_tracker,
+                )
 
         # KHÓA ĐỌC ĐÃ ĐƯỢC NHẢ TẠI ĐÂY!
         # Bước 5: Kiểm tra Domain & Threshold Gate
@@ -311,8 +337,8 @@ class ChatEngine:
                 answer=settings.OUT_OF_SCOPE_RESPONSE,
                 mode="NO_MATCH",
                 start_time=start_time,
-                active_word=active_tracker.active_word,
-                candidates=candidates,
+                active_word=None,
+                candidates=[],
                 tracker=active_tracker,
             )
 
@@ -353,6 +379,20 @@ class ChatEngine:
             except Exception as final_err:
                 logger.error("Lỗi khi gọi Qwen2.5:7B: %s", final_err)
                 llm_answer = f"{settings.OLLAMA_OFFLINE_RESPONSE}\n(Chi tiết: {final_err})"
+
+        # Nếu LLM xác nhận không đủ ngữ cảnh và đưa ra câu từ chối ngoài phạm vi
+        if settings.OUT_OF_SCOPE_RESPONSE in llm_answer or "nằm ngoài phạm vi" in llm_answer:
+            return self._create_and_log_response(
+                clean_query=clean_query,
+                resolved_query=resolved_query,
+                intent="OUT_OF_SCOPE",
+                answer=settings.OUT_OF_SCOPE_RESPONSE,
+                mode="NO_MATCH",
+                start_time=start_time,
+                active_word=None,
+                candidates=[],
+                tracker=active_tracker,
+            )
 
         formatted_answer = format_vocabulary_response(llm_answer, word=query_word)
         return self._create_and_log_response(
@@ -499,6 +539,21 @@ class ChatEngine:
             yield resp.answer, resp
             return
 
+        # Kiểm tra nếu người dùng tra cứu một từ tiếng Anh cụ thể nhưng từ đó nằm ngoài kho dữ liệu
+        if target_word and target_word.lower() not in self.retriever.english_vocab_words and not is_follow_up:
+            resp = self._create_and_log_response(
+                clean_query=clean_query,
+                resolved_query=resolved_query,
+                intent="OUT_OF_SCOPE",
+                answer=settings.OUT_OF_SCOPE_RESPONSE,
+                mode="NO_MATCH",
+                start_time=start_time,
+                active_word=None,
+                tracker=active_tracker,
+            )
+            yield resp.answer, resp
+            return
+
         if intent_res.intent == "OUT_OF_SCOPE" and not target_word and not active_tracker.active_word:
             if not any(token.lower().strip("?,.!") in active_tracker.vocab_words for token in clean_query.split()):
                 resp = self._create_and_log_response(
@@ -529,6 +584,21 @@ class ChatEngine:
             exact_target_match = next((c for c in candidates if c.record.word and c.record.word.strip().lower() == target_word.strip().lower()), None)
             if exact_target_match:
                 best_candidate = exact_target_match
+            else:
+                # Top candidate không phải là từ người dùng hỏi (tránh false positive như lấy 'solar' cho 'sustainable')
+                resp = self._create_and_log_response(
+                    clean_query=clean_query,
+                    resolved_query=resolved_query,
+                    intent=intent_res.intent,
+                    answer=settings.OUT_OF_SCOPE_RESPONSE,
+                    mode="NO_MATCH",
+                    start_time=start_time,
+                    active_word=None,
+                    candidates=[],
+                    tracker=active_tracker,
+                )
+                yield resp.answer, resp
+                return
 
         # KHÓA ĐỌC ĐÃ ĐƯỢC NHẢ TẠI ĐÂY!
         # Bước 5: Threshold Gate
@@ -540,8 +610,8 @@ class ChatEngine:
                 answer=settings.OUT_OF_SCOPE_RESPONSE,
                 mode="NO_MATCH",
                 start_time=start_time,
-                active_word=active_tracker.active_word,
-                candidates=candidates,
+                active_word=None,
+                candidates=[],
                 tracker=active_tracker,
             )
             yield resp.answer, resp
@@ -595,6 +665,21 @@ class ChatEngine:
                 accumulated_text += error_msg
                 yield error_msg, None
 
+
+        if settings.OUT_OF_SCOPE_RESPONSE in accumulated_text or "nằm ngoài phạm vi" in accumulated_text:
+            final_resp = self._create_and_log_response(
+                clean_query=clean_query,
+                resolved_query=resolved_query,
+                intent="OUT_OF_SCOPE",
+                answer=settings.OUT_OF_SCOPE_RESPONSE,
+                mode="NO_MATCH",
+                start_time=start_time,
+                active_word=None,
+                candidates=[],
+                tracker=active_tracker,
+            )
+            yield "", final_resp
+            return
 
         formatted_final = format_vocabulary_response(accumulated_text, word=query_word)
         final_resp = self._create_and_log_response(

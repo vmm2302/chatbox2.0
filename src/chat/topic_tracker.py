@@ -100,7 +100,31 @@ class TopicTracker:
 
         clean_lower = clean.lower()
 
-        # 1. Ưu tiên kiểm tra với tập từ vựng tiếng Anh chuẩn trong Dataset (vocab_words)
+        # 1. Ưu tiên từ nằm trong dấu ngoặc kép hoặc ngoặc đơn: "word", 'word', “word”, ‘word’
+        quote_match = re.search(r"[\"'\u201c\u2018]([a-zA-Z\s\-]{2,})[\"'\u201d\u2019]", clean)
+        if quote_match:
+            candidate = quote_match.group(1).strip().lower()
+            if candidate not in VIETNAMESE_STOPWORDS and len(candidate) >= 2:
+                return candidate
+
+        # 2. Kiểm tra các mẫu câu định nghĩa phổ biến (kể cả từ chưa có trong kho dữ liệu)
+        # Hỗ trợ tùy chọn khoảng trắng và dấu hỏi: \s*\?*
+        def_patterns = [
+            r"^(?:từ\s+|từ vựng\s+)?([a-zA-Z\s\-]{2,})\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*\??$",
+            r"^(?:nghĩa của từ|nghĩa từ|nghĩa của)\s+(?:từ\s+|chữ\s+)?([a-zA-Z\s\-]{2,})\s*\??$",
+            r"^(?:tra từ|giải thích từ)\s+([a-zA-Z\s\-]{2,})\s*\??$",
+            r"^(?:what\s+does\s+)([a-zA-Z\s\-]{2,})\s+mean(?:\s+in\s+vietnamese)?\s*\??$",
+            r"^(?:what\s+is\s+the\s+meaning\s+of\s+|meaning\s+of\s+)([a-zA-Z\s\-]{2,})\s*\??$",
+        ]
+        for pat in def_patterns:
+            m = re.match(pat, clean, re.IGNORECASE)
+            if m:
+                cand = m.group(1).strip().lower()
+                cand_clean = re.sub(r"^[^\w]+|[^\w]+$", "", cand)
+                if cand_clean and cand_clean not in VIETNAMESE_STOPWORDS and len(cand_clean) >= 2:
+                    return cand_clean
+
+        # 3. Kiểm tra với tập từ vựng tiếng Anh chuẩn trong Dataset (vocab_words)
         # Sắp xếp theo độ dài giảm dần để ưu tiên từ ghép như 'hard-working', 'give up'
         if self.vocab_words:
             sorted_vocab = sorted(self.vocab_words, key=len, reverse=True)
@@ -109,22 +133,7 @@ class TopicTracker:
                 if re.search(pattern, f" {clean_lower} "):
                     return kw
 
-        # 2. Ưu tiên từ nằm trong dấu ngoặc kép hoặc ngoặc đơn: "word", 'word', “word”, ‘word’
-        quote_match = re.search(r"[\"'\u201c\u2018]([a-zA-Z\s\-]{2,})[\"'\u201d\u2019]", clean)
-        if quote_match:
-            candidate = quote_match.group(1).strip().lower()
-            if candidate not in VIETNAMESE_STOPWORDS and len(candidate) >= 2:
-                return candidate
-
-        # 3. Kiểm tra các mẫu câu định nghĩa phổ biến
-        # Ví dụ: "nghĩa của [word]?", "nghĩa từ [word]?", "nghĩa của từ [word]?"
-        meaning_match = re.search(r"(?:nghĩa của từ|nghĩa từ|nghĩa của)\s+(?:từ\s+|chữ\s+)?([a-zA-Z0-9_\-]{2,})", clean_lower)
-        if meaning_match:
-            cand = meaning_match.group(1).strip()
-            if cand not in VIETNAMESE_STOPWORDS and len(cand) >= 2:
-                return cand
-
-        # 3. Phân rã theo khoảng trắng và kiểm tra token thuần tiếng Anh (re.fullmatch)
+        # 4. Phân rã theo khoảng trắng và kiểm tra token thuần tiếng Anh (re.fullmatch)
         # Bỏ qua các token chứa ký tự tiếng Việt hoặc dấu câu
         raw_tokens = clean.split()
         cleaned_tokens = [re.sub(r"^[^\w]+|[^\w]+$", "", t) for t in raw_tokens]
@@ -143,20 +152,19 @@ class TopicTracker:
                     if nxt_lower not in VIETNAMESE_STOPWORDS and nxt_lower not in ("nay", "do", "tren", "kia"):
                         return nxt_lower
 
-        # 4. Nếu toàn bộ câu hỏi chỉ là 1 từ hoặc cụm 2 từ tiếng Anh thuần túy
+        # 5. Nếu toàn bộ câu hỏi chỉ là 1 từ hoặc cụm 2 từ tiếng Anh thuần túy
         valid_en_tokens = [t.lower() for t in cleaned_tokens if re.fullmatch(r"[a-zA-Z0-9_\-]{2,}", t) and t.lower() not in VIETNAMESE_STOPWORDS]
         if len(cleaned_tokens) <= 3 and valid_en_tokens:
             return valid_en_tokens[0]
 
-        # 5. Token tiếng Anh hợp lệ đầu tiên nếu dài >= 3 ký tự và không phải stopword
+        # 6. Token tiếng Anh hợp lệ đầu tiên nếu dài >= 3 ký tự và không phải stopword
         if self.vocab_words:
             for t in valid_en_tokens:
                 if t in self.vocab_words:
                     return t
-        else:
-            for t in valid_en_tokens:
-                if len(t) >= 3 and t not in VIETNAMESE_STOPWORDS:
-                    return t
+        for t in valid_en_tokens:
+            if len(t) >= 3 and t not in VIETNAMESE_STOPWORDS:
+                return t
 
         return None
 

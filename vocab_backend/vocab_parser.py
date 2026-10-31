@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 # Regex patterns matching vocabulary fields
-RE_LEVEL = re.compile(r"^(?:\*\*)?Trình độ:(?:\*\*)?\s*(.*)$", re.IGNORECASE)
-RE_PRON = re.compile(r"^(?:\*\*)?Phát âm:(?:\*\*)?\s*(.*)$", re.IGNORECASE)
-RE_BULLET = re.compile(r"^(?:[•\-\*]\s*|(?:Ví dụ|Example):\s*)(.+)$", re.IGNORECASE)
+RE_LEVEL = re.compile(r"^\*{0,2}Trình độ\*{0,2}:?\*{0,2}\s*(.*)$", re.IGNORECASE)
+RE_PRON = re.compile(r"^\*{0,2}Phát âm\*{0,2}:?\*{0,2}\s*(.*)$", re.IGNORECASE)
+RE_BULLET = re.compile(r"^(?:[•]\s*|[-*](?!\*)\s+|(?:Ví dụ|Example):\s*)(.+)$", re.IGNORECASE)
 
 POS_NAMES = (
     r"Danh từ|Động từ|Tính từ|Trạng từ|Giới từ|Liên từ|Thán từ|Mạo từ|Đại từ|"
@@ -33,6 +33,19 @@ def ensure_required_search_prefix(answer: str, word: Optional[str] = None) -> st
     if not word or not word.strip():
         return answer
 
+    # Nếu câu trả lời là câu từ chối ngoài phạm vi, hỏi lại mơ hồ, hoặc không tìm thấy dữ liệu:
+    # Tuyệt đối không chèn tiền tố 'Từ bạn tìm kiếm: <word>' để tránh gây hiểu lầm
+    low = (answer or "").lower()
+    if (
+        "nằm ngoài phạm vi" in low
+        or "chưa có dữ liệu" in low
+        or "chưa tìm thấy dữ liệu" in low
+        or "bạn đang muốn hỏi về từ vựng nào" in low
+        or "vui lòng cung cấp từ tiếng anh" in low
+        or "vui lòng nhập câu hỏi" in low
+    ):
+        return answer
+
     clean_word = word.strip()
     prefix = f"Từ bạn tìm kiếm: {clean_word}"
     
@@ -51,8 +64,25 @@ def ensure_required_search_prefix(answer: str, word: Optional[str] = None) -> st
     return f"{prefix}\n\n{answer}"
 
 
-def parse_vocabulary_text(text: str, default_word: str = "", default_level: str = "A1") -> Dict[str, Any]:
-    """Parse text from knowledge base or ChatEngine into rich structured card information."""
+def parse_vocabulary_text(text: str, default_word: str = "", default_level: str = "A1") -> Optional[Dict[str, Any]]:
+    """Parse text from knowledge base or ChatEngine into rich structured card information.
+    Returns None if text is an out-of-scope rejection, small-talk, or clarification message.
+    """
+    if not text or not isinstance(text, str):
+        return None
+
+    low = text.lower()
+    # Nếu là câu từ chối ngoài phạm vi hoặc yêu cầu làm rõ, không hiển thị dưới dạng VocabCard
+    if (
+        "nằm ngoài phạm vi" in low
+        or "chưa có dữ liệu" in low
+        or "chưa tìm thấy dữ liệu" in low
+        or "bạn đang muốn hỏi về từ vựng nào" in low
+        or "vui lòng cung cấp từ tiếng anh" in low
+        or "vui lòng nhập câu hỏi" in low
+    ):
+        return None
+
     raw_lines = [line.strip() for line in (text or "").strip().split("\n")]
     
     word = default_word
@@ -81,7 +111,12 @@ def parse_vocabulary_text(text: str, default_word: str = "", default_level: str 
             continue
 
         # Ignore prefix line in card parsing
-        if line.lower().startswith("từ bạn tìm kiếm:") or line.lower().startswith("từ **"):
+        low_line = line.lower()
+        if (
+            low_line.startswith("từ bạn tìm kiếm:")
+            or low_line.startswith("từ **")
+            or re.match(r"^(?:\*\*)?(?:\d+[\.\)]\s*)?từ bạn tìm kiếm:", low_line)
+        ):
             idx += 1
             continue
 
@@ -146,6 +181,7 @@ def parse_vocabulary_text(text: str, default_word: str = "", default_level: str 
         m_txt = line.strip()
         m_txt = re.sub(r"^(?:\*\*)?\d+[\.\)]\s*(?:\*\*)?", "", m_txt).strip()
         m_txt = re.sub(r"^\*\*(.*?)\*\*$", r"\1", m_txt).strip()
+        m_txt = m_txt.strip("* ")
 
         examples: List[str] = []
         idx += 1
@@ -156,20 +192,27 @@ def parse_vocabulary_text(text: str, default_word: str = "", default_level: str 
                 idx += 1
                 continue
 
+            clean_nl = next_line.rstrip(":").strip().lstrip("#").strip()
             if (
                 RE_LEVEL.match(next_line)
                 or RE_PRON.match(next_line)
-                or POS_REGEX.match(next_line.rstrip(":").strip())
-                or (":" in next_line and POS_REGEX.match(next_line.split(":", 1)[0].strip()))
+                or POS_REGEX.match(clean_nl)
+                or (":" in next_line and POS_REGEX.match(next_line.split(":", 1)[0].strip().lstrip("#").strip()))
+                or next_line.startswith("**")
+                or re.match(r"^\d+[\.\)]", next_line)
             ):
                 break
 
             m_nbul = RE_BULLET.match(next_line)
             if m_nbul:
-                examples.append(m_nbul.group(1).strip())
+                ex_text = m_nbul.group(1).strip().lstrip("•-* \t").strip()
+                if ex_text:
+                    examples.append(ex_text)
                 idx += 1
-            elif next_line.startswith(("•", "-", "*")):
-                examples.append(next_line.lstrip("•-* ").strip())
+            elif next_line.startswith(("•", "   •")):
+                ex_text = next_line.lstrip("•-* \t").strip()
+                if ex_text:
+                    examples.append(ex_text)
                 idx += 1
             else:
                 break
@@ -178,6 +221,29 @@ def parse_vocabulary_text(text: str, default_word: str = "", default_level: str 
             "definition": m_txt,
             "examples": examples,
         })
+
+    # Lọc và làm sạch các khối nghĩa, loại bỏ khối "Định nghĩa chung" rỗng hoặc dòng tiền tố thừa
+    valid_blocks = []
+    for b in blocks:
+        filtered_meanings = []
+        for m in b.get("meanings", []):
+            def_text = (m.get("definition") or "").strip()
+            if re.match(r"^(?:\*\*)?(?:\d+[\.\)]\s*)?từ bạn tìm kiếm:", def_text, re.IGNORECASE):
+                continue
+            clean_def = re.sub(r"^(?:\*\*)?\d+[\.\)]\s*(?:\*\*)?", "", def_text).strip()
+            clean_def = re.sub(r"^\*\*(.*?)\*\*$", r"\1", clean_def).strip()
+            clean_def = clean_def.strip("* ")
+            m["definition"] = clean_def
+            if clean_def or m.get("examples"):
+                filtered_meanings.append(m)
+        if filtered_meanings:
+            # Bỏ qua block "Định nghĩa chung" nếu nó không có definition nào thực sự
+            if b.get("pos") == "Định nghĩa chung" and not any(m.get("definition") for m in filtered_meanings):
+                continue
+            b["meanings"] = filtered_meanings
+            valid_blocks.append(b)
+
+    blocks = valid_blocks
 
     # CEFR Level visual attributes
     level_normalized = (level or "A1").upper().strip()

@@ -87,8 +87,15 @@ def list_conversations(
 @conv_router.post("")
 def create_conversation(payload: CreateConversationRequest):
     """Create a new conversation session."""
-    conv = conv_repo.create_conversation(user_id=payload.user_id, title=payload.title or "Cuộc trò chuyện mới")
-    return {"status": "created", "conversation": conv.to_dict()}
+    try:
+        conv = conv_repo.create_conversation(user_id=payload.user_id, title=payload.title or "Cuộc trò chuyện mới")
+        return {"status": "created", "conversation": conv.to_dict()}
+    except Exception as e:
+        logger.warning("Could not create conversation for user_id=%s: %s", payload.user_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Không thể tạo cuộc trò chuyện: {e}",
+        )
 
 
 @conv_router.get("/{conv_id}/messages")

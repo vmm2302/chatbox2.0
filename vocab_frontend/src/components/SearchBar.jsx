@@ -79,9 +79,9 @@ export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nháº
   return (
     <div ref={wrapperRef} className="relative w-full">
       <form onSubmit={handleSubmit} className="relative">
-        <div className="relative flex items-center bg-white rounded-2xl border-2 border-slate-200/90 shadow-sm focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/15 transition-all duration-200">
-          <div className="pl-4 text-slate-400">
-            <Search className="w-5 h-5 text-emerald-600" />
+        <div className="relative flex items-center bg-white dark:bg-[#212121] rounded-2xl border-2 border-slate-200/90 dark:border-white/10 shadow-sm focus-within:border-emerald-500 dark:focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-500/15 transition-all duration-200">
+          <div className="pl-4 text-slate-400 dark:text-zinc-500">
+            <Search className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
           </div>
 
           <input
@@ -91,7 +91,7 @@ export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nháº
             onFocus={() => query.trim() && suggestions.length > 0 && setIsOpen(true)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
-            className="w-full py-3.5 pl-3 pr-24 text-slate-800 placeholder-slate-400 font-medium text-sm sm:text-base focus:outline-hidden bg-transparent"
+            className="w-full py-3.5 pl-3 pr-24 text-slate-800 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 font-medium text-sm sm:text-base focus:outline-hidden bg-transparent"
           />
 
           <div className="absolute right-2 flex items-center space-x-1.5">
@@ -103,7 +103,7 @@ export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nháº
                   setSuggestions([]);
                   setIsOpen(false);
                 }}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -123,8 +123,8 @@ export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nháº
 
       {/* Autocomplete Dropdown */}
       {isOpen && suggestions.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-900/10 z-50 overflow-hidden divide-y divide-slate-100 animate-in fade-in slide-in-from-top-2 duration-150">
-          <div className="px-4 py-2 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#212121] rounded-2xl border border-slate-200 dark:border-white/10 shadow-xl shadow-slate-900/10 dark:shadow-black/60 z-50 overflow-hidden divide-y divide-slate-100 dark:divide-white/5 animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="px-4 py-2 bg-slate-50/80 dark:bg-[#1a1a1a] text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-400 flex items-center justify-between">
             <span className="flex items-center space-x-1">
               <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
               <span>Gá»£i Ã½ tá»« vá»±ng phÃ¹ há»£p</span>
@@ -142,20 +142,20 @@ export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nháº
                   onClick={() => handleSelectWord(item.word)}
                   onMouseEnter={() => setSelectedIndex(index)}
                   className={`flex items-center justify-between px-4 py-3 cursor-pointer transition-colors ${
-                    isHighlighted ? 'bg-emerald-50/80 text-emerald-950' : 'hover:bg-slate-50 text-slate-800'
+                    isHighlighted ? 'bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-300' : 'hover:bg-slate-50 dark:hover:bg-white/[0.04] text-slate-800 dark:text-[#ececec]'
                   }`}
                 >
                   <div className="flex items-center space-x-3 overflow-hidden">
-                    <span className="text-base font-extrabold tracking-tight text-slate-900">
+                    <span className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white">
                       {item.word}
                     </span>
                     {item.ipa && (
-                      <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                      <span className="text-xs font-mono text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-white/10 px-2 py-0.5 rounded-md">
                         {item.ipa}
                       </span>
                     )}
                     {item.snippet && (
-                      <span className="text-xs text-slate-500 truncate max-w-[200px] sm:max-w-xs">
+                      <span className="text-xs text-slate-500 dark:text-zinc-400 truncate max-w-[200px] sm:max-w-xs">
                         {item.snippet}
                       </span>
                     )}
