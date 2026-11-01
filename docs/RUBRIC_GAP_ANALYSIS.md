@@ -58,7 +58,6 @@ Rubric đánh giá bài tập lớn yêu cầu sinh viên xây dựng một hệ
 - **Hiện trạng trong code:**
   - Chế độ trả lời đồng bộ `ChatEngine.ask()` đã gọi `OllamaClient.generate_with_langchain(...)` sử dụng LangChain LCEL: `prompt_template | chat_ollama | StrOutputParser()`.
   - Quản lý hội thoại đa lượt duy trì lịch sử `history` và thực thể `active_word` rất tốt.
-  - Giao diện Streamlit (`src/ui/app.py`) có tab Tra cứu, tab Quản lý dữ liệu và tab Chẩn đoán hệ thống kèm Provenance Inspector.
 - **Thiếu sót:**
   1. *Lỗi assertion trong unit test*: Trong `tests/test_response_formatting.py`, bài test kiểm tra từ `address` assert `**1. Gửi**` nhưng trong dữ liệu Động từ của `address`, "Gửi" là nghĩa số 2 (`**2. Gửi**`).
   2. *Tính nhất quán LangChain LCEL Stream*: Phương thức `ask_stream()` trong `ChatEngine` hiện gọi `stream_chat()` trực tiếp qua HTTP requests mà chưa tận dụng LangChain LCEL `chain.stream(...)`.
@@ -108,7 +107,7 @@ Rubric đánh giá bài tập lớn yêu cầu sinh viên xây dựng một hệ
 
 ### Tiêu chuẩn G: Demo và Bảo vệ (Demo Guide & Defense Q&A)
 - **Hiện trạng trong code:**
-  - Giao diện Streamlit đã hỗ trợ đầy đủ các tính năng để demo trực quan.
+  - Giao diện web React được phục vụ qua backend FastAPI để demo trực quan.
 - **Thiếu sót:**
   - Chưa có tài liệu kịch bản demo từng bước (Step-by-step Live Demo Script).
   - Chưa có cẩm nang ôn tập vấn đáp kỹ thuật (Viva Defense Q&A) giải thích sâu vì sao chọn LangChain, vai trò của PhoBERT vs Qwen, công thức RRF, cách xử lý hội thoại nhiều lượt dựa vào code.

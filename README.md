@@ -31,7 +31,7 @@ flowchart TD
     Gate -- "Exact Match & Confidence cao" --> DirectAnswer["DIRECT_MATCH<br/>Trả lời trực tiếp từ dữ liệu<br/>(Không tốn LLM, Độ trễ < 2ms)"]
     Gate -- "Câu hỏi tự nhiên / Ngữ nghĩa" --> GroundedLLM["RAG_GENERATION<br/>LangChain LCEL + Qwen2.5:7B (Ollama Local)<br/>Chỉ diễn đạt dựa trên Context trích xuất"]
     
-    DirectAnswer --> ResponseUI["6. Streamlit Chatbox & Provenance Inspector"]
+    DirectAnswer --> ResponseUI["6. React Web UI via FastAPI"]
     GroundedLLM --> ResponseUI
     Clarification --> ResponseUI
     Rejection --> ResponseUI
@@ -50,7 +50,7 @@ flowchart TD
 | **Thứ hạng kết hợp** | Reciprocal Rank Fusion ($k=60$) | $RRF(d) = \frac{1}{60 + r_{bm25}} + \frac{1}{60 + r_{bge}}$, cân bằng tối ưu giữa từ khóa và ngữ nghĩa. |
 | **Language Model** | `Qwen2.5:7B` via Ollama | Chạy trên GPU NVIDIA RTX 3050 (~4.8 GB VRAM), nhiệt độ $T=0.0$, lọc sạch ký tự chữ Hán. |
 | **Framework RAG** | LangChain Core & LCEL | `ChatPromptTemplate | ChatOllama | StrOutputParser` với Strict Grounding System Prompt. |
-| **Giao diện người dùng** | Streamlit | Chatbox tương tác thời gian thực, tích hợp Provenance Inspector hiển thị toàn bộ chỉ số audit. |
+| **Giao diện người dùng** | React + Vite, FastAPI | Chatbox web tương tác, streaming qua SSE và tích hợp thông tin nguồn trả lời. |
 
 ---
 
@@ -80,7 +80,7 @@ chatbox2.0/
 │   ├── llm/                     # LangChain LCEL & Ollama Client
 │   ├── nlp/                     # PhoBERT Query Understanding & Intent Classifier
 │   ├── retriever/               # BGE-M3 ChromaDB + BM25Okapi + RRF Fusion (k=60)
-│   └── ui/                      # Giao diện Streamlit & Gradio truyền thống
+│   └── ui/                      # Giao diện dòng lệnh (CLI)
 ├── tests/                       # Toàn bộ bài kiểm thử tự động (Unit, Integration & E2E Tests)
 ├── HUONG_DAN_CAI_DAT_MAY_MOI.md # Cẩm nang chi tiết thiết lập môi trường máy mới từ A-Z
 ├── requirements.txt             # Danh sách thư viện Python bắt buộc
@@ -138,17 +138,9 @@ python run_vocab_web.py
 > - Sổ tay từ vựng & Flashcards lật thẻ thông minh.
 > - Cổng Quản trị hệ thống (VocabAdmin Portal) độc lập toàn màn hình.
 
-*(Tùy chọn khác: Chạy giao diện Streamlit qua lệnh `streamlit run src/ui/app.py --server.port 8501`)*
-
 - **Đăng nhập & Sử dụng:**
   - Khách chưa có tài khoản có thể chuyển sang tab **"📝 Đăng ký tài khoản"** để tự tạo tài khoản Người dùng (`user`).
   - Đăng nhập bằng tài khoản Quản trị viên (`admin`) đã tạo ở Bước 2 để truy cập toàn quyền Admin Dashboard, Quản lý tài khoản, Nạp Knowledge Base và Chẩn đoán hệ thống.
-
-- **Khởi chạy giao diện Gradio:**
-  ```bash
-  python src/ui/gradio_app.py
-  ```
-  *(Truy cập: `http://localhost:7860`)*
 
 - **Khởi chạy giao diện Dòng lệnh (CLI):**
   ```bash
@@ -258,9 +250,9 @@ Hệ thống cho phép bạn đưa thêm từ vựng mới hoặc thay thế to�
 - Repository không kèm corpus hay workbook mẫu. Hãy dùng tệp Excel mà bạn có quyền sử dụng và chọn tệp đó khi nạp dữ liệu.
 
 ### 7.2. Hai cách cập nhật dữ liệu:
-1. **Qua giao diện Web Streamlit (Trực quan):**
-   - Mở thanh bên Sidebar -> Chọn mục **📥 Cập Nhật Dữ Liệu Excel**.
-   - Kéo thả tệp `.xlsx` vào -> Chọn chế độ **Bổ sung từ mới (Append)** -> Nhấn **🚀 Bắt Đầu Nạp Dữ Liệu**.
+1. **Qua giao diện Web:**
+   - Khởi chạy `python run_vocab_web.py`, đăng nhập với tài khoản Admin và mở mục nạp dữ liệu.
+   - Tải tệp `.xlsx` lên, chọn chế độ **Bổ sung từ mới (Append)** rồi bắt đầu nạp.
 2. **Qua công cụ dòng lệnh (CLI Ingestion):**
    - Chạy lệnh trực tiếp từ Terminal:
      ```bash

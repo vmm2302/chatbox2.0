@@ -16,7 +16,7 @@
 | **D** | **Quản lý dữ liệu** | Chuẩn hóa `QARecord`, nạp và trích xuất đa định dạng (Excel, PDF, DOCX, CSV, JSON, SQLite), khử trùng lặp SHA-256, cập nhật đồng thời ChromaDB và BM25 không cần khởi động lại server. | `src/core/models.py`, `src/data/batch_ingestion.py`, `src/data/qa_loader.py`, `ingest_data.py` | **XUẤT SẮC** |
 | **E** | **Kiểm thử hệ thống** | Xây dựng bộ 15 ca kiểm thử chuẩn rubric (`tests/test_chatbot_rubric.py`), kết quả thực tế **15/15 PASS (100%)**, phân tích lỗi và báo cáo tự động tại `docs/CHATBOT_TEST_REPORT.md`. | `tests/test_chatbot_rubric.py`, `tests/fixtures/rubric_test_cases.json`, `docs/CHATBOT_TEST_REPORT.md` | **XUẤT SẮC** |
 | **F** | **Mã nguồn & Tính tái lập** | Mã nguồn phân tách module sạch sẽ (SOLID), có hướng dẫn cài đặt từng bước cho máy mới, thiết lập chế độ offline nghiêm ngặt (`HF_HUB_OFFLINE=1`), không phụ thuộc cloud API. | `HUONG_DAN_CAI_DAT_MAY_MOI.md`, `README.md`, `requirements.txt`, `config/settings.py` | **XUẤT SẮC** |
-| **G** | **Demo & Bảo vệ đồ án** | Kịch bản demo 10 bước trực quan trên Streamlit, bộ 12 câu hỏi vấn đáp chuyên sâu (Viva Q&A) có trích dẫn mã nguồn và số dòng chi tiết. | `docs/DEMO_AND_DEFENSE_GUIDE.md` | **XUẤT SẮC** |
+| **G** | **Demo & Bảo vệ đồ án** | Kịch bản demo 10 bước trên giao diện web React, bộ 12 câu hỏi vấn đáp chuyên sâu (Viva Q&A) có trích dẫn mã nguồn. | `docs/DEMO_AND_DEFENSE_GUIDE.md` | **XUẤT SẮC** |
 
 ---
 
@@ -48,7 +48,7 @@ Hệ thống được thiết kế theo luồng xử lý chặt chẽ nhằm tri
 
 ```mermaid
 flowchart TD
-    User(["Người dùng"]) --> UI["Streamlit UI / CLI"]
+    User(["Người dùng"]) --> UI["React Web UI / CLI"]
     UI --> Tracker["1. TopicTracker & Context Buffer<br/>(Lưu active_word, giải quyết 'từ này', 'nó')"]
     
     Tracker -- "Đại từ không có ngữ cảnh" --> Clarify["Clarification Gate<br/>'Bạn muốn hỏi về từ nào?'"]
@@ -170,7 +170,7 @@ Mã nguồn tuân thủ nguyên tắc trách nhiệm duy nhất (Single Responsi
 - `src/retriever/`: Truy xuất lai và dung hợp RRF (`hybrid_retriever.py`, `rrf_fusion.py`, `bge_chroma.py`, `bm25_retriever.py`).
 - `src/llm/`: Tích hợp LangChain LCEL và kết nối Ollama (`client.py`).
 - `src/data/`: Quản lý nạp dữ liệu và chuẩn hóa tri thức (`batch_ingestion.py`, `qa_loader.py`).
-- `src/ui/`: Giao diện người dùng Streamlit, Gradio và CLI (`app.py`, `gradio_app.py`, `cli.py`).
+- `src/ui/`: Giao diện dòng lệnh (`cli.py`). Giao diện web React được phục vụ qua FastAPI.
 
 ### 7.2. Khả năng chạy tái lập trên máy mới (Reproducibility)
 - Cung cấp tài liệu hướng dẫn từng bước: [HUONG_DAN_CAI_DAT_MAY_MOI.md](file:///c:/Users/User/Desktop/chatbox2.0/HUONG_DAN_CAI_DAT_MAY_MOI.md).

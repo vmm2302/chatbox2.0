@@ -45,7 +45,7 @@ class TestUploadIdenticalFilenames(unittest.TestCase):
         mock_bge_cls.return_value = mock_retriever
         mock_bm25.return_value.records = [MagicMock(), MagicMock()]
 
-        # Mô phỏng việc Streamlit lưu tệp với prefix UUID an toàn
+        # Mô phỏng tên tệp tạm riêng biệt để hai tệp trùng tên không ghi đè nhau
         file1 = self.raw_dir / "batch_1111aaaa_notes.txt"
         file1.write_text("sun: mặt trời ấm áp\n", encoding="utf-8")
 

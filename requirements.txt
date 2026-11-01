@@ -8,8 +8,6 @@ fastapi>=0.100.0
 uvicorn[standard]>=0.20.0
 python-multipart>=0.0.6
 httpx>=0.24.0
-streamlit>=1.30.0
-gradio>=4.0.0
 
 # Cơ sở dữ liệu Vector & Tìm kiếm Lexical
 chromadb>=0.4.22

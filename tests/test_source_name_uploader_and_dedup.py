@@ -1,8 +1,7 @@
 """Bộ kiểm thử toàn diện cho Chatbox 2.0:
 1. Sửa lỗi tên nguồn Active Sources (loại bỏ N/A, chuẩn hóa tên gốc, hỗ trợ manifest cũ/mới).
-2. Tự động làm mới khu vực Upload theo thế hệ uploader_generation (SUCCESS, PARTIAL_SUCCESS, FAILED).
-3. Tự động phát hiện và dọn dẹp bản sao tệp trùng lặp vật lý theo mã băm SHA-256.
-4. Đảm bảo an toàn dữ liệu, tính toàn vẹn của ADD/REPLACE/Rollback và khả năng tra cứu sau khi dọn dẹp.
+2. Tự động phát hiện và dọn dẹp bản sao tệp trùng lặp vật lý theo mã băm SHA-256.
+3. Đảm bảo an toàn dữ liệu, tính toàn vẹn của ADD/REPLACE/Rollback và khả năng tra cứu sau khi dọn dẹp.
 """
 
 import json
@@ -344,37 +343,6 @@ class TestPhysicalDeduplication(unittest.TestCase):
         self.assertFalse(dup1.exists())
         self.assertFalse(dup2.exists())
         self.assertFalse(dup3.exists())
-
-
-class TestUploaderGenerationLifecycle(unittest.TestCase):
-    """Kiểm thử Vấn đề 2: Cơ chế uploader_generation điều phối làm trống uploader."""
-
-    def test_uploader_generation_increments_on_success_and_partial(self):
-        """uploader_generation tăng khi SUCCESS hoặc PARTIAL_SUCCESS, giữ nguyên khi FAILED."""
-        # Mô phỏng trạng thái Streamlit session state
-        mock_state = {
-            "uploader_generation": 0,
-            "is_ingesting": False,
-            "batch_report": None
-        }
-
-        # 1. SUCCESS: Tăng thế hệ
-        status = BatchStatus.SUCCESS
-        if status in (BatchStatus.SUCCESS, BatchStatus.PARTIAL_SUCCESS):
-            mock_state["uploader_generation"] += 1
-        self.assertEqual(mock_state["uploader_generation"], 1)
-
-        # 2. PARTIAL_SUCCESS: Tăng thế hệ
-        status = BatchStatus.PARTIAL_SUCCESS
-        if status in (BatchStatus.SUCCESS, BatchStatus.PARTIAL_SUCCESS):
-            mock_state["uploader_generation"] += 1
-        self.assertEqual(mock_state["uploader_generation"], 2)
-
-        # 3. FAILED: Giữ nguyên thế hệ để người dùng thử lại
-        status = BatchStatus.FAILED
-        if status in (BatchStatus.SUCCESS, BatchStatus.PARTIAL_SUCCESS):
-            mock_state["uploader_generation"] += 1
-        self.assertEqual(mock_state["uploader_generation"], 2, "FAILED không được tăng uploader_generation")
 
 
 if __name__ == "__main__":

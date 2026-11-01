@@ -2,7 +2,7 @@
 ## DỰ ÁN: CHATBOX 2.0 — LOCAL ENGLISH VOCABULARY ASSISTANT
 
 > **Dành cho:** Sinh viên chuẩn bị báo cáo và bảo vệ đồ án môn học *"Xây dựng Chatbot AI bằng LangChain hoặc Rasa"*.  
-> **Kiến trúc:** 100% Cục bộ (Local-Only) — LangChain LCEL, Qwen2.5:7B (Ollama), PhoBERT-base-v2, Hybrid RRF (BM25 + BGE-M3 ChromaDB), Streamlit.
+> **Kiến trúc:** 100% Cục bộ (Local-Only) — React frontend, FastAPI backend, LangChain LCEL, Qwen2.5:7B (Ollama), PhoBERT-base-v2, Hybrid RRF (BM25 + BGE-M3 ChromaDB).
 
 ---
 
@@ -28,13 +28,13 @@ ollama list
 ollama serve
 ```
 
-### 1.3. Khởi chạy Chatbot trên Streamlit
+### 1.3. Khởi chạy ứng dụng Web
 Mở PowerShell tại thư mục gốc `chatbox2.0`:
 ```powershell
 .\.venv\Scripts\Activate.ps1
-streamlit run src/ui/app.py --server.port 8501
+python run_vocab_web.py
 ```
-Trình duyệt tự động mở tại địa chỉ: `http://localhost:8501`.
+Trình duyệt tự động mở tại địa chỉ: `http://localhost:8000`.
 
 ### 1.4. Kiểm tra sẵn sàng trong giao diện
 1. Nhìn vào thanh bên (Sidebar): Trạng thái hiển thị **🟢 Hệ thống Sẵn Sàng** (Ollama Connected, ChromaDB Connected, PhoBERT Ready).
@@ -192,7 +192,7 @@ Dưới đây là 12 câu hỏi kinh điển các thầy cô trong hội đồng
     - `StrOutputParser`: Parser chuẩn hóa luồng chuỗi đầu ra.
   - Nhóm triển khai cả 2 phương thức:
     - `generate_with_langchain(question, context)`: Sử dụng `chain.invoke(...)` cho phản hồi đầy đủ.
-    - `generate_with_langchain_stream(question, context)`: Sử dụng `chain.stream(...)` cho tính năng Streaming gõ chữ thời gian thực (real-time token streaming) trên giao diện Streamlit.
+    - `generate_with_langchain_stream(question, context)`: Sử dụng `chain.stream(...)` để tạo nội dung theo luồng.
   - **File tham chiếu:** `src/llm/client.py#L65-L160`, `src/chat/engine.py#L380-L420`.
 
 ---
@@ -281,7 +281,7 @@ Dưới đây là 12 câu hỏi kinh điển các thầy cô trong hội đồng
 
 ---
 
-### Câu 10: Streaming response trong LangChain LCEL được cài đặt như thế nào trên Streamlit?
+### Câu 10: Câu trả lời được truyền trực tiếp tới giao diện web như thế nào?
 - **Trả lời:**
   - Trong `src/llm/client.py`:
     ```python
@@ -290,9 +290,9 @@ Dưới đây là 12 câu hỏi kinh điển các thầy cô trong hội đồng
         for chunk in chain.stream({"question": question, "context": context}):
             yield chunk
     ```
-  - Trong `src/chat/engine.py`: Phương thức `ask_stream()` kết nối bộ generator này với Streamlit.
-  - Trong `src/ui/app.py`: Sử dụng `st.write_stream(response_generator)` của Streamlit, mang lại trải nghiệm gõ chữ mượt mà như ChatGPT cho người dùng.
-  - **File tham chiếu:** `src/llm/client.py#L90-L115`, `src/ui/app.py#L210-L240`.
+  - Trong `src/chat/engine.py`: Phương thức `ask_stream()` cung cấp generator câu trả lời cho API streaming.
+  - Backend FastAPI phát các chunk qua SSE để React hiển thị trực tiếp.
+  - **File tham chiếu:** `src/llm/client.py#L90-L115`, `vocab_backend/streaming_routes.py`.
 
 ---
 

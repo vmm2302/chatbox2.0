@@ -4,7 +4,7 @@ Kiểm tra:
 1. Khi collection ChromaDB bị xóa và tạo mới trên đĩa (thao tác replace), BGEChromaRetriever
    tự động phát hiện và kết nối lại tới collection UUID mới mà không ném NotFoundError.
 2. HybridRetriever.reload() và ChatEngine.update_knowledge_base() làm mới toàn diện collection handle.
-3. Hàm chẩn đoán hệ thống get_system_diagnosis() đọc số lượng vector chính xác mà không gặp lỗi stale collection.
+3. Chẩn đoán lưu trữ đọc số lượng vector chính xác mà không gặp lỗi stale collection.
 """
 
 import unittest
@@ -15,7 +15,6 @@ from config.settings import settings
 from src.core.models import QARecord
 from src.retriever.bge_chroma import BGEChromaRetriever
 from src.retriever.hybrid_retriever import HybridRetriever
-from src.ui.app import inspect_storage_metrics
 
 
 class TestChromaCollectionReload(unittest.TestCase):
@@ -95,20 +94,6 @@ class TestChromaCollectionReload(unittest.TestCase):
         # Gọi hybrid.reload
         hybrid.reload([self.sample_record])
         self.assertEqual(hybrid.bge_chroma.collection.id, new_coll.id)
-
-    def test_inspect_storage_metrics_resilient_to_stale_collection(self):
-        """Hàm chẩn đoán inspect_storage_metrics() không ném lỗi NotFoundError ngay cả khi collection vừa bị xóa."""
-        mock_engine = MagicMock()
-        mock_bge = MagicMock()
-        mock_bge.get_collection_count.return_value = 42
-        mock_engine.bge_retriever = mock_bge
-        mock_engine.records = [1, 2, 3]
-        mock_engine.bm25_retriever.records = [1, 2, 3]
-
-        results = inspect_storage_metrics(mock_engine)
-        self.assertEqual(results.get("chroma_count"), 42)
-        self.assertIsNone(results.get("chroma_error"))
-
 
 if __name__ == "__main__":
     unittest.main()

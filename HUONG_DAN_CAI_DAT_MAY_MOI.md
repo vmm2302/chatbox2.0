@@ -165,9 +165,7 @@ python run_vocab_web.py
 
 ---
 
-## 3. CÁC PHƯƠNG THỨC KHỞI CHẠY KHÁC (ALTERNATIVE INTERFACES)
-
-Nếu bạn muốn chạy giao diện khác hoặc phát triển giao diện React với tính năng Hot-Reloading:
+## 3. CHẾ ĐỘ PHÁT TRIỂN FRONTEND REACT (HOT RELOAD)
 
 ### 1. Chế độ Phát triển Frontend React (Hot Reload)
 Nếu bạn muốn chỉnh sửa mã nguồn React và thấy thay đổi ngay lập tức:
@@ -181,13 +179,7 @@ npm run dev
 ```
 > Truy cập tại: **`http://localhost:5173`** (Vite sẽ tự động proxy các request `/api` sang cổng 8000).
 
-### 2. Giao diện Streamlit (Giao diện truyền thống)
-```bash
-streamlit run src/ui/app.py --server.port 8501
-```
-> Truy cập tại: **`http://localhost:8501`**.
-
-### 3. Giao diện Dòng lệnh (CLI)
+### Giao diện Dòng lệnh (CLI)
 ```bash
 python src/ui/cli.py
 ```

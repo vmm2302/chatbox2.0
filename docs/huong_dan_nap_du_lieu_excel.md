@@ -53,14 +53,13 @@ Nếu bạn có workbook nhiều sheet theo định dạng đồ án, hệ thố
 
 ## 3. HAI CÁCH NẠP DỮ LIỆU VÀO CHATBOX
 
-### Cách 1: Nạp trực tiếp qua Giao Diện Web Streamlit (Trực quan nhất)
+### Nạp dữ liệu qua Giao Diện Web
 
 1. Khởi động giao diện Web bằng lệnh:
    ```powershell
-   run_web.bat
+   python run_vocab_web.py
    ```
-   *(hoặc `streamlit run src/ui/app.py`)*
-2. Ở thanh bên trái (**Sidebar**), tìm mục **📥 Cập Nhật Dữ Liệu Excel**.
+2. Mở giao diện quản trị và chọn mục nạp dữ liệu Excel.
 3. Nhấp mở rộng và bấm **Browse files** (hoặc kéo thả file `.xlsx` của bạn vào).
 4. Hệ thống sẽ kiểm tra tệp và hiển thị danh sách các sheet cùng số dòng phát hiện được.
 5. Chọn chế độ:
