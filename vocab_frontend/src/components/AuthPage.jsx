@@ -72,7 +72,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 📚
               </div>
               <div>
-                <h1 className="text-2xl font-black tracking-tight">VocabChat 2.0</h1>
+                <h1 className="text-2xl font-black tracking-tight">VocabChat</h1>
                 <p className="text-xs font-semibold text-emerald-200 uppercase tracking-wider">
                   Trợ lý từ vựng tiếng Anh CEFR
                 </p>
