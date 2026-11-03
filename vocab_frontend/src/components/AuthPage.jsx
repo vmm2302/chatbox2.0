@@ -1,17 +1,30 @@
 import React, { useState } from 'react';
-import { Lock, User, Sparkles, BookOpen, ShieldCheck, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Sparkles, ShieldCheck, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import { loginUser, registerUser } from '../services/api';
 import ThemeToggle from './ThemeToggle';
 
 export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
   const [tab, setTab] = useState('login'); // 'login' | 'register'
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  
+  // Tách biệt hoàn toàn state của form Đăng nhập
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+
+  // Tách biệt hoàn toàn state của form Đăng ký (không dùng chung với login)
+  const [registerUsername, setRegisterUsername] = useState('');
+  const [registerDisplayName, setRegisterDisplayName] = useState('');
+  const [registerPassword, setRegisterPassword] = useState('');
+  const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
+
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleSwitchTab = (newTab) => {
+    setTab(newTab);
+    setError('');
+    setNotice('');
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -20,7 +33,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
     setIsLoading(true);
 
     try {
-      const res = await loginUser(username.trim(), password);
+      const res = await loginUser(loginUsername.trim(), loginPassword);
       onLoginSuccess(res.user);
     } catch (err) {
       setError(err.message || 'Đăng nhập không thành công.');
@@ -36,11 +49,22 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
     setIsLoading(true);
 
     try {
-      const res = await registerUser(username.trim(), password, confirmPassword, displayName.trim());
+      await registerUser(
+        registerUsername.trim(),
+        registerPassword,
+        registerConfirmPassword,
+        registerDisplayName.trim()
+      );
       setNotice('Đăng ký thành công! Bạn có thể đăng nhập ngay.');
       setTab('login');
-      setPassword('');
-      setConfirmPassword('');
+      // Điền sẵn tên vừa tạo thành công sang ô đăng nhập để tiện lợi
+      setLoginUsername(registerUsername.trim());
+      setLoginPassword('');
+      // Xóa sạch các trường của form đăng ký
+      setRegisterUsername('');
+      setRegisterDisplayName('');
+      setRegisterPassword('');
+      setRegisterConfirmPassword('');
     } catch (err) {
       setError(err.message || 'Đăng ký không thành công.');
     } finally {
@@ -54,7 +78,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
       {/* Floating Theme Toggle (Top Right) */}
       {onThemeChange && (
         <div className="absolute top-4 right-4 z-20">
-          <ThemeToggle currentTheme={themeMode} onThemeChange={onThemeChange} />
+          <ThemeToggle themeMode={themeMode} onThemeChange={onThemeChange} />
         </div>
       )}
 
@@ -108,7 +132,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
           {/* Tabs */}
           <div className="flex items-center space-x-2 bg-slate-100 dark:bg-[#262626] p-1.5 rounded-2xl mb-6 border border-transparent dark:border-white/5">
             <button
-              onClick={() => { setTab('login'); setError(''); setNotice(''); }}
+              onClick={() => handleSwitchTab('login')}
               className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer ${
                 tab === 'login'
                   ? 'bg-white dark:bg-[#2f2f2f] text-emerald-700 dark:text-emerald-400 shadow-sm dark:border dark:border-white/10'
@@ -118,7 +142,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
               🔐 Đăng nhập
             </button>
             <button
-              onClick={() => { setTab('register'); setError(''); setNotice(''); }}
+              onClick={() => handleSwitchTab('register')}
               className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer ${
                 tab === 'register'
                   ? 'bg-white dark:bg-[#2f2f2f] text-emerald-700 dark:text-emerald-400 shadow-sm dark:border dark:border-white/10'
@@ -165,8 +189,8 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 <input
                   type="text"
                   required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
                   placeholder="ví dụ: admin hoặc nguyenvana"
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
@@ -179,8 +203,8 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 <input
                   type="password"
                   required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="Nhập mật khẩu"
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
@@ -205,8 +229,8 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 <input
                   type="text"
                   required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  value={registerUsername}
+                  onChange={(e) => setRegisterUsername(e.target.value)}
                   placeholder="3–30 ký tự (chữ cái, số)"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
@@ -218,8 +242,8 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 </label>
                 <input
                   type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
+                  value={registerDisplayName}
+                  onChange={(e) => setRegisterDisplayName(e.target.value)}
                   placeholder="Ví dụ: Minh Anh"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
@@ -232,8 +256,8 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 <input
                   type="password"
                   required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  value={registerPassword}
+                  onChange={(e) => setRegisterPassword(e.target.value)}
                   placeholder="Tối thiểu 6 ký tự"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />
@@ -246,8 +270,8 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 <input
                   type="password"
                   required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  value={registerConfirmPassword}
+                  onChange={(e) => setRegisterConfirmPassword(e.target.value)}
                   placeholder="Nhập lại mật khẩu"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#262626] text-slate-800 dark:text-[#ececec] placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10 text-sm font-semibold focus:outline-hidden transition-all"
                 />

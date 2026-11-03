@@ -276,7 +276,7 @@ export default function ChatView({
   };
 
   return (
-    <div className="flex h-full w-full max-w-7xl mx-auto overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden">
       
       {/* ChatGPT-style Sidebar for Conversation History & User Account */}
       <SidebarHistory
@@ -316,67 +316,69 @@ export default function ChatView({
         </div>
 
         {/* Messages Feed: ONLY this container scrolls */}
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1 sm:pr-2 overscroll-contain">
-          {messages.map((msg) => (
-            <div key={msg.id} className="animate-in fade-in duration-150">
-              {msg.role === 'user' ? (
-                /* User Bubble (ChatGPT Minimalist Style) */
-                <div className="flex items-start justify-end space-x-2.5">
-                  <div className="max-w-xl bg-gradient-to-r from-emerald-600 to-teal-600 dark:from-[#2f2f2f] dark:to-[#2f2f2f] text-white dark:text-[#ececec] p-3.5 sm:p-4 rounded-3xl rounded-tr-xs shadow-md dark:shadow-none dark:border dark:border-white/10">
-                    <p className="text-sm sm:text-base font-semibold dark:font-normal leading-relaxed">
-                      {msg.content}
-                    </p>
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-2 overscroll-contain">
+          <div className="max-w-4xl mx-auto w-full space-y-4 pb-2">
+            {messages.map((msg) => (
+              <div key={msg.id} className="animate-in fade-in duration-150">
+                {msg.role === 'user' ? (
+                  /* User Bubble (ChatGPT Minimalist Style) */
+                  <div className="flex items-start justify-end space-x-2.5">
+                    <div className="max-w-xl bg-gradient-to-r from-emerald-600 to-teal-600 dark:from-[#2f2f2f] dark:to-[#2f2f2f] text-white dark:text-[#ececec] p-3.5 sm:p-4 rounded-3xl rounded-tr-xs shadow-md dark:shadow-none dark:border dark:border-white/10">
+                      <p className="text-sm sm:text-base font-semibold dark:font-normal leading-relaxed">
+                        {msg.content}
+                      </p>
+                    </div>
+                    <div className="w-8 h-8 rounded-xl bg-slate-900 dark:bg-[#2f2f2f] dark:border dark:border-white/10 text-white dark:text-zinc-200 flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
+                      <User className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="w-8 h-8 rounded-xl bg-slate-900 dark:bg-[#2f2f2f] dark:border dark:border-white/10 text-white dark:text-zinc-200 flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
-                    <User className="w-4 h-4" />
-                  </div>
-                </div>
-              ) : (
-                /* Bot Message or VocabCard */
-                <div className="flex items-start space-x-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center font-black text-base shrink-0 shadow-md shadow-emerald-500/20">
-                    📚
-                  </div>
+                ) : (
+                  /* Bot Message or VocabCard */
+                  <div className="flex items-start space-x-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center font-black text-base shrink-0 shadow-md shadow-emerald-500/20">
+                      📚
+                    </div>
 
-                  <div className="flex-1 max-w-3xl space-y-3">
-                    {msg.cardData ? (
-                      /* Rich Interactive Vocabulary Card */
-                      <VocabCard
-                        cardData={msg.cardData}
-                        meta={msg.meta}
-                      />
-                    ) : (
-                      /* Regular text message / Streaming text */
-                      <div className={`bg-white dark:bg-[#262626] rounded-3xl p-4 sm:p-5 border shadow-xs text-slate-800 dark:text-[#ececec] leading-relaxed text-sm sm:text-base whitespace-pre-line ${
-                        msg.isError ? 'border-rose-300 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200' : 'border-slate-200 dark:border-white/10'
-                      }`}>
-                        {msg.content || (
-                          <span className="text-slate-400 dark:text-zinc-500 italic">Đang nhận dữ liệu...</span>
-                        )}
-                        {msg.isStreaming && (
-                          <span className="inline-block w-2 h-4 ml-1 bg-emerald-500 animate-pulse align-middle" />
-                        )}
-                      </div>
-                    )}
+                    <div className="flex-1 max-w-3xl space-y-3">
+                      {msg.cardData ? (
+                        /* Rich Interactive Vocabulary Card */
+                        <VocabCard
+                          cardData={msg.cardData}
+                          meta={msg.meta}
+                        />
+                      ) : (
+                        /* Regular text message / Streaming text */
+                        <div className={`bg-white dark:bg-[#262626] rounded-3xl p-4 sm:p-5 border shadow-xs text-slate-800 dark:text-[#ececec] leading-relaxed text-sm sm:text-base whitespace-pre-line ${
+                          msg.isError ? 'border-rose-300 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200' : 'border-slate-200 dark:border-white/10'
+                        }`}>
+                          {msg.content || (
+                            <span className="text-slate-400 dark:text-zinc-500 italic">Đang nhận dữ liệu...</span>
+                          )}
+                          {msg.isStreaming && (
+                            <span className="inline-block w-2 h-4 ml-1 bg-emerald-500 animate-pulse align-middle" />
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          ))}
+                )}
+              </div>
+            ))}
 
-          {/* Streaming Status Banner */}
-          {streamingStatus && (
-            <div className="flex items-center space-x-2.5 text-emerald-700 dark:text-emerald-300 bg-emerald-50/80 dark:bg-[#262626] border border-emerald-200/80 dark:border-emerald-500/30 px-4 py-2.5 rounded-2xl text-xs font-bold animate-pulse max-w-md">
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-600 dark:text-emerald-400" />
-              <span>{streamingStatus}</span>
-            </div>
-          )}
+            {/* Streaming Status Banner */}
+            {streamingStatus && (
+              <div className="flex items-center space-x-2.5 text-emerald-700 dark:text-emerald-300 bg-emerald-50/80 dark:bg-[#262626] border border-emerald-200/80 dark:border-emerald-500/30 px-4 py-2.5 rounded-2xl text-xs font-bold animate-pulse max-w-md">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-600 dark:text-emerald-400" />
+                <span>{streamingStatus}</span>
+              </div>
+            )}
 
-          <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {/* Bottom Chat Input Form: Always stays at bottom without overlapping */}
-        <div className="shrink-0 pt-2 sm:pt-3">
+        <div className="shrink-0 pt-2 sm:pt-3 max-w-4xl mx-auto w-full">
           <form
             onSubmit={(e) => {
               e.preventDefault();
