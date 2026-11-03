@@ -31,7 +31,17 @@ def ensure_required_search_prefix(
     """Ensure the text answer begins with 'Từ tiếng Anh phù hợp: <word>' (for TRANSLATE_VIE_TO_ENG)
     or 'Từ bạn tìm kiếm: <word>' (for standard English word lookup) if a word is identified.
     """
-    if not word or not word.strip():
+    has_vn_accent = bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", (word or "").lower()))
+    if not word or not word.strip() or has_vn_accent:
+        m_ans = re.search(r"từ (?:bạn tìm kiếm|tiếng anh phù hợp)\s*:\s*([^\n\r]+)", answer, re.IGNORECASE)
+        if m_ans:
+            word = m_ans.group(1).strip().strip("* ")
+        else:
+            m_bold = re.search(r"từ \*\*([a-zA-Z0-9_\s\-',]+)\*\*", answer, re.IGNORECASE)
+            if m_bold:
+                word = m_bold.group(1).strip()
+
+    if not word or not word.strip() or bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", word.lower())):
         return answer
 
     # Nếu câu trả lời là câu từ chối ngoài phạm vi, hỏi lại mơ hồ, hoặc không tìm thấy dữ liệu:
@@ -110,6 +120,19 @@ def parse_vocabulary_text(text: str, default_word: str = "", default_level: str 
             m = re.search(r"từ \*\*(.*?)\*\*:", line, re.IGNORECASE)
             if m:
                 word = m.group(1).strip()
+
+    # If word is still empty or contains Vietnamese accents, search deeper in the text
+    has_vn_accent = bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", (word or "").lower()))
+    if not word or has_vn_accent:
+        m_deeper = re.search(r"từ (?:bạn tìm kiếm|tiếng anh phù hợp)\s*:\s*([^\n\r]+)", text, re.IGNORECASE)
+        if m_deeper:
+            word = m_deeper.group(1).strip().strip("* ")
+        else:
+            m_b = re.search(r"từ \*\*([a-zA-Z0-9_\s\-',]+)\*\*", text, re.IGNORECASE)
+            if m_b:
+                word = m_b.group(1).strip()
+            elif has_vn_accent:
+                word = ""
 
     idx = 0
     n = len(raw_lines)

@@ -16,48 +16,77 @@
   }
 }
 
-/* Custom sleek minimalist scrollbar for modern AI interface */
-::-webkit-scrollbar {
+/* Custom sleek minimalist scrollbar for WebKit/Blink (Chrome, Edge, Safari, Opera) */
+::-webkit-scrollbar,
+*::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
   border-radius: 9999px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.28);
+::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
 }
 
-/* Xóa bỏ hoàn toàn 2 nút mũi tên trên/dưới của scrollbar ở mọi chế độ */
-::-webkit-scrollbar-button {
+.dark ::-webkit-scrollbar-thumb,
+.dark *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover,
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* Xóa bỏ hoàn toàn 2 nút mũi tên trên/dưới của scrollbar ở mọi chế độ (sáng & tối) */
+::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:single-button,
+*::-webkit-scrollbar-button:single-button,
+::-webkit-scrollbar-button:start,
+*::-webkit-scrollbar-button:start,
+::-webkit-scrollbar-button:end,
+*::-webkit-scrollbar-button:end,
+::-webkit-scrollbar-button:vertical:decrement,
+*::-webkit-scrollbar-button:vertical:decrement,
+::-webkit-scrollbar-button:vertical:increment,
+*::-webkit-scrollbar-button:vertical:increment,
+::-webkit-scrollbar-button:horizontal:decrement,
+*::-webkit-scrollbar-button:horizontal:decrement,
+::-webkit-scrollbar-button:horizontal:increment,
+*::-webkit-scrollbar-button:horizontal:increment {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
+  background: transparent !important;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
-}
+/* Chuẩn scrollbar cho Firefox (Gecko engine) - không hiển thị nút mũi tên */
+@supports (-moz-appearance: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+  }
 
-/* Chuẩn scrollbar cho Firefox */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
-}
-
-.dark * {
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  .dark * {
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  }
 }
 
 /* 3D Flip Card animations */

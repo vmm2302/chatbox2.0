@@ -230,6 +230,82 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
         self.assertIn('"word": "school"', text)
         self.assertIn("data: [DONE]", text)
 
+    def test_14_qua_tao_translation(self):
+        """Test 'quả táo', 'quả táo là gì?', 'quả táo tiếng anh là gì?' returns 'apple'."""
+        queries = ["quả táo", "quả táo là gì?", "quả táo tiếng anh là gì?"]
+        for q in queries:
+            with self.subTest(query=q):
+                tracker = TopicTracker(records=self.records)
+                resp = self.engine.ask(q, tracker=tracker)
+                self.assertEqual(resp.word, "apple")
+                self.assertEqual(resp.intent, "TRANSLATE_VIE_TO_ENG")
+                self.assertEqual(resp.mode, "DIRECT_MATCH")
+                self.assertEqual(tracker.active_word, "apple")
+
+    def test_15_qua_tao_api_and_card(self):
+        """Test POST /api/chat and POST /api/chat/stream returns 'apple' in structured_card."""
+        from fastapi.testclient import TestClient
+        from vocab_backend.api_server import app
+
+        client = TestClient(app)
+        # 1. Test POST /api/chat
+        res = client.post("/api/chat", json={"query": "quả táo"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data.get("word"), "apple")
+        self.assertEqual(data.get("structured_card", {}).get("word"), "apple")
+        self.assertTrue(data.get("reply", "").startswith("Từ tiếng Anh phù hợp: apple"))
+
+        # 2. Test POST /api/chat/stream
+        res_stream = client.post("/api/chat/stream", json={"query": "quả táo"})
+        self.assertEqual(res_stream.status_code, 200)
+        text = res_stream.text
+        self.assertIn("Từ tiếng Anh phù hợp: apple", text)
+        self.assertIn('"word": "apple"', text)
+        self.assertIn("data: [DONE]", text)
+
+    def test_16_can_phong_co_nghia_la_gi_variations(self):
+        """Test 'căn phòng trong tiếng Anh có nghĩa là gì ?' and variations return 'apartment'."""
+        queries = [
+            "căn phòng trong tiếng Anh có nghĩa là gì ?",
+            "căn phòng trong tiếng Anh nghĩa là gì ?",
+            "căn phòng có nghĩa là gì trong tiếng Anh ?",
+            "trong tiếng Anh căn phòng có nghĩa là gì ?",
+            "từ căn phòng trong tiếng Anh có nghĩa là gì ?",
+            "căn phòng tiếng Anh là gì ?",
+            "căn phòng",
+        ]
+        for q in queries:
+            with self.subTest(query=q):
+                tracker = TopicTracker(records=self.records)
+                resp = self.engine.ask(q, tracker=tracker)
+                self.assertEqual(resp.word, "apartment")
+                self.assertEqual(resp.intent, "TRANSLATE_VIE_TO_ENG")
+                self.assertEqual(resp.mode, "DIRECT_MATCH")
+                self.assertEqual(tracker.active_word, "apartment")
+
+    def test_17_can_phong_api_and_card(self):
+        """Test API endpoints for 'căn phòng trong tiếng Anh có nghĩa là gì ?'."""
+        from fastapi.testclient import TestClient
+        from vocab_backend.api_server import app
+
+        client = TestClient(app)
+        # 1. Test POST /api/chat
+        res = client.post("/api/chat", json={"query": "căn phòng trong tiếng Anh có nghĩa là gì ?"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data.get("word"), "apartment")
+        self.assertEqual(data.get("structured_card", {}).get("word"), "apartment")
+        self.assertTrue(data.get("reply", "").startswith("Từ tiếng Anh phù hợp: apartment"))
+
+        # 2. Test POST /api/chat/stream
+        res_stream = client.post("/api/chat/stream", json={"query": "căn phòng trong tiếng Anh có nghĩa là gì ?"})
+        self.assertEqual(res_stream.status_code, 200)
+        text = res_stream.text
+        self.assertIn("Từ tiếng Anh phù hợp: apartment", text)
+        self.assertIn('"word": "apartment"', text)
+        self.assertIn("data: [DONE]", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -94,14 +94,27 @@ class TopicTracker:
 
         self.vie_meanings = set()
         for r in records:
+            # 1. Trích xuất nghĩa từ câu hỏi dịch tiếng Việt mẫu, ví dụ: "Quả táo" tiếng Anh là gì?
+            m_q = re.search(r'["\u201c\u2018]([^"\u201d\u2019]+)["\u201d\u2019]\s+tiếng anh là gì', r.question, re.IGNORECASE)
+            if m_q:
+                q_phrase = m_q.group(1).strip().lower()
+                if len(q_phrase) >= 2:
+                    self.vie_meanings.add(q_phrase)
+                    for sub in re.split(r'[,;/]', q_phrase):
+                        clean_sub = sub.strip()
+                        if len(clean_sub) >= 2:
+                            self.vie_meanings.add(clean_sub)
+
+            # 2. Trích xuất nghĩa từ các dòng định nghĩa trong answer
             lines = [l.strip() for l in r.answer.split('\n') if l.strip()]
             for line in lines:
                 if line.startswith(('Từ bạn tìm kiếm', 'Từ tiếng Anh phù hợp', 'Trình độ:', 'Phát âm:', '•', 'Danh từ', 'Động từ', 'Tính từ', 'Trạng từ', 'Mạo từ', 'Giới từ', 'Liên từ')):
                     continue
-                meanings = re.split(r'[,;]', line)
+                # Xóa ngoặc đơn trước để tránh việc dấu phẩy trong ngoặc đơn làm đứt cụm
+                line_no_parens = re.sub(r'\(.*?\)', '', line)
+                meanings = re.split(r'[,;/]', line_no_parens)
                 for m in meanings:
-                    clean_m = re.sub(r'\(.*?\)', '', m).strip().lower()
-                    clean_m = re.sub(r'^\d+[\.\)]\s*', '', clean_m).strip('* ')
+                    clean_m = re.sub(r'^\d+[\.\)]\s*', '', m).strip('* ').strip().lower()
                     if len(clean_m) >= 2 and not clean_m.startswith(('từ bạn', 'từ tiếng anh', 'ví dụ', 'trình độ')):
                         self.vie_meanings.add(clean_m)
 
@@ -118,7 +131,53 @@ class TopicTracker:
             return False
         clean_p = phrase.strip().lower()
         clean_p = re.sub(r"^[\"'\s]+|[\"'\s\?]+$", "", clean_p)
-        return clean_p in self.vie_meanings
+        clean_p = re.sub(r"^(?:từ\s+|chữ\s+|nghĩa\s+của\s+từ\s+|nghĩa\s+từ\s+)", "", clean_p).strip()
+        if clean_p in self.vie_meanings:
+            return True
+        for m in self.vie_meanings:
+            if clean_p == m or clean_p == re.sub(r'\(.*?\)', '', m).strip():
+                return True
+        return False
+
+    @staticmethod
+    def extract_vietnamese_phrase(query: str) -> str:
+        """Trích xuất từ hoặc cụm từ tiếng Việt cốt lõi cần tra cứu dịch sang tiếng Anh."""
+        if not query:
+            return ""
+        # Xóa sạch dấu ngoặc, dấu câu và khoảng trắng ở đầu và cuối chuỗi trước khi so khớp
+        clean = re.sub(r"^[\"'\u201c\u2018\s]+|[\"'\u201d\u2019\s\?\.\!]+$", "", query.strip().lower())
+        patterns = [
+            # 1. Các mẫu "... trong tiếng Anh có nghĩa là gì / nghĩa là gì / là gì / viết thế nào"
+            r"^(?:từ\s+|từ vựng\s+|chữ\s+)?(.+?)\s+(?:trong\s+tiếng\s+anh|tiếng\s+anh)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|viết\s+thế\s+nào|viết\s+sao)$",
+            # 2. Các mẫu "... có nghĩa là gì / nghĩa là gì / là gì trong tiếng Anh"
+            r"^(?:từ\s+|từ vựng\s+|chữ\s+)?(.+?)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì)\s+(?:trong\s+tiếng\s+anh|sang\s+tiếng\s+anh)$",
+            # 3. Các mẫu bắt đầu bằng "trong tiếng Anh (thì) ... có nghĩa là gì / là gì"
+            r"^(?:trong\s+tiếng\s+anh\s+(?:thì\s+)?)(.+?)(?:\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|viết\s+thế\s+nào))?$",
+            # 4. Các mẫu "dịch từ ... sang / ra tiếng Anh"
+            r"^(?:dịch\s+(?:từ\s+)?)(.+?)(?:\s+sang\s+tiếng\s+anh|\s+ra\s+tiếng\s+anh)$",
+            # 5. Các mẫu "từ nào có nghĩa là / mang nghĩa là ..."
+            r"^(?:từ\s+nào\s+có\s+nghĩa\s+là|từ\s+nào\s+nghĩa\s+là|từ\s+nào\s+mang\s+nghĩa\s+là)\s+(.+?)$",
+            # 6. Các mẫu "tiếng Anh của từ ... là gì"
+            r"^(?:tiếng\s+anh\s+của\s+(?:từ\s+)?)(.+?)(?:\s+(?:là\s+gì|có\s+nghĩa\s+là\s+gì))?$",
+            # 7. Các mẫu "nghĩa của từ ... trong tiếng Anh"
+            r"^(?:nghĩa của từ|nghĩa của|nghĩa từ)\s+(.+?)(?:\s+(?:trong\s+tiếng\s+anh|tiếng\s+anh))?(?:\s+(?:là\s+gì|có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì))?$",
+            # 8. Các mẫu định nghĩa thông thường "X có nghĩa là gì / X là gì"
+            r"^(?:từ\s+|từ vựng\s+)?(.+?)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)$",
+        ]
+        for pat in patterns:
+            m = re.match(pat, clean)
+            if m:
+                clean = m.group(1).strip()
+                break
+
+        # Loại bỏ các tiền tố / hậu tố thừa nếu còn sót lại
+        if clean.startswith("từ vựng ") or clean.startswith("chữ "):
+            clean = re.sub(r"^(?:từ vựng\s+|chữ\s+)", "", clean).strip()
+        elif clean.startswith("từ ") and len(clean.split()) > 2:
+            clean = clean[3:].strip()
+        clean = re.sub(r"\s+(?:trong\s+tiếng\s+anh|tiếng\s+anh)$", "", clean).strip()
+        clean = re.sub(r"^[\"'\u201c\u2018\s]+|[\"'\u201d\u2019\s\?\.\!]+$", "", clean)
+        return clean
 
     def extract_target_word(self, query: str) -> Optional[str]:
         """Trích xuất từ tiếng Anh mục tiêu từ câu hỏi của người dùng."""
@@ -131,20 +190,30 @@ class TopicTracker:
         # 0. Nếu câu hỏi có dấu hiệu dịch từ tiếng Việt sang tiếng Anh thì không coi là tra từ tiếng Anh mục tiêu
         trans_markers = [
             "tiếng anh là gì", "tieng anh la gi", "nghĩa tiếng anh", "dịch sang tiếng anh",
-            "dịch từ", "sang tiếng anh", "từ nào có nghĩa là", "từ nào nghĩa là", "từ nào có nghĩa"
+            "dịch từ", "sang tiếng anh", "từ nào có nghĩa là", "từ nào nghĩa là", "từ nào có nghĩa",
+            "trong tiếng anh có nghĩa là gì", "trong tieng anh co nghia la gi",
+            "trong tiếng anh nghĩa là gì", "trong tieng anh nghia la gi",
+            "trong tiếng anh là gì", "trong tieng anh la gi",
+            "tiếng anh có nghĩa là gì", "tieng anh co nghia la gi",
+            "có nghĩa là gì trong tiếng anh", "co nghia la gi trong tieng anh",
+            "nghĩa là gì trong tiếng anh", "nghia la gi trong tieng anh",
+            "là gì trong tiếng anh", "la gi trong tieng anh",
+            "trong tiếng anh", "sang tiếng anh",
         ]
         if any(m in clean_lower for m in trans_markers):
             return None
 
-        # Nếu câu hỏi là dạng "X là gì?" hoặc "X có nghĩa là gì?" mà X là một nghĩa tiếng Việt đã biết
+        # Nếu câu hỏi là dạng "X là gì?", "X có nghĩa là gì?", "X trong tiếng Anh có nghĩa là gì?"
         m_vie = re.match(
-            r"^(?:từ\s+|từ vựng\s+|nghĩa của từ\s+|nghĩa từ\s+|nghĩa của\s+)?(.+?)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*\??$",
+            r"^(?:từ\s+|từ vựng\s+|nghĩa của từ\s+|nghĩa từ\s+|nghĩa của\s+)?(.+?)\s*(?:trong\s+tiếng\s+anh)?\s*(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*(?:trong\s+tiếng\s+anh)?\s*\??$",
             clean_lower,
         )
         if m_vie:
             cand = m_vie.group(1).strip().lower()
             cand_clean = re.sub(r"^[^\w]+|[^\w]+$", "", cand)
             if self.is_known_vietnamese_meaning(cand_clean) or self.is_known_vietnamese_meaning(cand):
+                return None
+            if bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", cand)):
                 return None
 
         has_vietnamese_accent = bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", clean_lower))
@@ -292,8 +361,9 @@ class TopicTracker:
             self.active_level = extracted_level
             return clean_query, None, False, False
 
-        # Trường hợp 4: Câu hỏi tra cứu tiếng Việt sang tiếng Anh (ví dụ: "từ nào có nghĩa là từ bỏ?")
-        if "từ nào" in clean_query.lower() or "nghĩa là" in clean_query.lower() or "dịch" in clean_query.lower():
+        # Trường hợp 4: Câu hỏi tra cứu tiếng Việt sang tiếng Anh (ví dụ: "căn phòng trong tiếng Anh có nghĩa là gì?")
+        trans_cues = ["từ nào", "nghĩa là", "có nghĩa", "dịch", "trong tiếng anh", "tiếng anh là gì", "tiếng anh của", "sang tiếng anh"]
+        if any(c in clean_query.lower() for c in trans_cues):
             # Đây là câu hỏi dịch thuật tự nhiên, không phải mơ hồ
             return clean_query, None, False, False
 

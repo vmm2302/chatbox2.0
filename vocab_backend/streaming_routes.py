@@ -156,9 +156,11 @@ def stream_chat_endpoint(payload: StreamChatRequest):
             # Parse structured card
             structured_card = parse_vocabulary_text(
                 final_answer,
-                default_word=active_word or word_candidate,
+                default_word=active_word or (word_candidate if word_candidate in word_index else ""),
                 default_level=payload.level if payload.level in {"A1", "A2"} else "A1",
             )
+            if structured_card and structured_card.get("word") and not active_word:
+                active_word = structured_card["word"]
 
             # Resolve source and sheet from response_meta or candidates
             resolved_source = getattr(response_meta, "source", None)

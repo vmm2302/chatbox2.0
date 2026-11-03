@@ -198,10 +198,12 @@ class QALoader:
         first_q_line = q_clean.splitlines()[0].strip() if q_clean else ""
 
         # Trích xuất từ vựng
-        w_match1 = re.match(r"^([a-zA-Z0-9_\s,\-]+)\s+nghĩa là gì", first_q_line, re.IGNORECASE)
-        w_match4 = re.match(r"^#*\s*([a-zA-Z0-9_\s\-]{2,50})\s*[:\-–]", first_q_line)
-        w_match2 = re.search(r"\btừ\s+([a-zA-Z0-9_\-]+)", q_clean, re.IGNORECASE)
+        w_match1 = re.match(r"^([a-zA-Z0-9_\s,\-']+)\s+nghĩa là gì", first_q_line, re.IGNORECASE)
+        w_match4 = re.match(r"^#*\s*([a-zA-Z0-9_\s\-']{2,50})\s*[:\-–]", first_q_line)
+        w_match2 = re.search(r"\btừ\s+([a-zA-Z0-9_\-']+)", q_clean, re.IGNORECASE)
         w_match3 = re.search(r"-\s*Từ tiếng Anh\s*:\s*([^\n\r]+)", answer, re.IGNORECASE)
+        w_match_ans = re.search(r"từ (?:bạn tìm kiếm|tiếng anh phù hợp)\s*:\s*([^\n\r]+)", answer, re.IGNORECASE)
+        w_match_bold = re.search(r"từ \*\*([a-zA-Z0-9_\s\-']+)\*\*", answer, re.IGNORECASE)
 
         if w_match1:
             word = w_match1.group(1).strip()
@@ -211,7 +213,11 @@ class QALoader:
             word = w_match2.group(1).strip()
         elif w_match3:
             word = w_match3.group(1).strip()
-        elif re.fullmatch(r"^[a-zA-Z0-9_\s\-]{2,50}$", first_q_line):
+        elif w_match_ans:
+            word = w_match_ans.group(1).strip().strip("* ")
+        elif w_match_bold:
+            word = w_match_bold.group(1).strip()
+        elif re.fullmatch(r"^[a-zA-Z0-9_\s\-']{2,50}$", first_q_line):
             word = first_q_line
 
         # Trích xuất trình độ CEFR
@@ -545,7 +551,14 @@ class QALoader:
                 if clean_line:
                     try:
                         data = json.loads(clean_line)
-                        records.append(QARecord.from_dict(data))
+                        rec = QARecord.from_dict(data)
+                        if not rec.word or not rec.word.strip():
+                            rec_word, rec_lvl = self._extract_word_and_level_fallback(rec.question, rec.answer)
+                            if rec_word:
+                                rec.word = rec_word
+                            if not rec.level and rec_lvl:
+                                rec.level = rec_lvl
+                        records.append(rec)
                     except json.JSONDecodeError as err:
                         logger.warning("Bỏ qua dòng %d bị lỗi định dạng JSON: %s", line_idx, err)
 

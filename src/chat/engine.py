@@ -329,17 +329,26 @@ class ChatEngine:
 
         # Xử lý riêng cho luồng dịch từ tiếng Việt sang tiếng Anh (TRANSLATE_VIE_TO_ENG)
         if intent_res.intent == "TRANSLATE_VIE_TO_ENG":
-            from src.nlp.phobert_intent import extract_vietnamese_query_phrase
-            vie_phrase = extract_vietnamese_query_phrase(clean_query)
+            vie_phrase = active_tracker.extract_vietnamese_phrase(clean_query)
             matching_candidate = None
 
-            if best_candidate and mode == "DIRECT_MATCH":
-                matching_candidate = best_candidate
-            elif candidates and vie_phrase:
+            if candidates and vie_phrase:
+                # 1. Ưu tiên bản ghi có câu hỏi chứa đúng cụm từ (ví dụ: "Căn phòng, buồng" tiếng Anh là gì?)
                 for c in candidates:
-                    if vie_phrase in c.record.answer.lower():
+                    q_lower = c.record.question.lower()
+                    if f'"{vie_phrase}"' in q_lower or f'“{vie_phrase}”' in q_lower or vie_phrase in q_lower:
                         matching_candidate = c
                         break
+
+                # 2. Ưu tiên bản ghi có phần định nghĩa trong answer chứa vie_phrase
+                if not matching_candidate:
+                    for c in candidates:
+                        if vie_phrase in c.record.answer.lower():
+                            matching_candidate = c
+                            break
+
+            if not matching_candidate and best_candidate and mode == "DIRECT_MATCH":
+                matching_candidate = best_candidate
 
             if matching_candidate:
                 best_candidate = matching_candidate
@@ -373,12 +382,17 @@ class ChatEngine:
             )
 
         # Cập nhật thực thể đang nói đến nếu tìm được ứng viên phù hợp
-        if best_candidate.record.word:
-            active_tracker.active_word = best_candidate.record.word.strip().lower()
+        query_word = best_candidate.record.word if (best_candidate and best_candidate.record.word) else target_word
+        if not query_word and best_candidate and best_candidate.record.answer:
+            import re as _re
+            m_ans = _re.search(r"từ (?:bạn tìm kiếm|tiếng anh phù hợp)\s*:\s*([^\n\r]+)", best_candidate.record.answer, _re.IGNORECASE)
+            if m_ans:
+                query_word = m_ans.group(1).strip().strip("* ")
+
+        if query_word:
+            active_tracker.active_word = query_word.strip().lower()
 
         # Bước 6: Xử lý theo Response Mode
-        query_word = best_candidate.record.word if (best_candidate and best_candidate.record.word) else target_word
-
         # 6.1 Khớp chính xác (DIRECT_MATCH)
         if mode == "DIRECT_MATCH":
             answer = format_vocabulary_response(best_candidate.record.answer, word=query_word)
@@ -632,17 +646,26 @@ class ChatEngine:
 
         # Xử lý riêng cho luồng dịch từ tiếng Việt sang tiếng Anh (TRANSLATE_VIE_TO_ENG)
         if intent_res.intent == "TRANSLATE_VIE_TO_ENG":
-            from src.nlp.phobert_intent import extract_vietnamese_query_phrase
-            vie_phrase = extract_vietnamese_query_phrase(clean_query)
+            vie_phrase = active_tracker.extract_vietnamese_phrase(clean_query)
             matching_candidate = None
 
-            if best_candidate and mode == "DIRECT_MATCH":
-                matching_candidate = best_candidate
-            elif candidates and vie_phrase:
+            if candidates and vie_phrase:
+                # 1. Ưu tiên bản ghi có câu hỏi chứa đúng cụm từ
                 for c in candidates:
-                    if vie_phrase in c.record.answer.lower():
+                    q_lower = c.record.question.lower()
+                    if f'"{vie_phrase}"' in q_lower or f'“{vie_phrase}”' in q_lower or vie_phrase in q_lower:
                         matching_candidate = c
                         break
+
+                # 2. Ưu tiên bản ghi có phần định nghĩa trong answer chứa vie_phrase
+                if not matching_candidate:
+                    for c in candidates:
+                        if vie_phrase in c.record.answer.lower():
+                            matching_candidate = c
+                            break
+
+            if not matching_candidate and best_candidate and mode == "DIRECT_MATCH":
+                matching_candidate = best_candidate
 
             if matching_candidate:
                 best_candidate = matching_candidate
@@ -679,10 +702,15 @@ class ChatEngine:
             yield resp.answer, resp
             return
 
-        if best_candidate.record.word:
-            active_tracker.active_word = best_candidate.record.word.strip().lower()
-
         query_word = best_candidate.record.word if (best_candidate and best_candidate.record.word) else target_word
+        if not query_word and best_candidate and best_candidate.record.answer:
+            import re as _re
+            m_ans = _re.search(r"từ (?:bạn tìm kiếm|tiếng anh phù hợp)\s*:\s*([^\n\r]+)", best_candidate.record.answer, _re.IGNORECASE)
+            if m_ans:
+                query_word = m_ans.group(1).strip().strip("* ")
+
+        if query_word:
+            active_tracker.active_word = query_word.strip().lower()
 
         # 6.1 DIRECT_MATCH
         if mode == "DIRECT_MATCH":

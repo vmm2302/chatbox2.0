@@ -200,7 +200,8 @@ class PhoBERTIntentClassifier:
         translate_cues = [
             "từ nào", "dịch từ", "dịch sang", "sang tiếng anh", "trong tiếng anh",
             "tiếng anh là gì", "tiếng anh của", "nghĩa tiếng anh", "tìm từ",
-            "tiếng anh viết", "viết tiếng anh", "dịch"
+            "tiếng anh viết", "viết tiếng anh", "dịch", "trong tiếng anh có nghĩa",
+            "tiếng anh có nghĩa", "có nghĩa là gì trong tiếng anh", "nghĩa là gì trong tiếng anh"
         ]
         has_translate_cue = any(c in clean_query.lower() for c in translate_cues)
         if has_translate_cue:
@@ -268,21 +269,6 @@ class PhoBERTIntentClassifier:
 
 def extract_vietnamese_query_phrase(query: str) -> str:
     """Trích xuất từ hoặc cụm từ tiếng Việt cốt lõi cần tra cứu dịch sang tiếng Anh."""
-    clean = query.strip().lower()
-    patterns = [
-        r"^(?:từ\s+nào\s+có\s+nghĩa\s+là|từ\s+nào\s+nghĩa\s+là|từ\s+nào\s+mang\s+nghĩa\s+là)\s+(.+?)\??$",
-        r"^(?:dịch\s+(?:từ\s+)?)(.+?)(?:\s+sang\s+tiếng\s+anh|\s+ra\s+tiếng\s+anh)\??$",
-        r"^(?:trong\s+tiếng\s+anh\s+)(.+?)(?:\s+là\s+gì|\s+viết\s+thế\s+nào)\??$",
-        r"^(.+?)\s+(?:trong\s+tiếng\s+anh\s+là\s+gì|tiếng\s+anh\s+là\s+gì|nghĩa\s+tiếng\s+anh\s+là\s+gì|nghĩa\s+tiếng\s+anh)\??$",
-        r"^(?:tiếng\s+anh\s+của\s+(?:từ\s+)?)(.+?)(?:\s+là\s+gì)?\??$",
-        r"^(?:nghĩa của từ|nghĩa của|nghĩa từ)\s+(.+?)(?:\s+(?:là\s+gì|có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì))?\??$",
-        r"^(?:từ\s+|từ vựng\s+)?(.+?)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\??$",
-    ]
-    for pat in patterns:
-        m = re.match(pat, clean)
-        if m:
-            clean = m.group(1).strip()
-            break
-    clean = re.sub(r"^[\"'\s]+|[\"'\s\?]+$", "", clean)
-    return clean
+    from src.chat.topic_tracker import TopicTracker
+    return TopicTracker.extract_vietnamese_phrase(query)
 

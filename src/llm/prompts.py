@@ -8,7 +8,7 @@ from typing import List
 from config.settings import settings
 from src.core.models import RetrievalResult
 
-SYSTEM_PROMPT = """Bạn là trợ lý giải đáp và diễn đạt thông tin tra cứu từ vựng tiếng Anh cho người Việt.
+SYSTEM_PROMPT = """Bạn là trợ lý giải đáp và diễn đạt thông tin tra cứu từ vựng tiếng Anh cho người Việt theo chuẩn dữ liệu từ điển CEFR A1-A2.
 
 QUY TẮC CỐT LÕI (BẮT BUỘC TUÂN THỦ TUYỆT ĐỐI):
 1. BẠN CHỈ ĐƯỢC PHÉP TRẢ LỜI DỰA TRÊN [NGỮ CẢNH DỮ LIỆU ĐƯỢC CUNG CẤP].
@@ -17,15 +17,22 @@ QUY TẮC CỐT LÕI (BẮT BUỘC TUÂN THỦ TUYỆT ĐỐI):
 4. Nếu thông tin trong ngữ cảnh không đủ để trả lời câu hỏi của người dùng, BẮT BUỘC trả lời đúng câu mẫu sau:
 "{out_of_scope_message}"
 5. QUY TẮC NGÔN NGỮ:
-   - Sử dụng 100% tiếng Việt chuẩn (chữ Quốc ngữ Latinh) và tiếng Anh trong ví dụ.
+   - Sử dụng 100% tiếng Việt chuẩn (chữ Quốc ngữ Latinh) và tiếng Anh trong ví dụ/từ vựng.
    - TUYỆT ĐỐI KHÔNG xuất hiện bất kỳ chữ Hán / ký tự tiếng Trung Quốc nào trong câu trả lời.
 6. Diễn đạt ngắn gọn, rõ ràng, lịch sự và chính xác đúng theo ngữ cảnh.
-7. QUY TẮC BẢO TOÀN CẤU TRÚC TỪ VỰNG:
+7. QUY TẮC BẢO TOÀN CẤU TRÚC TỪ VỰNG THEO CHUẨN DỮ LIỆU EXCEL:
    - Preserve the semantic structure of the retrieved vocabulary data.
    - Do not merge separate meanings and examples into the same line.
    - Render each meaning and its examples on separate lines.
    - Tuyệt đối không tự thêm nghĩa mới, không tự tạo ví dụ mới, không thay đổi nội dung ví dụ trong dữ liệu.
-   - Định dạng theo mẫu:
+   - QUY TẮC TIỀN TỐ DÒNG ĐẦU TIÊN:
+     • Khi người dùng hỏi tìm từ tiếng Anh từ một từ/cụm từ tiếng Việt (ví dụ: "căn phòng trong tiếng Anh có nghĩa là gì", "dịch từ quả táo sang tiếng Anh"):
+       BẮT BUỘC bắt đầu bằng dòng:
+       Từ tiếng Anh phù hợp: <Từ tiếng Anh tìm được>
+     • Khi người dùng tra nghĩa của từ tiếng Anh (ví dụ: "apartment nghĩa là gì", "school có nghĩa là gì"):
+       BẮT BUỘC bắt đầu bằng dòng:
+       Từ bạn tìm kiếm: <Từ tiếng Anh>
+   - TIẾP THEO LÀ ĐỊNH DẠNG CHI TIẾT THEO MẪU:
      **Trình độ:** <level>
      **Phát âm:** <pronunciation>
 
@@ -59,15 +66,24 @@ def build_context_string(contexts: List[RetrievalResult]) -> str:
     return "\n".join(context_text_pieces)
 
 
-def build_rag_prompt(query: str, contexts: List[RetrievalResult]) -> List[dict]:
+def build_rag_prompt(query: str, contexts: List[RetrievalResult], is_translation: bool = False) -> List[dict]:
     """Tạo cấu trúc tin nhắn chuẩn gửi tới Ollama Chat API."""
     joined_context = build_context_string(contexts)
+
+    prefix_instruction = (
+        "Yêu cầu: Người dùng đang tra từ tiếng Anh cho cụm từ tiếng Việt. "
+        "Hãy nêu rõ 'Từ tiếng Anh phù hợp: <từ tiếng Anh>' ở dòng đầu tiên."
+        if is_translation else
+        "Yêu cầu: Người dùng đang tra cứu từ tiếng Anh. "
+        "Hãy nêu rõ 'Từ bạn tìm kiếm: <từ tiếng Anh>' ở dòng đầu tiên."
+    )
 
     user_content = (
         f"[NGỮ CẢNH DỮ LIỆU ĐƯỢC CUNG CẤP]:\n"
         f"{joined_context}\n"
         f"-----------------------------------------\n"
         f"[CÂU HỎI CỦA NGƯỜI DÙNG]: {query}\n\n"
+        f"{prefix_instruction}\n"
         f"Hãy trả lời câu hỏi của người dùng CHỈ DỰA VÀO các thông tin có trong ngữ cảnh trên. "
         f"Bảo toàn cấu trúc từ vựng, không gộp nghĩa và ví dụ vào cùng một dòng."
     )

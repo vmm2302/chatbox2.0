@@ -240,9 +240,13 @@ async def chat_endpoint(payload: ChatRequest):
         rec_level = getattr(direct_rec, "level", "A1") if direct_rec else "A1"
         structured_card = parse_vocabulary_text(
             final_text,
-            default_word=active_word or word_candidate,
+            default_word=active_word or (word_candidate if word_candidate in _WORD_INDEX else ""),
             default_level=rec_level,
         )
+        if structured_card and structured_card.get("word") and not active_word:
+            active_word = structured_card["word"]
+            meta_info["word"] = active_word
+            meta_info["active_word"] = active_word
 
     return {
         "reply": final_text,
