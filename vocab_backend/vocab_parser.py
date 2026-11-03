@@ -23,18 +23,19 @@ POS_REGEX = re.compile(
 )
 
 
-def ensure_required_search_prefix(answer: str, word: Optional[str] = None) -> str:
-    """Ensure the text answer begins with 'Từ bạn tìm kiếm: <word>' if a word is identified.
-    
-    This strictly implements the user requirement:
-    "hãy thêm cho tôi ở đầu câu trả lời, tôi muốn là khi mà tôi hỏi từ bất kì thì chatbot sẽ trả lời lại là:
-    Từ bạn tìm kiếm: từ bất kì nào đó tôi hỏi"
+def ensure_required_search_prefix(
+    answer: str,
+    word: Optional[str] = None,
+    intent: Optional[str] = None,
+) -> str:
+    """Ensure the text answer begins with 'Từ tiếng Anh phù hợp: <word>' (for TRANSLATE_VIE_TO_ENG)
+    or 'Từ bạn tìm kiếm: <word>' (for standard English word lookup) if a word is identified.
     """
     if not word or not word.strip():
         return answer
 
     # Nếu câu trả lời là câu từ chối ngoài phạm vi, hỏi lại mơ hồ, hoặc không tìm thấy dữ liệu:
-    # Tuyệt đối không chèn tiền tố 'Từ bạn tìm kiếm: <word>' để tránh gây hiểu lầm
+    # Tuyệt đối không chèn tiền tố để tránh gây hiểu lầm
     low = (answer or "").lower()
     if (
         "nằm ngoài phạm vi" in low
@@ -47,15 +48,22 @@ def ensure_required_search_prefix(answer: str, word: Optional[str] = None) -> st
         return answer
 
     clean_word = word.strip()
-    prefix = f"Từ bạn tìm kiếm: {clean_word}"
+    is_translation = (intent == "TRANSLATE_VIE_TO_ENG")
+    prefix_label = "Từ tiếng Anh phù hợp" if is_translation else "Từ bạn tìm kiếm"
+    prefix = f"{prefix_label}: {clean_word}"
     
-    # Check if the prefix already exists at the beginning
-    normalized_start = answer.strip()[:60].lower()
-    if normalized_start.startswith(f"từ bạn tìm kiếm: {clean_word.lower()}"):
+    # Check if correct prefix already exists at the beginning
+    normalized_start = answer.strip()[:80].lower()
+    if normalized_start.startswith(f"{prefix_label.lower()}: {clean_word.lower()}"):
         return answer
 
-    # If it starts with "Từ **word**:" or similar, replace or prepend cleanly
-    if normalized_start.startswith(f"từ **{clean_word.lower()}**:") or normalized_start.startswith(f"từ {clean_word.lower()}:"):
+    # If it starts with the other prefix or "Từ **word**:" or "Từ word:", replace it cleanly
+    other_prefix_label = "Từ bạn tìm kiếm" if is_translation else "Từ tiếng Anh phù hợp"
+    if (
+        normalized_start.startswith(f"{other_prefix_label.lower()}:")
+        or normalized_start.startswith(f"từ **{clean_word.lower()}**:")
+        or normalized_start.startswith(f"từ {clean_word.lower()}:")
+    ):
         first_line_end = answer.find("\n")
         if first_line_end != -1:
             return f"{prefix}\n\n" + answer[first_line_end:].lstrip()
@@ -91,13 +99,14 @@ def parse_vocabulary_text(text: str, default_word: str = "", default_level: str 
     blocks: List[Dict[str, Any]] = []
     current_block: Optional[Dict[str, Any]] = None
     
-    # Try detecting word from first line if "Từ bạn tìm kiếm: ..." or "Từ **word**:"
+    # Try detecting word from first line if "Từ bạn tìm kiếm: ...", "Từ tiếng Anh phù hợp: ...", or "Từ **word**:"
     for line in raw_lines[:5]:
-        if line.lower().startswith("từ bạn tìm kiếm:"):
+        low_l = line.lower()
+        if low_l.startswith("từ bạn tìm kiếm:") or low_l.startswith("từ tiếng anh phù hợp:"):
             detected = line.split(":", 1)[1].strip().strip("*")
             if detected:
                 word = detected
-        elif line.lower().startswith("từ **") and "**:" in line:
+        elif low_l.startswith("từ **") and "**:" in line:
             m = re.search(r"từ \*\*(.*?)\*\*:", line, re.IGNORECASE)
             if m:
                 word = m.group(1).strip()
@@ -114,8 +123,9 @@ def parse_vocabulary_text(text: str, default_word: str = "", default_level: str 
         low_line = line.lower()
         if (
             low_line.startswith("từ bạn tìm kiếm:")
+            or low_line.startswith("từ tiếng anh phù hợp:")
             or low_line.startswith("từ **")
-            or re.match(r"^(?:\*\*)?(?:\d+[\.\)]\s*)?từ bạn tìm kiếm:", low_line)
+            or re.match(r"^(?:\*\*)?(?:\d+[\.\)]\s*)?từ (?:bạn tìm kiếm|tiếng anh phù hợp):", low_line)
         ):
             idx += 1
             continue

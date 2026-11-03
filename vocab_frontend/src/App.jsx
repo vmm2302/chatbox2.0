@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import ChatView from './components/ChatView';
-import FlashcardView from './components/FlashcardView';
 import DiscoveryView from './components/DiscoveryView';
 import AdminPanel from './components/AdminPanel';
 import AuthPage from './components/AuthPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import ThemeToggle from './components/ThemeToggle';
-import { getStats, verifySession } from './services/api';
+import { verifySession } from './services/api';
 import { getInitialTheme, applyTheme, subscribeSystemTheme, THEME_STORAGE_KEY } from './utils/theme';
 
 export default function App() {
@@ -92,30 +91,15 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState('chat');
   const [selectedLevel, setSelectedLevel] = useState('Tất cả');
-  const [stats, setStats] = useState({ total_saved: 0, mastered: 0, learning: 0, by_level: {} });
   const [searchTriggerWord, setSearchTriggerWord] = useState('');
-
-  const refreshStats = async () => {
-    if (!currentUser) return;
-    try {
-      const data = await getStats(currentUser.id);
-      setStats(data);
-    } catch (err) {
-      console.error('Failed to load stats:', err);
-    }
-  };
 
   useEffect(() => {
     if (currentUser?.id) {
       verifySession(currentUser.id).then((res) => {
         if (!res) {
           handleLogout();
-        } else {
-          refreshStats();
         }
-      }).catch(() => {
-        refreshStats();
-      });
+      }).catch(() => {});
     }
   }, [currentUser]);
 
@@ -265,11 +249,10 @@ export default function App() {
   return (
     <div className="h-screen max-h-screen overflow-hidden bg-gradient-to-b from-slate-50 via-emerald-50/20 to-teal-50/30 dark:from-[#212121] dark:via-[#212121] dark:to-[#212121] text-slate-900 dark:text-[#ececec] flex flex-col font-sans">
       
-      {/* Main App Navigation Bar (Clean: No admin tab, No top account dropdown) */}
+      {/* Main App Navigation Bar */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        stats={stats}
         themeMode={themeMode}
         onThemeChange={handleThemeChange}
       />
@@ -282,7 +265,6 @@ export default function App() {
               currentUser={currentUser}
               selectedLevel={selectedLevel}
               onSelectLevel={setSelectedLevel}
-              onStatsUpdate={refreshStats}
               initialQuery={searchTriggerWord}
               onLogout={handleLogout}
               setActiveTab={setActiveTab}
@@ -290,18 +272,9 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'flashcards' && (
-            <FlashcardView
-              currentUser={currentUser}
-              onSwitchToChat={() => setActiveTab('chat')}
-              onStatsUpdate={refreshStats}
-            />
-          )}
-
           {activeTab === 'discover' && (
             <DiscoveryView
               onSelectWord={handleSelectWordFromDiscovery}
-              onStatsUpdate={refreshStats}
             />
           )}
 
@@ -313,29 +286,12 @@ export default function App() {
                 currentUser={currentUser}
                 selectedLevel={selectedLevel}
                 onSelectLevel={setSelectedLevel}
-                onStatsUpdate={refreshStats}
                 initialQuery={searchTriggerWord}
               />
             )
           )}
         </ErrorBoundary>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-200/80 dark:border-white/10 bg-white/60 dark:bg-[#171717]/80 backdrop-blur-xs py-3.5 text-center text-xs text-slate-500 dark:text-zinc-400 font-medium">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Chatbox 2.0 Local-Only AI Engine</span>
-            <span>•</span>
-            <span>3,725 Cặp Từ Vựng Chuẩn CEFR A1–B2</span>
-          </div>
-
-          <div className="text-slate-400 dark:text-zinc-500">
-            Hỗ trợ phát âm Web Speech API • Độc lập hoàn toàn với Cloud API bên ngoài
-          </div>
-        </div>
-      </footer>
 
     </div>
   );

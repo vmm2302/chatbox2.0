@@ -1,84 +1,133 @@
 /**
- * Text-to-Speech (TTS) Service using Web Speech API.
- * Completely offline, zero bandwidth, zero cloud dependencies.
+ * Text-to-Speech (TTS) Service using Local Kokoro-ONNX Backend.
+ * Completely offline, zero cloud API dependencies, zero external network calls.
+ * Plays 24kHz 16-bit PCM WAV audio synthesized locally on the machine.
  */
 
-class TTSService {
+const API_BASE = '/api';
+
+class LocalTTSService {
   constructor() {
-    this.synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
-    this.voices = [];
-    if (this.synth) {
-      this.loadVoices();
-      if (this.synth.onvoiceschanged !== undefined) {
-        this.synth.onvoiceschanged = () => this.loadVoices();
+    this.currentAudio = null;
+    this.isPlaying = false;
+    this.audioCache = new Map(); // cacheKey -> ObjectURL
+  }
+
+  /**
+   * Cancel and immediately stop any active audio playback.
+   * Ensures repeated button clicks never overlap audio.
+   */
+  cancel() {
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
+      } catch (e) {
+        console.debug('Error stopping audio:', e);
       }
+      this.currentAudio = null;
     }
+    this.isPlaying = false;
   }
 
-  loadVoices() {
-    if (!this.synth) return;
-    this.voices = this.synth.getVoices();
-  }
+  /**
+   * Synthesize and play speech for an English word or phrase using local Kokoro-ONNX.
+   *
+   * @param {string} text - English word or sentence to pronounce.
+   * @param {Object} options - Configuration options.
+   * @param {string} [options.voice='af_heart'] - Kokoro voice (default: af_heart US Female).
+   * @param {number} [options.speed=1.0] - Speech speed multiplier.
+   * @param {Function} [options.onStart] - Callback when playback starts.
+   * @param {Function} [options.onEnd] - Callback when playback ends or resets.
+   * @param {Function} [options.onError] - Callback when synthesis fails.
+   */
+  async speak(text, { voice = 'af_heart', speed = 1.0, onStart, onEnd, onError } = {}) {
+    // 1. Immediately cancel any currently playing audio so clicks never overlap
+    this.cancel();
 
-  getBestVoice(lang = 'en-US') {
-    if (!this.voices || this.voices.length === 0) {
-      this.loadVoices();
-    }
-    // Prefer natural / google / english voices
-    const targetLang = lang.toLowerCase();
-    const matched = this.voices.filter((v) => v.lang.toLowerCase().startsWith(targetLang.slice(0, 2)));
-    if (matched.length === 0) return null;
-
-    // Pick US or UK voice specifically if available
-    const exact = matched.find((v) => v.lang.toLowerCase() === targetLang);
-    if (exact) return exact;
-
-    const naturalVoice = matched.find((v) => v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('David'));
-    return naturalVoice || matched[0];
-  }
-
-  speak(text, { lang = 'en-US', rate = 1.0, pitch = 1.0, onStart, onEnd } = {}) {
-    if (!this.synth) {
-      console.warn('SpeechSynthesis is not supported in this browser.');
+    if (!text || typeof text !== 'string') {
+      if (onEnd) onEnd();
       return;
     }
 
-    // Cancel any ongoing speech
-    this.synth.cancel();
-
-    // Clean word / sentence to speak (remove slashes, brackets)
-    const cleanText = text.replace(/[/\\()[\]]/g, '').trim();
-    if (!cleanText) return;
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = lang;
-    utterance.rate = rate;
-    utterance.pitch = pitch;
-
-    const voice = this.getBestVoice(lang);
-    if (voice) {
-      utterance.voice = voice;
-    }
-
-    if (onStart) utterance.onstart = onStart;
-    if (onEnd) utterance.onend = onEnd;
-    utterance.onerror = (e) => {
-      console.debug('TTS playback notice:', e);
+    const cleanText = text.replace(/[/\\()[\]*~_"'`“”‘’]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!cleanText) {
       if (onEnd) onEnd();
-    };
-
-    this.synth.speak(utterance);
-  }
-
-  speakSlow(text, lang = 'en-US', callbacks = {}) {
-    this.speak(text, { ...callbacks, lang, rate: 0.72 });
-  }
-
-  cancel() {
-    if (this.synth) {
-      this.synth.cancel();
+      return;
     }
+
+    this.isPlaying = true;
+    if (onStart) onStart();
+
+    const cacheKey = `${cleanText.toLowerCase()}__${voice}__${speed}`;
+
+    try {
+      let audioUrl = this.audioCache.get(cacheKey);
+
+      if (!audioUrl) {
+        const response = await fetch(`${API_BASE}/tts/synthesize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: cleanText,
+            voice: voice || 'af_heart',
+            speed: speed || 1.0,
+          }),
+        });
+
+        if (!response.ok) {
+          let errorMessage = 'Không thể phát âm: Mô hình TTS cục bộ chưa sẵn sàng.';
+          try {
+            const errData = await response.json();
+            if (errData.detail) {
+              errorMessage = typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail);
+            }
+          } catch (_) {
+            errorMessage = `Dịch vụ phát âm trả về mã lỗi ${response.status}.`;
+          }
+          throw new Error(errorMessage);
+        }
+
+        const blob = await response.blob();
+        audioUrl = URL.createObjectURL(blob);
+        this.audioCache.set(cacheKey, audioUrl);
+      }
+
+      const audio = new Audio(audioUrl);
+      this.currentAudio = audio;
+
+      audio.onended = () => {
+        this.isPlaying = false;
+        this.currentAudio = null;
+        if (onEnd) onEnd();
+      };
+
+      audio.onerror = (evt) => {
+        this.isPlaying = false;
+        this.currentAudio = null;
+        const msg = 'Lỗi khi phát tệp âm thanh từ vựng.';
+        console.error('Audio playback error:', evt);
+        if (onError) onError(msg);
+        if (onEnd) onEnd();
+      };
+
+      await audio.play();
+    } catch (err) {
+      this.isPlaying = false;
+      this.currentAudio = null;
+      console.error('Local TTS synthesis error:', err);
+      if (onError) {
+        onError(err.message || 'Lỗi kết nối dịch vụ phát âm cục bộ.');
+      }
+      if (onEnd) onEnd();
+    }
+  }
+
+  speakSlow(text, callbacks = {}) {
+    this.speak(text, { ...callbacks, speed: 0.85 });
   }
 }
 
-export const tts = new TTSService();
+export const tts = new LocalTTSService();

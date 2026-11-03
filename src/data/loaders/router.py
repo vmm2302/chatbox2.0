@@ -8,12 +8,8 @@ from src.core.exceptions import DataLoadError
 from src.core.models import QARecord
 from src.data.loaders.base import BaseFileLoader, FileValidationResult, compute_file_hash
 from src.data.loaders.csv_loader import CSVLoader
-from src.data.loaders.docx_loader import DocxLoader
 from src.data.loaders.excel_loader import ExcelLoader
-from src.data.loaders.json_loader import JSONLoader
 from src.data.loaders.pdf_loader import PDFLoader
-from src.data.loaders.sqlite_loader import SQLiteLoader
-from src.data.loaders.text_loader import TextLoader
 
 logger = logging.getLogger(__name__)
 
@@ -28,26 +24,14 @@ class FileLoaderRouter:
     def _register_default_loaders(self):
         excel = ExcelLoader()
         csv = CSVLoader()
-        json_loader = JSONLoader()
-        text = TextLoader()
-        docx = DocxLoader()
         pdf = PDFLoader()
-        sqlite = SQLiteLoader()
 
         for ext in excel.SUPPORTED_EXTENSIONS:
             self.loaders[ext.lower()] = excel
         for ext in csv.SUPPORTED_EXTENSIONS:
             self.loaders[ext.lower()] = csv
-        for ext in json_loader.SUPPORTED_EXTENSIONS:
-            self.loaders[ext.lower()] = json_loader
-        for ext in text.SUPPORTED_EXTENSIONS:
-            self.loaders[ext.lower()] = text
-        for ext in docx.SUPPORTED_EXTENSIONS:
-            self.loaders[ext.lower()] = docx
         for ext in pdf.SUPPORTED_EXTENSIONS:
             self.loaders[ext.lower()] = pdf
-        for ext in sqlite.SUPPORTED_EXTENSIONS:
-            self.loaders[ext.lower()] = sqlite
 
     @property
     def supported_extensions(self) -> List[str]:

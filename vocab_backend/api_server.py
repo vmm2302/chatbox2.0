@@ -2,10 +2,9 @@
 
 Provides REST endpoints for:
 - Chatbot vocabulary lookup with the required prefix 'Từ bạn tìm kiếm: <word>'
-- CEFR level filtering (A1, A2, B1, B2)
-- Fast autocomplete search across 3,725 Oxford vocabulary items
+- CEFR level filtering (strictly A1 and A2)
+- Fast autocomplete search across A1–A2 vocabulary items
 - Word discovery & random cards
-- Sổ tay từ vựng (Word Notebook) & Flashcard state tracking
 - Serving the built modern frontend SPA
 """
 
@@ -14,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -34,23 +34,14 @@ if str(PROJECT_ROOT) not in sys.path:
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-from vocab_backend.notebook_db import (
-    delete_word,
-    get_learning_stats,
-    get_word,
-    init_notebook_db,
-    list_saved_words,
-    save_word,
-    update_word_status,
-)
 from vocab_backend.vocab_parser import ensure_required_search_prefix, parse_vocabulary_text
 
 logger = logging.getLogger("vocab_api")
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
-    title="Chatbox 2.0 - English Vocabulary Web API",
-    description="Dedicated API for CEFR English vocabulary lookup (A1–B2) with modern UI/UX.",
+    title="Chatbot cho từ vựng A1 - A2 - English Vocabulary Web API",
+    description="Dedicated API for CEFR English vocabulary lookup (A1–A2) with modern UI/UX.",
     version="2.0.0",
 )
 
@@ -58,11 +49,13 @@ from vocab_backend.auth_routes import auth_router
 from vocab_backend.conversation_routes import conv_router
 from vocab_backend.streaming_routes import streaming_router
 from vocab_backend.admin_routes import admin_router
+from vocab_backend.tts_routes import tts_router
 
 app.include_router(auth_router)
 app.include_router(conv_router)
 app.include_router(streaming_router)
 app.include_router(admin_router)
+app.include_router(tts_router)
 
 # Enable CORS for local Vite dev server
 app.add_middleware(
@@ -86,13 +79,15 @@ def get_records():
         try:
             from src.data.loader import QALoader
             loader = QALoader()
-            _RECORDS_CACHE = loader.get_or_create_records()
+            all_recs = loader.get_or_create_records()
+            # Strictly filter to A1 and A2 vocabulary
+            _RECORDS_CACHE = [r for r in all_recs if getattr(r, "level", "").strip().upper() in {"A1", "A2"}]
             _WORD_INDEX.clear()
             for rec in _RECORDS_CACHE:
                 w = getattr(rec, "word", "").strip().lower()
                 if w and w not in _WORD_INDEX:
                     _WORD_INDEX[w] = rec
-            logger.info("Loaded %d vocabulary records into memory.", len(_RECORDS_CACHE))
+            logger.info("Loaded %d A1–A2 vocabulary records into memory.", len(_RECORDS_CACHE))
         except Exception as e:
             logger.error("Failed to load records: %s", e)
             _RECORDS_CACHE = []
@@ -128,8 +123,9 @@ def get_or_create_tracker(session_id: str):
 
 @app.on_event("startup")
 async def startup_event():
-    init_notebook_db()
     get_records()
+    from src.tts.engine import get_tts_engine
+    get_tts_engine()
 
 
 # ---------------------------------------------------------
@@ -137,26 +133,9 @@ async def startup_event():
 # ---------------------------------------------------------
 class ChatRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Question or vocabulary word")
-    level: str = Field("Tất cả", description="Filter CEFR level: 'Tất cả', 'A1', 'A2', 'B1', 'B2'")
+    level: str = Field("Tất cả", description="Filter CEFR level: 'Tất cả', 'A1', 'A2'")
     conversation_id: Optional[str] = "default_session"
     user_id: Optional[str] = "default_user"
-
-
-class SaveWordRequest(BaseModel):
-    word: str
-    level: str = "A1"
-    ipa: Optional[str] = ""
-    part_of_speech: Optional[str] = ""
-    meaning: str = ""
-    example: Optional[str] = ""
-    collocations: Optional[str] = ""
-    user_id: Optional[str] = "default_user"
-
-
-class StatusUpdateRequest(BaseModel):
-    status: str = Field(..., pattern="^(learning|mastered)$")
-    user_id: Optional[str] = "default_user"
-    increment_review: bool = True
 
 
 # ---------------------------------------------------------
@@ -186,7 +165,7 @@ async def chat_endpoint(payload: ChatRequest):
 
     # Determine effective query with CEFR preference if specified
     effective_query = clean_query
-    if payload.level in {"A1", "A2", "B1", "B2"}:
+    if payload.level in {"A1", "A2"}:
         effective_query = f"{clean_query}\n\nƯu tiên thông tin từ trình độ {payload.level}."
 
     answer_text = ""
@@ -210,14 +189,17 @@ async def chat_endpoint(payload: ChatRequest):
         try:
             resp = engine.ask(effective_query, tracker=tracker)
             answer_text = resp.answer
+            resp_intent = getattr(resp, "intent", "DEFINE_VOCAB")
+            resp_word = getattr(resp, "word", "") or getattr(resp, "active_word", "") or tracker.active_word
             meta_info = {
                 "mode": resp.mode,
-                "intent": resp.intent,
+                "intent": resp_intent,
                 "latency_ms": getattr(resp, "latency_ms", 0.0),
                 "rrf_score": getattr(resp, "rrf_score", 0.0),
-                "active_word": getattr(resp, "active_word", ""),
+                "active_word": resp_word,
+                "word": resp_word,
             }
-            active_word = getattr(resp, "active_word", "") or word_candidate
+            active_word = resp_word or (word_candidate if word_candidate in _WORD_INDEX else "")
         except Exception as e:
             logger.error("ChatEngine query failed: %s", e)
             if direct_rec:
@@ -243,7 +225,6 @@ async def chat_endpoint(payload: ChatRequest):
         active_word = ""
         final_text = (answer_text or "").strip()
         structured_card = None
-        suggestions = []
         meta_info["record_id"] = None
         meta_info["word"] = ""
     else:
@@ -251,8 +232,9 @@ async def chat_endpoint(payload: ChatRequest):
         if not active_word and word_candidate in _WORD_INDEX:
             active_word = word_candidate
 
-        # Ensure the mandatory prefix is prepended: 'Từ bạn tìm kiếm: <word>'
-        final_text = ensure_required_search_prefix(answer_text, active_word)
+        # Ensure the mandatory prefix is prepended: 'Từ bạn tìm kiếm: <word>' or 'Từ tiếng Anh phù hợp: <word>'
+        current_intent = meta_info.get("intent")
+        final_text = ensure_required_search_prefix(answer_text, active_word, intent=current_intent)
 
         # Parse rich card data
         rec_level = getattr(direct_rec, "level", "A1") if direct_rec else "A1"
@@ -262,63 +244,12 @@ async def chat_endpoint(payload: ChatRequest):
             default_level=rec_level,
         )
 
-        # Dynamic follow-up suggestion chips tailored to CEFR level
-        current_level = structured_card.get("level", "A1") if structured_card else "A1"
-        suggestions = _build_level_suggestions(active_word or word_candidate, current_level)
-
-    # Check if word is already saved in notebook
-    is_saved = False
-    if active_word:
-        saved_entry = get_word(active_word, user_id=payload.user_id or "default_user")
-        is_saved = saved_entry is not None
-
     return {
         "reply": final_text,
         "word": active_word,
         "structured_card": structured_card,
-        "is_saved": is_saved,
         "meta": meta_info,
-        "suggestions": suggestions,
     }
-
-
-def _build_level_suggestions(word: str, level: str) -> List[str]:
-    """Generate adaptive follow-up prompts based on word and CEFR level."""
-    if not word:
-        return [
-            "Cho mình danh sách từ vựng A1",
-            "Các từ vựng phổ biến cấp độ B1",
-            "Phân biệt borrow và lend",
-        ]
-    
-    if level == "A1":
-        return [
-            f"Cho thêm 2 câu ví dụ đơn giản với '{word}'",
-            f"Cách phát âm chuẩn từ '{word}' như thế nào?",
-            f"'{word}' thuộc từ loại nào và cách dùng?",
-            "Luyện đặt câu đơn giản",
-        ]
-    elif level == "A2":
-        return [
-            f"Dạng quá khứ và số nhiều của '{word}' là gì?",
-            f"Cho 2 ví dụ ngữ cảnh sinh hoạt với '{word}'",
-            f"Từ trái nghĩa của '{word}' là gì?",
-            f"Đặt câu với '{word}' ở thì hiện tại hoàn thành",
-        ]
-    elif level == "B1":
-        return [
-            f"Các Collocations phổ biến nhất đi với '{word}'",
-            f"Phân biệt '{word}' với các từ đồng nghĩa gần nghĩa",
-            f"Ví dụ dùng '{word}' trong môi trường công sở/học tập",
-            f"Cụm động từ (Phrasal verbs) liên quan đến '{word}'",
-        ]
-    else:  # B2
-        return [
-            f"Sắc thái trang trọng (Register) và ngữ cảnh dùng của '{word}'",
-            f"Các Idioms hoặc thành ngữ chứa từ '{word}'",
-            f"Những lỗi sai phổ biến người học hay gặp với '{word}'",
-            f"Từ đồng nghĩa nâng cao thay thế cho '{word}'",
-        ]
 
 
 @app.get("/api/words/search")
@@ -327,12 +258,12 @@ def search_words(
     level: Optional[str] = Query(None),
     limit: int = Query(10, ge=1, le=50),
 ):
-    """Fast prefix & substring autocomplete search across 3,725 Oxford words."""
+    """Fast prefix & substring autocomplete search across A1–A2 vocabulary."""
     query_clean = q.strip().lower()
     records = get_records()
     results = []
 
-    level_filter = level.upper() if level and level.upper() in {"A1", "A2", "B1", "B2"} else None
+    level_filter = level.upper() if level and level.upper() in {"A1", "A2"} else None
 
     # 1. Exact match & prefix match first
     for rec in records:
@@ -405,7 +336,6 @@ def get_word_detail(word: str):
         "level": rec.level,
         "text": formatted_text,
         "structured_card": structured_card,
-        "suggestions": _build_level_suggestions(rec.word, rec.level),
     }
 
 
@@ -414,9 +344,9 @@ def discover_words(
     level: Optional[str] = Query("A1"),
     count: int = Query(6, ge=1, le=20),
 ):
-    """Get a set of discovery words for a given CEFR level."""
+    """Get a set of discovery words for a given CEFR level (A1 or A2 only)."""
     records = get_records()
-    level_filter = level.upper() if level and level.upper() in {"A1", "A2", "B1", "B2"} else "A1"
+    level_filter = level.upper() if level and level.upper() in {"A1", "A2"} else "A1"
     matched = [r for r in records if getattr(r, "level", "A1").upper() == level_filter]
     sample = random.sample(matched, min(count, len(matched))) if matched else []
 
@@ -425,66 +355,6 @@ def discover_words(
         cards.append(parse_vocabulary_text(r.answer, default_word=r.word, default_level=r.level))
 
     return {"level": level_filter, "words": cards}
-
-
-# ---------------------------------------------------------
-# Sổ tay từ vựng (Word Notebook & Flashcard endpoints)
-# ---------------------------------------------------------
-@app.get("/api/notebook")
-def get_notebook(
-    level: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    user_id: str = Query("default_user"),
-    limit: int = Query(200, ge=1, le=500),
-):
-    """List saved words from personal notebook."""
-    words = list_saved_words(user_id=user_id, level=level, status=status, limit=limit)
-    return {"saved_words": words, "count": len(words)}
-
-
-@app.post("/api/notebook")
-def add_to_notebook(payload: SaveWordRequest):
-    """Save or update a word in the user's notebook."""
-    saved = save_word(
-        word=payload.word,
-        level=payload.level,
-        ipa=payload.ipa or "",
-        part_of_speech=payload.part_of_speech or "",
-        meaning=payload.meaning,
-        example=payload.example or "",
-        collocations=payload.collocations or "",
-        user_id=payload.user_id or "default_user",
-    )
-    return {"status": "saved", "word": saved}
-
-
-@app.delete("/api/notebook/{word}")
-def remove_from_notebook(word: str, user_id: str = Query("default_user")):
-    """Delete a word from notebook."""
-    deleted = delete_word(word, user_id=user_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Word not found in notebook.")
-    return {"status": "deleted", "word": word}
-
-
-@app.patch("/api/notebook/{word}/status")
-def change_word_status(word: str, payload: StatusUpdateRequest):
-    """Update word learning status (learning vs mastered)."""
-    updated = update_word_status(
-        word=word,
-        status=payload.status,
-        user_id=payload.user_id or "default_user",
-        increment_review=payload.increment_review,
-    )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Word not found.")
-    return {"status": "updated", "word": updated}
-
-
-@app.get("/api/stats")
-def get_stats(user_id: str = Query("default_user")):
-    """Get personal learning progress stats."""
-    return get_learning_stats(user_id=user_id)
 
 
 # ---------------------------------------------------------

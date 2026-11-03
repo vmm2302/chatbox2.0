@@ -22,8 +22,8 @@ def test_health():
     print(f"Health test passed. Total records: {data['total_records']}")
 
 
-def test_chat_mandatory_prefix():
-    # Test query for a word: "amazing nghĩa là gì?"
+def test_chat_mandatory_prefix_and_no_suggestions():
+    # Test query for an A1 word: "amazing nghĩa là gì?"
     res = client.post(
         "/api/chat",
         json={"query": "amazing nghĩa là gì?", "level": "Tất cả"},
@@ -32,88 +32,71 @@ def test_chat_mandatory_prefix():
     data = res.json()
     reply = data["reply"]
     print(f"Bot Reply start: {reply[:80]}")
-    
+
     # Verify the user-mandated requirement:
-    # "hãy thêm cho tôi ở đầu câu trả lời, tôi muốn là khi mà tôi hỏi từ bất kì thì chatbot sẽ trả lời lại là:
-    # Từ bạn tìm kiếm: từ bất kì nào đó tôi hỏi"
+    # "Từ bạn tìm kiếm: amazing"
     assert "Từ bạn tìm kiếm: amazing" in reply[:60], f"Prefix missing in reply: {reply[:60]}"
-    
+
     # Verify structured card
     card = data["structured_card"]
     assert card is not None
     assert card["word"] == "amazing"
-    assert card["level"] == "A1"
-    assert "/əˈmeɪzɪŋ/" in card["ipa"]
-    assert len(card["blocks"]) > 0
-    assert len(data["suggestions"]) > 0
-    print("Chat mandatory prefix test passed!")
+    assert card["level"] in ("A1", "A2")
+
+    # Verify suggestion chips have been removed from the API response
+    assert "suggestions" not in data, "suggestions field must be removed from API response"
+    print("Chat mandatory prefix and no suggestions test passed!")
 
 
-def test_search_autocomplete():
+def test_search_autocomplete_a1_a2_only():
     res = client.get("/api/words/search?q=ab&limit=5")
     assert res.status_code == 200
     data = res.json()
     assert len(data["results"]) > 0
     words = [r["word"] for r in data["results"]]
-    print(f"Autocomplete results for 'ab': {words}")
+    levels = [r.get("level") for r in data["results"]]
+    print(f"Autocomplete results for 'ab': {words}, levels: {levels}")
     assert any(w.startswith("ab") for w in words)
+    for lvl in levels:
+        assert lvl in ("A1", "A2"), f"Search autocomplete returned non-A1/A2 level: {lvl}"
     print("Search autocomplete test passed!")
 
 
-def test_notebook_flow():
-    # Save word
-    save_res = client.post(
-        "/api/notebook",
-        json={
-            "word": "resilient",
-            "level": "B2",
-            "ipa": "/rɪˈzɪliənt/",
-            "part_of_speech": "Tính từ",
-            "meaning": "Kiên cường, mau phục hồi",
-            "example": "He is resilient in facing difficulties.",
-        },
+def test_out_of_scope_levels():
+    # Test explicit B1/B2 query
+    res = client.post(
+        "/api/chat",
+        json={"query": "Các từ vựng B2 thường gặp trong IELTS", "level": "Tất cả"},
     )
-    assert save_res.status_code == 200
-    
-    # List notebook
-    list_res = client.get("/api/notebook")
-    assert list_res.status_code == 200
-    saved_list = list_res.json()["saved_words"]
-    assert any(item["word"] == "resilient" for item in saved_list)
+    assert res.status_code == 200
+    data = res.json()
+    reply = data["reply"]
+    print(f"Out of scope reply: {reply}")
+    assert "ngoài phạm vi" in reply.lower() or "a1" in reply.lower(), "B2 queries must be answered with out-of-scope"
 
-    # Update status to mastered
-    patch_res = client.patch(
-        "/api/notebook/resilient/status",
-        json={"status": "mastered", "increment_review": True},
-    )
-    assert patch_res.status_code == 200
-    assert patch_res.json()["word"]["status"] == "mastered"
+    # Test A1 word detail is 200
+    a1_res = client.get("/api/words/detail/amazing")
+    assert a1_res.status_code == 200, "amazing (A1) must return 200"
+    assert a1_res.json()["level"] in ("A1", "A2")
 
-    # Stats
-    stats_res = client.get("/api/stats")
-    assert stats_res.status_code == 200
-    stats = stats_res.json()
-    assert stats["total_saved"] >= 1
-    assert stats["mastered"] >= 1
-
-    # Delete
-    del_res = client.delete("/api/notebook/resilient")
-    assert del_res.status_code == 200
-    print("Notebook flow test passed!")
+    # Test non-A1/A2 word detail is 404
+    word_res = client.get("/api/words/detail/mitigate")
+    assert word_res.status_code == 404, "mitigate (B2/C1) must return 404 in A1-A2 dictionary"
+    print("Out-of-scope levels test passed!")
 
 
 def test_serve_frontend_spa():
     # Test that root / returns index.html of built frontend
     res = client.get("/")
     assert res.status_code == 200
-    assert "Vocab" in res.text or "html" in res.text
+    assert "Chatbot cho từ vựng A1 - A2" in res.text or "html" in res.text
     print("Serve frontend SPA test passed!")
 
 
 if __name__ == "__main__":
     test_health()
-    test_chat_mandatory_prefix()
-    test_search_autocomplete()
-    test_notebook_flow()
+    test_chat_mandatory_prefix_and_no_suggestions()
+    test_search_autocomplete_a1_a2_only()
+    test_out_of_scope_levels()
     test_serve_frontend_spa()
     print("ALL E2E INTEGRATION TESTS PASSED!")

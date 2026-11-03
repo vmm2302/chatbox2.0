@@ -1,6 +1,6 @@
 /**
  * API client service for communicating with the backend FastAPI server.
- * Includes Auth, Conversations, Streaming SSE, Notebook, Discovery, and Admin endpoints.
+ * Includes Auth, Conversations, Streaming SSE, Discovery, Search, and Admin endpoints.
  */
 
 const API_BASE = '/api';
@@ -222,65 +222,6 @@ export async function searchWords(q, level = null, limit = 10) {
 export async function getDiscoveryWords(level = 'A1', count = 8) {
   const res = await fetch(`${API_BASE}/words/discover?level=${level}&count=${count}`);
   if (!res.ok) return { words: [] };
-  return res.json();
-}
-
-// -------------------------------------------------------------
-// Sổ tay từ vựng & Flashcards
-// -------------------------------------------------------------
-export async function getNotebookWords(level = null, status = null, userId = 'default_user') {
-  const params = new URLSearchParams({ user_id: String(userId) });
-  if (level && level !== 'Tất cả') params.set('level', level);
-  if (status && status !== 'all') params.set('status', status);
-  const res = await fetch(`${API_BASE}/notebook?${params.toString()}`);
-  if (!res.ok) return { saved_words: [] };
-  return res.json();
-}
-
-export async function saveNotebookWord(wordData, userId = 'default_user') {
-  const res = await fetch(`${API_BASE}/notebook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      word: wordData.word,
-      level: wordData.level || 'A1',
-      ipa: wordData.ipa || '',
-      part_of_speech: wordData.primary_pos || wordData.part_of_speech || '',
-      meaning: wordData.primary_meaning || wordData.meaning || '',
-      example: wordData.primary_example || wordData.example || '',
-      collocations: wordData.collocations || '',
-      user_id: String(userId),
-    }),
-  });
-  if (!res.ok) throw new Error('Failed to save word');
-  return res.json();
-}
-
-export async function deleteNotebookWord(word, userId = 'default_user') {
-  const res = await fetch(`${API_BASE}/notebook/${encodeURIComponent(word)}?user_id=${userId}`, {
-    method: 'DELETE',
-  });
-  if (!res.ok) throw new Error('Failed to delete word');
-  return res.json();
-}
-
-export async function updateNotebookStatus(word, status, incrementReview = true, userId = 'default_user') {
-  const res = await fetch(`${API_BASE}/notebook/${encodeURIComponent(word)}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      status,
-      user_id: String(userId),
-      increment_review: incrementReview,
-    }),
-  });
-  if (!res.ok) throw new Error('Failed to update status');
-  return res.json();
-}
-
-export async function getStats(userId = 'default_user') {
-  const res = await fetch(`${API_BASE}/stats?user_id=${userId}`);
-  if (!res.ok) return { total_saved: 0, mastered: 0, learning: 0, by_level: {} };
   return res.json();
 }
 

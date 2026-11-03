@@ -72,9 +72,9 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 📚
               </div>
               <div>
-                <h1 className="text-2xl font-black tracking-tight">VocabChat</h1>
+                <h1 className="text-2xl font-black tracking-tight">Chatbot cho từ vựng A1 - A2</h1>
                 <p className="text-xs font-semibold text-emerald-200 uppercase tracking-wider">
-                  Trợ lý từ vựng tiếng Anh CEFR
+                  Trợ lý từ vựng tiếng Anh A1 - A2
                 </p>
               </div>
             </div>
@@ -85,7 +85,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 <span className="text-emerald-300">một bước tiến gần hơn.</span>
               </h2>
               <p className="text-sm sm:text-base text-emerald-100/90 leading-relaxed max-w-md">
-                Tra cứu từ vựng chuẩn Oxford 3,000 từ A1 đến B2, phân biệt từ dễ nhầm lẫn, nghe phát âm bản ngữ và ôn tập qua thẻ lật 3D.
+                Tra cứu từ vựng chuẩn CEFR A1 và A2, giải thích nghĩa rõ ràng, nghe phát âm bản ngữ và xem câu ví dụ thực tế.
               </p>
             </div>
           </div>
@@ -97,7 +97,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
             </div>
             <div className="flex items-center space-x-2">
               <Sparkles className="w-4 h-4 text-emerald-300 shrink-0" />
-              <span>Hỗ trợ chuẩn 4 cấp độ CEFR: A1 · A2 · B1 · B2</span>
+              <span>Hỗ trợ chuẩn 2 cấp độ CEFR: A1 · A2</span>
             </div>
           </div>
         </div>
@@ -137,7 +137,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
             <p className="text-xs sm:text-sm text-slate-500 dark:text-zinc-400 mt-1">
               {tab === 'login'
                 ? 'Đăng nhập để tiếp tục buổi học và xem lịch sử tra cứu của bạn.'
-                : 'Tạo tài khoản để cá nhân hóa sổ tay từ vựng và lưu tiến độ ôn tập.'}
+                : 'Tạo tài khoản để lưu lịch sử tra cứu và cá nhân hóa trải nghiệm học tập.'}
             </p>
           </div>
 

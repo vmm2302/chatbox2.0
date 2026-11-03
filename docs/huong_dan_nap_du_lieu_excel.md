@@ -1,6 +1,10 @@
-# HƯỚNG DẪN ĐƯA DỮ LIỆU EXCEL VÀO ĐỂ "TRAIN" (CẬP NHẬT TRI THỨC) CHO CHATBOX 2.0
+# HƯỚNG DẪN ĐƯA DỮ LIỆU EXCEL VÀO ĐỂ CẬP NHẬT TRI THỨC CHO CHATBOT CHO TỪ VỰNG A1 - A2
 
-Tài liệu này hướng dẫn chi tiết cách đưa dữ liệu từ tệp **Excel (.xlsx)** vào hệ thống Chatbox 2.0 để cập nhật kho tri thức từ vựng tiếng Anh.
+Tài liệu này hướng dẫn chi tiết cách đưa dữ liệu từ tệp **Excel (.xlsx, .xls)** vào hệ thống Chatbot cho từ vựng A1 - A2 để cập nhật kho tri thức từ vựng tiếng Anh.
+
+> [!IMPORTANT]
+> **Giới hạn phạm vi cấp độ A1–A2:**
+> Ứng dụng giới hạn nghiêm ngặt ở trình độ CEFR **A1 và A2**. Khi nạp tệp, các bản ghi có trình độ từ B1 trở lên hoặc không xác định sẽ tự động bị bỏ qua và ghi nhận số lượng bị bỏ qua trong báo cáo nạp tệp.
 
 ---
 
@@ -33,7 +37,7 @@ Bạn chỉ cần mở Excel, tạo 1 sheet bất kỳ (ví dụ `TuVung`, `Shee
 | **Câu hỏi** | `Question` | **Có** | Câu hỏi hoặc mẫu câu tra cứu | `resilient nghĩa là gì?` |
 | **Câu trả lời** | `Answer` | **Có** | Nghĩa, giải thích, phát âm, ví dụ | `Phát âm: /rɪˈzɪl.jənt/\nTính từ: Phục hồi nhanh sau khó khăn...` |
 | **Từ vựng** | `Word` | *Tùy chọn* | Từ tiếng Anh cần tra (hệ thống tự bóc tách nếu thiếu) | `resilient` |
-| **Trình độ** | `Level` | *Tùy chọn* | Trình độ CEFR (A1, A2, B1, B2, C1, C2) | `B2` |
+| **Trình độ** | `Level` | *Tùy chọn* | Trình độ CEFR (chỉ chấp nhận A1 hoặc A2) | `A1` |
 | **Nguồn** | `Source` | *Tùy chọn* | Tên từ điển hoặc tài liệu tham khảo | `Cambridge Dictionary` |
 
 *Ghi chú:*

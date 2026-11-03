@@ -16,20 +16,27 @@ from src.data.loader import normalize_vietnamese_text
 
 logger = logging.getLogger(__name__)
 
-# Danh sách stop words tiếng Việt và từ đệm câu hỏi để tránh BM25 khớp nhầm từ vô nghĩa
+# Danh sách stop words tiếng Việt và từ đệm câu hỏi để tránh BM25 khớp nhầm từ vô nghĩa (gồm cả có dấu và không dấu)
 BM25_STOPWORDS = {
-    "tu", "nay", "cho", "toi", "la", "gi", "do", "tren", "nao", "cua", "hay",
-    "giup", "xem", "biet", "voi", "xin", "cam", "on", "va", "nhung", "cac",
-    "duoc", "co", "the", "con", "vay", "sao", "dang", "loai", "mot",
-    "trong", "khi", "neu", "thi", "se", "da", "nhu", "ra", "vao", "lai", "chua", "roi", "khong",
-    "nghia", "cau", "vi", "du", "ban", "minh", "em", "anh", "chi"
+    "tu", "từ", "nay", "này", "cho", "toi", "tôi", "la", "là", "gi", "gì", "do", "đó", "tren", "trên",
+    "nao", "nào", "cua", "của", "hay", "hãy", "giup", "giúp", "xem", "biet", "biết", "voi", "với",
+    "xin", "cam", "cảm", "on", "ơn", "va", "và", "nhung", "những", "cac", "các", "duoc", "được",
+    "co", "có", "the", "thể", "con", "còn", "vay", "vậy", "sao", "dang", "dạng", "loai", "loại",
+    "mot", "một", "trong", "khi", "neu", "nếu", "thi", "thì", "se", "sẽ", "da", "đã", "nhu", "như",
+    "ra", "vao", "vào", "lai", "lại", "chua", "chưa", "roi", "rồi", "khong", "không", "nghia", "nghĩa",
+    "cau", "câu", "vi", "ví", "du", "dụ", "ban", "bạn", "minh", "mình", "em", "anh", "chi", "chị",
+    "dich", "dịch", "sang", "tieng", "tiếng"
 }
 
 
 def tokenize_for_bm25(text: str) -> List[str]:
-    """Tách token chuẩn hóa phục vụ BM25."""
-    clean = normalize_vietnamese_text(text)
-    tokens = clean.split()
+    """Tách token chuẩn hóa phục vụ BM25 (bao gồm cả token nguyên bản chữ thường và token không dấu)."""
+    low = text.lower()
+    norm = normalize_vietnamese_text(low)
+    low_clean = re.sub(r"[^\w\s]", " ", low)
+    norm_clean = re.sub(r"[^\w\s]", " ", norm)
+    combined = f"{low_clean} {norm_clean}"
+    tokens = combined.split()
     return [t for t in tokens if t]
 
 

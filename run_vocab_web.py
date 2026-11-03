@@ -89,7 +89,7 @@ def main():
     import threading
 
     print("=" * 70)
-    print(" 📚 CHATBOX 2.0 — MODERN VOCABULARY WEB APPLICATION (A1–B2)")
+    print(" 📚 CHATBOT CHO TỪ VỰNG A1 - A2 — WEB APPLICATION")
     print("=" * 70)
     print(" 🚀 Đang khởi động Backend API & Giao diện Web...")
     print(" 🌐 Địa chỉ truy cập:")

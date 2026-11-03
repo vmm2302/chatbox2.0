@@ -327,6 +327,36 @@ class ChatEngine:
                     tracker=active_tracker,
                 )
 
+        # Xử lý riêng cho luồng dịch từ tiếng Việt sang tiếng Anh (TRANSLATE_VIE_TO_ENG)
+        if intent_res.intent == "TRANSLATE_VIE_TO_ENG":
+            from src.nlp.phobert_intent import extract_vietnamese_query_phrase
+            vie_phrase = extract_vietnamese_query_phrase(clean_query)
+            matching_candidate = None
+
+            if best_candidate and mode == "DIRECT_MATCH":
+                matching_candidate = best_candidate
+            elif candidates and vie_phrase:
+                for c in candidates:
+                    if vie_phrase in c.record.answer.lower():
+                        matching_candidate = c
+                        break
+
+            if matching_candidate:
+                best_candidate = matching_candidate
+                mode = "DIRECT_MATCH"
+            else:
+                return self._create_and_log_response(
+                    clean_query=clean_query,
+                    resolved_query=resolved_query,
+                    intent=intent_res.intent,
+                    answer=settings.OUT_OF_SCOPE_RESPONSE,
+                    mode="NO_MATCH",
+                    start_time=start_time,
+                    active_word=None,
+                    candidates=[],
+                    tracker=active_tracker,
+                )
+
         # KHÓA ĐỌC ĐÃ ĐƯỢC NHẢ TẠI ĐÂY!
         # Bước 5: Kiểm tra Domain & Threshold Gate
         if not candidates or best_candidate is None or mode == "NO_MATCH":
@@ -586,6 +616,38 @@ class ChatEngine:
                 best_candidate = exact_target_match
             else:
                 # Top candidate không phải là từ người dùng hỏi (tránh false positive như lấy 'solar' cho 'sustainable')
+                resp = self._create_and_log_response(
+                    clean_query=clean_query,
+                    resolved_query=resolved_query,
+                    intent=intent_res.intent,
+                    answer=settings.OUT_OF_SCOPE_RESPONSE,
+                    mode="NO_MATCH",
+                    start_time=start_time,
+                    active_word=None,
+                    candidates=[],
+                    tracker=active_tracker,
+                )
+                yield resp.answer, resp
+                return
+
+        # Xử lý riêng cho luồng dịch từ tiếng Việt sang tiếng Anh (TRANSLATE_VIE_TO_ENG)
+        if intent_res.intent == "TRANSLATE_VIE_TO_ENG":
+            from src.nlp.phobert_intent import extract_vietnamese_query_phrase
+            vie_phrase = extract_vietnamese_query_phrase(clean_query)
+            matching_candidate = None
+
+            if best_candidate and mode == "DIRECT_MATCH":
+                matching_candidate = best_candidate
+            elif candidates and vie_phrase:
+                for c in candidates:
+                    if vie_phrase in c.record.answer.lower():
+                        matching_candidate = c
+                        break
+
+            if matching_candidate:
+                best_candidate = matching_candidate
+                mode = "DIRECT_MATCH"
+            else:
                 resp = self._create_and_log_response(
                     clean_query=clean_query,
                     resolved_query=resolved_query,

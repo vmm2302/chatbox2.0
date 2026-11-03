@@ -1,6 +1,6 @@
-# HƯỚNG DẪN CÀI ĐẶT & THIẾT LẬP MÔI TRƯỜNG CHATBOX 2.0 TRÊN MÁY MỚI
+# HƯỚNG DẪN CÀI ĐẶT & THIẾT LẬP MÔI TRƯỜNG CHATBOX TRÊN MÁY MỚI
 
-Tài liệu này cung cấp hướng dẫn chi tiết từ A đến Z để thiết lập môi trường và khởi chạy thành công toàn bộ hệ thống **Chatbox 2.0 — Trợ Lý Tra Cứu Từ Vựng Tiếng Anh A1–B2** trên một máy tính hoàn toàn mới (Windows 10/11, macOS hoặc Ubuntu/Linux) thông qua Terminal / Dòng lệnh.
+Tài liệu này cung cấp hướng dẫn chi tiết từ A đến Z để thiết lập môi trường và khởi chạy thành công toàn bộ hệ thống **Chatbot cho từ vựng A1 - A2** trên một máy tính hoàn toàn mới (Windows 10/11, macOS hoặc Ubuntu/Linux) thông qua Terminal / Dòng lệnh.
 
 > **Lưu ý về dữ liệu:** Repository không phân phối corpus từ vựng, file nguồn hay manifest. Sau khi khởi chạy, hãy nạp qua trang quản trị một tệp mà bạn có quyền sử dụng. Các file raw/processed và chỉ mục được tạo sẽ chỉ nằm trên máy local.
 
@@ -37,9 +37,10 @@ flowchart TD
     B --> C["Bước 3: Cài đặt & Build Frontend React"]
     C --> D["Bước 4: Cài đặt Ollama & Tải mô hình Qwen2.5:7B"]
     D --> E["Bước 5: Tải cache mô hình NLP Local (PhoBERT & BGE-M3)"]
-    E --> F["Bước 6: Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên"]
-    F --> G["Bước 7: Khởi chạy Web App 1 lệnh (python run_vocab_web.py)"]
-    G --> H["Mở trình duyệt: http://localhost:8000"]
+    E --> F["Bước 6: Tải mô hình phát âm Local (Kokoro-ONNX)"]
+    F --> G["Bước 7: Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên"]
+    G --> H["Bước 8: Khởi chạy Web App 1 lệnh (python run_vocab_web.py)"]
+    H --> I["Mở trình duyệt: http://localhost:8000"]
 ```
 
 ---
@@ -133,7 +134,24 @@ Script sẽ tải và lưu trữ vào Hugging Face local cache:
 
 ---
 
-### Bước 6: Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên
+### Bước 6: Tải mô hình phát âm Text-to-Speech cục bộ (Kokoro-ONNX)
+
+Ứng dụng sử dụng engine TTS offline **Kokoro-ONNX** lượng tử hóa INT8 kết hợp giọng đọc chuẩn Mỹ `af_heart` chạy hoàn toàn trên CPU:
+
+```bash
+python scripts/setup_kokoro_model.py
+```
+
+Script sẽ tự động tải các tệp sau vào thư mục `data/models/kokoro/`:
+- **`kokoro-v1.0.int8.onnx`** (~88 MB): Mô hình âm thanh ONNX lượng tử hóa INT8.
+- **`voices-v1.0.bin`** (~27 MB): Bộ vector giọng đọc tiếng Anh (bao gồm giọng `af_heart`).
+
+> [!NOTE]
+> Hệ thống phát âm chạy **100% Offline** trên CPU máy tính người dùng mà không cần kết nối Internet, không phụ thuộc Web Speech API của trình duyệt hay bất kỳ dịch vụ đám mây bên ngoài nào.
+
+---
+
+### Bước 7: Khởi tạo tài khoản Quản trị viên (Admin) đầu tiên
 
 Chạy script khởi tạo tài khoản quản trị hệ thống:
 
@@ -148,7 +166,7 @@ Nhập thông tin theo hướng dẫn trên màn hình:
 
 ---
 
-### Bước 7: Khởi chạy ứng dụng Web (Chỉ 1 lệnh duy nhất)
+### Bước 8: Khởi chạy ứng dụng Web (Chỉ 1 lệnh duy nhất)
 
 Chạy lệnh khởi động ứng dụng web hiện đại:
 
@@ -178,11 +196,6 @@ cd vocab_frontend
 npm run dev
 ```
 > Truy cập tại: **`http://localhost:5173`** (Vite sẽ tự động proxy các request `/api` sang cổng 8000).
-
-### Giao diện Dòng lệnh (CLI)
-```bash
-python src/ui/cli.py
-```
 
 ---
 
@@ -236,3 +249,11 @@ ALL ADMIN & MULTI-FILE UPLOAD TESTS PASSED!
   ollama pull qwen2.5:3b
   ```
   Sau đó chỉnh sửa tham số `OLLAMA_MODEL` trong `config/settings.py` hoặc file `.env` thành `qwen2.5:3b`.
+
+### 6. Lỗi phát âm hoặc thông báo "Mô hình phát âm cục bộ (Kokoro-ONNX) chưa sẵn sàng"
+- **Nguyên nhân:** Thiếu tệp mô hình `kokoro-v1.0.int8.onnx` hoặc `voices-v1.0.bin` trong thư mục `data/models/kokoro/`.
+- **Cách khắc phục:** Chạy script tải mô hình TTS:
+  ```bash
+  python scripts/setup_kokoro_model.py
+  ```
+  Nếu chạy offline hoàn toàn trên máy cô lập không có Internet, chỉ cần chép nguyên thư mục `data/models/kokoro/` từ máy đã cài đặt sang.

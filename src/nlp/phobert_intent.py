@@ -51,7 +51,14 @@ INTENT_PROTOTYPES: Dict[IntentType, List[str]] = {
         "Dịch từ tiếng Việt này sang tiếng Anh",
         "Tiếng Anh của từ này viết thế nào",
         "Nghĩa tiếng Anh của từ là gì",
-        "Tìm từ tiếng Anh mang nghĩa này"
+        "Tìm từ tiếng Anh mang nghĩa này",
+        "Gia đình tiếng Anh là gì",
+        "Trường học tiếng Anh là gì",
+        "Tra từ tiếng Việt sang tiếng Anh",
+        "Gia đình",
+        "Trường học",
+        "Hạnh phúc",
+        "Từ bỏ"
     ],
 
     "FOLLOW_UP": [
@@ -190,9 +197,35 @@ class PhoBERTIntentClassifier:
                 best_intent = intent
 
         # Heuristic phát hiện câu hỏi dịch tiếng Việt sang tiếng Anh
-        translate_cues = ["từ nào", "dịch từ", "sang tiếng anh", "trong tiếng anh", "tiếng anh là gì", "nghĩa tiếng anh", "tìm từ"]
-        if any(c in clean_query.lower() for c in translate_cues):
+        translate_cues = [
+            "từ nào", "dịch từ", "dịch sang", "sang tiếng anh", "trong tiếng anh",
+            "tiếng anh là gì", "tiếng anh của", "nghĩa tiếng anh", "tìm từ",
+            "tiếng anh viết", "viết tiếng anh", "dịch"
+        ]
+        has_translate_cue = any(c in clean_query.lower() for c in translate_cues)
+        if has_translate_cue:
             best_intent = "TRANSLATE_VIE_TO_ENG"
+
+        # Nếu không có từ tiếng Anh mục tiêu, không có cue dịch tường minh, nhưng câu hỏi khớp mẫu tra nghĩa "X là gì?"
+        vie_cand = extract_vietnamese_query_phrase(clean_query)
+        is_def_question = bool(re.search(r"(?:là\s+gì|có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|nghĩa\s+sao)\s*\??$", clean_query.lower()))
+
+        if not target_word and not has_translate_cue and is_def_question:
+            if active_tracker and active_tracker.is_known_vietnamese_meaning(vie_cand):
+                # X khớp nghĩa tiếng Việt trong kho dữ liệu -> Yêu cầu tra dịch sang tiếng Anh
+                best_intent = "TRANSLATE_VIE_TO_ENG"
+            elif active_tracker and active_tracker.vie_meanings:
+                # X không có trong kho từ vựng tiếng Việt -> Ngoài phạm vi, không đoán nghĩa
+                best_intent = "OUT_OF_SCOPE"
+
+        # Nếu câu hỏi là từ/cụm từ tiếng Việt độc lập (không có target_word tiếng Anh, không phải follow-up, không mơ hồ)
+        # ví dụ: 'gia đình', 'trường học', 'hạnh phúc', 'bắt đầu', 'từ bỏ'
+        ambiguous_cues = ["từ này", "tu nay", "từ đó", "tu do", "từ trên", "tu tren", "nó", "của nó"]
+        is_ambiguous_phrase = any(c in clean_query.lower() for c in ambiguous_cues)
+        if not target_word and not is_follow_up_cue and not is_ambiguous_phrase and not is_def_question and len(clean_query.split()) <= 4:
+            if best_intent not in ("GET_LEVEL_LIST",):
+                # Đánh dấu đây là truy vấn dịch Việt -> Anh
+                best_intent = "TRANSLATE_VIE_TO_ENG"
 
         # Nếu có từ tiếng Anh mục tiêu và hỏi giải nghĩa từ ("nghĩa là gì", "có nghĩa là gì", "nghĩa của", "what does ... mean")
         q_lower = clean_query.lower()
@@ -231,4 +264,25 @@ class PhoBERTIntentClassifier:
             is_ambiguous=is_ambiguous,
             raw_query=clean_query
         )
+
+
+def extract_vietnamese_query_phrase(query: str) -> str:
+    """Trích xuất từ hoặc cụm từ tiếng Việt cốt lõi cần tra cứu dịch sang tiếng Anh."""
+    clean = query.strip().lower()
+    patterns = [
+        r"^(?:từ\s+nào\s+có\s+nghĩa\s+là|từ\s+nào\s+nghĩa\s+là|từ\s+nào\s+mang\s+nghĩa\s+là)\s+(.+?)\??$",
+        r"^(?:dịch\s+(?:từ\s+)?)(.+?)(?:\s+sang\s+tiếng\s+anh|\s+ra\s+tiếng\s+anh)\??$",
+        r"^(?:trong\s+tiếng\s+anh\s+)(.+?)(?:\s+là\s+gì|\s+viết\s+thế\s+nào)\??$",
+        r"^(.+?)\s+(?:trong\s+tiếng\s+anh\s+là\s+gì|tiếng\s+anh\s+là\s+gì|nghĩa\s+tiếng\s+anh\s+là\s+gì|nghĩa\s+tiếng\s+anh)\??$",
+        r"^(?:tiếng\s+anh\s+của\s+(?:từ\s+)?)(.+?)(?:\s+là\s+gì)?\??$",
+        r"^(?:nghĩa của từ|nghĩa của|nghĩa từ)\s+(.+?)(?:\s+(?:là\s+gì|có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì))?\??$",
+        r"^(?:từ\s+|từ vựng\s+)?(.+?)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\??$",
+    ]
+    for pat in patterns:
+        m = re.match(pat, clean)
+        if m:
+            clean = m.group(1).strip()
+            break
+    clean = re.sub(r"^[\"'\s]+|[\"'\s\?]+$", "", clean)
+    return clean
 

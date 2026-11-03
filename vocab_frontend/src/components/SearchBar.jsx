@@ -3,7 +3,7 @@ import { Search, X, Sparkles, ArrowRight, CornerDownLeft } from 'lucide-react';
 import { searchWords } from '../services/api';
 import { getLevelConfig } from '../utils/cefr';
 
-export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nhập từ tiếng Anh (ví dụ: amazing, confident, abandon...)" }) {
+export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nhập từ tiếng Anh (ví dụ: amazing, happy, family...)" }) {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [isOpen, setIsOpen] = useState(false);

@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, RefreshCw, Volume2, ArrowRight, Bookmark } from 'lucide-react';
-import { getDiscoveryWords, saveNotebookWord } from '../services/api';
+import { RefreshCw, Volume2, ArrowRight } from 'lucide-react';
+import { getDiscoveryWords } from '../services/api';
 import { tts } from '../services/tts';
 import { getLevelConfig } from '../utils/cefr';
 
-export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
+export default function DiscoveryView({ onSelectWord }) {
   const [level, setLevel] = useState('A1');
   const [words, setWords] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [savedWords, setSavedWords] = useState({});
+  const [playingWord, setPlayingWord] = useState(null);
+  const [ttsError, setTtsError] = useState(null);
 
   const fetchDiscovery = async (lvl) => {
     setIsLoading(true);
@@ -28,21 +29,23 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
 
   const handlePlayAudio = (e, word) => {
     e.stopPropagation();
-    tts.speak(word, { lang: 'en-US' });
-  };
-
-  const handleSave = async (e, wordCard) => {
-    e.stopPropagation();
-    try {
-      await saveNotebookWord(wordCard);
-      setSavedWords((prev) => ({ ...prev, [wordCard.word]: true }));
-      if (onStatsUpdate) onStatsUpdate();
-    } catch (err) {
-      console.error('Save error:', err);
+    if (playingWord === word) {
+      tts.cancel();
+      setPlayingWord(null);
+      return;
     }
+    setTtsError(null);
+    tts.speak(word, {
+      voice: 'af_heart',
+      speed: 1.0,
+      onStart: () => setPlayingWord(word),
+      onEnd: () => setPlayingWord(null),
+      onError: (err) => {
+        setPlayingWord(null);
+        setTtsError(err);
+      },
+    });
   };
-
-  const lvlConf = getLevelConfig(level);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
@@ -52,10 +55,10 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
-              <span>🌟 Khám Phá Từ Vựng Chuẩn CEFR</span>
+              <span>🌟 Khám Phá Từ Vựng Chuẩn CEFR A1 - A2</span>
             </h1>
             <p className="text-sm text-slate-500 dark:text-zinc-400 font-medium mt-1">
-              Khám phá vốn từ Oxford 3,000 phân cấp từ A1 đến B2 kèm ngữ cảnh thực tế
+              Khám phá vốn từ vựng chuẩn CEFR A1 và A2 kèm ngữ cảnh thực tế
             </p>
           </div>
 
@@ -70,8 +73,8 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
         </div>
 
         {/* Level Selector */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-5">
-          {['A1', 'A2', 'B1', 'B2'].map((lvl) => {
+        <div className="grid grid-cols-2 gap-2 mt-5">
+          {['A1', 'A2'].map((lvl) => {
             const conf = getLevelConfig(lvl);
             const isSelected = level === lvl;
             return (
@@ -94,6 +97,18 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
         </div>
       </div>
 
+      {ttsError && (
+        <div className="mb-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center justify-between">
+          <span>⚠️ {ttsError}</span>
+          <button
+            onClick={() => setTtsError(null)}
+            className="text-rose-500 hover:text-rose-700 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Grid Cards */}
       {isLoading ? (
         <div className="text-center py-16 text-slate-400 font-medium">
@@ -102,7 +117,6 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {words.map((card) => {
-            const isSaved = savedWords[card.word];
             return (
               <div
                 key={card.word}
@@ -132,21 +146,14 @@ export default function DiscoveryView({ onSelectWord, onStatsUpdate }) {
                     <div className="flex items-center space-x-1.5">
                       <button
                         onClick={(e) => handlePlayAudio(e, card.word)}
-                        className="p-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-emerald-100 dark:hover:bg-white/20 text-slate-600 dark:text-zinc-300 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors cursor-pointer border border-transparent dark:border-white/10"
-                        title="Nghe phát âm"
+                        className={`p-2 rounded-xl transition-all cursor-pointer border ${
+                          playingWord === card.word
+                            ? 'bg-emerald-500 text-white animate-pulse border-emerald-400'
+                            : 'bg-slate-100 dark:bg-white/10 hover:bg-emerald-100 dark:hover:bg-white/20 text-slate-600 dark:text-zinc-300 hover:text-emerald-700 dark:hover:text-emerald-300 border-transparent dark:border-white/10'
+                        }`}
+                        title={playingWord === card.word ? "Dừng phát" : "Nghe phát âm chuẩn Mỹ (Kokoro TTS Cục bộ)"}
                       >
                         <Volume2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleSave(e, card)}
-                        className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-                          isSaved
-                            ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
-                            : 'bg-white dark:bg-white/10 hover:bg-slate-100 dark:hover:bg-white/20 text-slate-400 dark:text-zinc-300 border-slate-200 dark:border-white/10'
-                        }`}
-                        title="Lưu sổ tay"
-                      >
-                        <Bookmark className="w-4 h-4" />
                       </button>
                     </div>
                   </div>

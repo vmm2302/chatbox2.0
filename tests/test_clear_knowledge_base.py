@@ -71,13 +71,11 @@ class TestClearKnowledgeBase(unittest.TestCase):
         cls.orig_processed_jsonl = settings.PROCESSED_JSONL_PATH
         cls.orig_chroma_dir = settings.CHROMA_DIR
         cls.orig_manifest_path = settings.SOURCES_MANIFEST_PATH
-        cls.orig_dict_db_path = settings.DICTIONARY_DB_PATH
 
         # Cấu hình chuyển hướng sang môi trường test cách ly
         cls.test_jsonl_path = cls.test_processed_dir / "qa_records.jsonl"
         cls.test_manifest_path = cls.test_processed_dir / "sources_manifest.json"
         cls.test_raw_excel = cls.test_raw_dir / "empty.xlsx"
-        cls.test_dict_db = cls.test_raw_dir / "dictionary_en_vi.db"
 
         object.__setattr__(settings, "RAW_DATA_DIR", cls.test_raw_dir)
         object.__setattr__(settings, "RAW_EXCEL_PATH", cls.test_raw_excel)
@@ -85,7 +83,6 @@ class TestClearKnowledgeBase(unittest.TestCase):
         object.__setattr__(settings, "PROCESSED_JSONL_PATH", cls.test_jsonl_path)
         object.__setattr__(settings, "CHROMA_DIR", cls.test_chroma_dir)
         object.__setattr__(settings, "SOURCES_MANIFEST_PATH", cls.test_manifest_path)
-        object.__setattr__(settings, "DICTIONARY_DB_PATH", cls.test_dict_db)
 
         cls.batch_manager = BatchIngestionManager(manifest_path=cls.test_manifest_path)
 
@@ -98,7 +95,6 @@ class TestClearKnowledgeBase(unittest.TestCase):
         object.__setattr__(settings, "PROCESSED_JSONL_PATH", cls.orig_processed_jsonl)
         object.__setattr__(settings, "CHROMA_DIR", cls.orig_chroma_dir)
         object.__setattr__(settings, "SOURCES_MANIFEST_PATH", cls.orig_manifest_path)
-        object.__setattr__(settings, "DICTIONARY_DB_PATH", cls.orig_dict_db_path)
 
         if cls.test_dir.exists():
             shutil.rmtree(cls.test_dir, ignore_errors=True)
@@ -381,8 +377,8 @@ class TestClearKnowledgeBase(unittest.TestCase):
         self.assertEqual(len(engine.records), 0)
 
         # Tạo tệp mới để nạp lại
-        new_file = self.test_raw_dir / "reingest_test.txt"
-        new_file.write_text("serendipity: Sự may mắn tình cờ.", encoding="utf-8")
+        new_file = self.test_raw_dir / "reingest_test.csv"
+        new_file.write_text("Từ vựng,Câu hỏi,Câu trả lời,Trình độ\nserendipity,serendipity nghĩa là gì?,Sự may mắn tình cờ.,A1\n", encoding="utf-8")
 
         report = self.batch_manager.ingest_batch(files=[new_file], mode="add")
         self.assertIn(report.batch_status, [BatchStatus.SUCCESS, BatchStatus.PARTIAL_SUCCESS])
@@ -399,15 +395,12 @@ class TestClearKnowledgeBase(unittest.TestCase):
             self.assertIn("may mắn", resp.answer.lower())
 
     def test_14_independent_data_outside_kb_preserved(self):
-        """Kịch bản 14: Xác minh dữ liệu độc lập ngoài phạm vi xóa (dictionary_en_vi.db, .gitkeep) được giữ nguyên 100%."""
+        """Kịch bản 14: Xác minh dữ liệu độc lập ngoài phạm vi xóa (app_data.db, .gitkeep) được giữ nguyên 100%."""
         self._seed_test_kb()
 
-        # Tạo file từ điển hệ thống và .gitkeep giả lập
-        dict_file = self.test_raw_dir / "dictionary_en_vi.db"
-        dict_file.write_text("SYSTEM_SQLITE_DATABASE_MOCK", encoding="utf-8")
-
-        dict_backup = self.test_raw_dir / "dictionary_en_vi.db.backup"
-        dict_backup.write_text("SYSTEM_BACKUP_MOCK", encoding="utf-8")
+        # Tạo file dữ liệu người dùng/hệ thống và .gitkeep giả lập
+        app_db_file = self.test_raw_dir / "app_data.db"
+        app_db_file.write_text("APP_DATA_SQLITE_MOCK", encoding="utf-8")
 
         gitkeep_file = self.test_raw_dir / ".gitkeep"
         gitkeep_file.write_text("# gitkeep", encoding="utf-8")
@@ -423,10 +416,8 @@ class TestClearKnowledgeBase(unittest.TestCase):
         self.assertFalse(managed_file.exists())
 
         # Tệp hệ thống độc lập TUYỆT ĐỐI KHÔNG BỊ XÓA
-        self.assertTrue(dict_file.exists(), "dictionary_en_vi.db KHÔNG được phép bị xóa!")
-        self.assertEqual(dict_file.read_text(encoding="utf-8"), "SYSTEM_SQLITE_DATABASE_MOCK")
-
-        self.assertTrue(dict_backup.exists(), "dictionary_en_vi.db.backup KHÔNG được phép bị xóa!")
+        self.assertTrue(app_db_file.exists(), "app_data.db KHÔNG được phép bị xóa!")
+        self.assertEqual(app_db_file.read_text(encoding="utf-8"), "APP_DATA_SQLITE_MOCK")
         self.assertTrue(gitkeep_file.exists(), ".gitkeep KHÔNG được phép bị xóa!")
 
 

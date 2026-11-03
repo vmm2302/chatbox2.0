@@ -194,17 +194,6 @@ class PDFLoader(BaseFileLoader):
         # 1. Trích xuất văn bản theo từng trang
         pages_text = self._extract_text_by_pages(file_path)
 
-        # 2. Nhận diện tài liệu Oxford 3000 hoàn toàn dựa trên cấu trúc nội dung (Content-based detection)
-        # Tuyệt đối không chuyển hướng sang Oxford parser chỉ vì tên tệp chứa chữ 'oxford'
-        if pages_text:
-            first_pages_sample = " ".join(p[1].lower() for p in pages_text[:3])
-            has_oxford_brand = ("oxford 3000" in first_pages_sample or "the oxford 3000" in first_pages_sample or "oxford 5000" in first_pages_sample)
-            has_cefr_levels = any(re.search(rf"\b{lvl}\b", first_pages_sample) for lvl in ["a1", "a2", "b1", "b2", "c1", "c2"])
-            if has_oxford_brand and has_cefr_levels:
-                logger.info("PDFLoader: Phát hiện tài liệu danh mục Oxford 3000 theo nội dung trong '%s'", file_path.name)
-                from src.data.loaders.oxford_pdf_loader import OxfordPDFParser
-                return OxfordPDFParser().load(file_path, f_hash, start_index)
-
         records: List[QARecord] = []
         seen_rec_ids: set = set()
 

@@ -61,6 +61,7 @@ class FileIngestionResult:
     records_extracted: int = 0
     records_added: int = 0
     duplicates_skipped: int = 0
+    out_of_scope_skipped: int = 0
     record_ids: List[str] = field(default_factory=list)
     elapsed_seconds: float = 0.0
 
@@ -77,6 +78,7 @@ class FileIngestionResult:
             "records_extracted": self.records_extracted,
             "records_added": self.records_added,
             "duplicates_skipped": self.duplicates_skipped,
+            "out_of_scope_skipped": self.out_of_scope_skipped,
             "record_ids": self.record_ids,
             "elapsed_seconds": self.elapsed_seconds,
         }
@@ -92,9 +94,10 @@ class BatchIngestionReport:
     total_records_extracted: int
     total_records_added: int
     total_duplicates_skipped: int
-    chromadb_status: str
-    bm25_status: str
-    batch_status: BatchStatus
+    total_out_of_scope_skipped: int = 0
+    chromadb_status: str = "UNCHANGED"
+    bm25_status: str = "UNCHANGED"
+    batch_status: BatchStatus = BatchStatus.SUCCESS
     file_results: List[FileIngestionResult] = field(default_factory=list)
     elapsed_seconds: float = 0.0
 
@@ -102,7 +105,7 @@ class BatchIngestionReport:
         """Định dạng báo cáo dạng văn bản chuẩn theo yêu cầu dự án."""
         lines = [
             "================================",
-            "BATCH INGESTION REPORT",
+            "BATCH INGESTION REPORT (A1–A2)",
             "================================",
             f"Total Files: {self.total_files}",
             "",
@@ -113,6 +116,7 @@ class BatchIngestionReport:
             f"Records Extracted: {self.total_records_extracted:,}",
             f"Records Added:     {self.total_records_added:,}",
             f"Duplicates:        {self.total_duplicates_skipped:,}",
+            f"Out of Scope (Non A1-A2): {self.total_out_of_scope_skipped:,}",
             "",
             f"ChromaDB: {self.chromadb_status}",
             f"BM25:     {self.bm25_status}",
@@ -496,10 +500,35 @@ class BatchIngestionManager:
                     progress_callback(f"Không có bản ghi trong {display_file_name}", pct, f_res)
                 continue
 
-            # Bước 2.4: Phân loại theo Stable ID (ADD / UPDATE / DUPLICATE)
+            # Bước 2.4: Giới hạn trình độ A1–A2 (Bỏ qua dòng B1 trở lên hoặc không xác định)
+            a1_a2_records: List[QARecord] = []
+            out_of_scope_skipped = 0
+            for r in raw_extracted:
+                lvl = (r.level or "").strip().upper()
+                if lvl in {"A1", "A2"}:
+                    a1_a2_records.append(r)
+                else:
+                    out_of_scope_skipped += 1
+
+            f_res.out_of_scope_skipped = out_of_scope_skipped
+
+            if not a1_a2_records:
+                f_res.status = FileStatus.SKIPPED
+                f_res.reason = (
+                    f"Tất cả {f_res.records_extracted} bản ghi đều ngoài phạm vi A1–A2 "
+                    f"({out_of_scope_skipped} dòng B1+ hoặc không xác định cấp độ)."
+                )
+                f_res.action = "Bỏ qua tệp do không chứa từ vựng cấp độ A1–A2."
+                f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
+                file_results.append(f_res)
+                if progress_callback:
+                    progress_callback(f"Bỏ qua {display_file_name} (không có từ vựng A1–A2)", pct, f_res)
+                continue
+
+            # Bước 2.5: Phân loại theo Stable ID (ADD / UPDATE / DUPLICATE)
             file_valid_records: List[QARecord] = []
             file_seen_ids: Set[str] = set()
-            for r in raw_extracted:
+            for r in a1_a2_records:
                 if not r.record_id:
                     continue
 
@@ -720,8 +749,15 @@ class BatchIngestionManager:
                     for res in file_results:
                         if res.status == FileStatus.INDEXING:
                             res.status = FileStatus.SUCCESS
-                            res.reason = f"Đã nạp thành công {res.records_added} bản ghi vào kho tri thức."
-                            res.action = "Sẵn sàng tra cứu."
+                            if getattr(res, "out_of_scope_skipped", 0) > 0:
+                                res.reason = (
+                                    f"Đã nạp thành công {res.records_added} bản ghi A1–A2 "
+                                    f"(bỏ qua {res.out_of_scope_skipped} dòng B1+ hoặc không xác định)."
+                                )
+                                res.action = f"Nạp {res.records_added} từ A1–A2, bỏ qua {res.out_of_scope_skipped} dòng ngoài cấp độ."
+                            else:
+                                res.reason = f"Đã nạp thành công {res.records_added} bản ghi A1–A2 vào kho tri thức."
+                                res.action = "Sẵn sàng tra cứu."
 
                             source_id = f"SRC_{res.file_hash[:12]}"
                             sources_dict[source_id] = {
@@ -808,6 +844,7 @@ class BatchIngestionManager:
         total_extracted = sum(r.records_extracted for r in file_results)
         total_added = sum(r.records_added for r in file_results)
         total_dupes = sum(r.duplicates_skipped for r in file_results)
+        total_out_of_scope = sum(getattr(r, "out_of_scope_skipped", 0) for r in file_results)
 
         report = BatchIngestionReport(
             total_files=total_files,
@@ -817,6 +854,7 @@ class BatchIngestionManager:
             total_records_extracted=total_extracted,
             total_records_added=total_added,
             total_duplicates_skipped=total_dupes,
+            total_out_of_scope_skipped=total_out_of_scope,
             chromadb_status=chromadb_status,
             bm25_status=bm25_status,
             batch_status=b_status,
@@ -1257,14 +1295,11 @@ class BatchIngestionManager:
                 # 8. Xóa an toàn tất cả các tệp nguồn đã nạp do KB quản lý
                 if delete_managed_raw_files:
                     protected_exact_names = {
-                        "dictionary_en_vi.db",
-                        "dictionary_en_vi.db.backup",
                         ".gitkeep",
                         ".gitignore",
-                        "mau_nhap_lieu_tuvung.xlsx"
+                        "mau_nhap_lieu_tuvung.xlsx",
+                        "app_data.db",
                     }
-                    if hasattr(settings, "DICTIONARY_DB_PATH") and settings.DICTIONARY_DB_PATH:
-                        protected_exact_names.add(Path(settings.DICTIONARY_DB_PATH).name)
 
                     # Thu thập các tệp nguồn được ghi nhận trong manifest
                     source_paths_to_consider: Set[Path] = set()
@@ -1286,8 +1321,6 @@ class BatchIngestionManager:
                     for p in source_paths_to_consider:
                         # Kiểm tra an toàn tuyệt đối: không xóa tệp hệ thống cốt lõi
                         if p.name in protected_exact_names or p.name.startswith(".git"):
-                            continue
-                        if p.name == "dictionary_en_vi.db" or p.name.startswith("dictionary_en_vi.db"):
                             continue
 
                         # Phải nằm trong thư mục data hoặc temp của dự án (tuyệt đối không xóa src, .venv)

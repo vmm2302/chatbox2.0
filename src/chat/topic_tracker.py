@@ -74,12 +74,13 @@ class TopicTracker:
         self.max_history_turns = max_history_turns
         self.vocab_words: Set[str] = set()
         self.known_words: Set[str] = set()
+        self.vie_meanings: Set[str] = set()
 
         if records:
             self.load_known_words(records)
 
     def load_known_words(self, records: List[QARecord]) -> None:
-        """Tải danh sách các từ vựng và từ khóa hợp lệ từ dataset vào bộ nhớ tìm kiếm O(1)."""
+        """Tải danh sách các từ vựng, từ khóa hợp lệ và nghĩa tiếng Việt từ dataset vào bộ nhớ tìm kiếm O(1)."""
         self.vocab_words = {
             r.word.strip().lower()
             for r in records
@@ -90,7 +91,34 @@ class TopicTracker:
             for token in re.findall(r"\b\w+\b", r.question.lower()):
                 if len(token) > 1 and token not in VIETNAMESE_STOPWORDS:
                     self.known_words.add(token)
-        logger.info("TopicTracker đã nạp %d từ vựng tiếng Anh và %d từ khóa hợp lệ.", len(self.vocab_words), len(self.known_words))
+
+        self.vie_meanings = set()
+        for r in records:
+            lines = [l.strip() for l in r.answer.split('\n') if l.strip()]
+            for line in lines:
+                if line.startswith(('Từ bạn tìm kiếm', 'Từ tiếng Anh phù hợp', 'Trình độ:', 'Phát âm:', '•', 'Danh từ', 'Động từ', 'Tính từ', 'Trạng từ', 'Mạo từ', 'Giới từ', 'Liên từ')):
+                    continue
+                meanings = re.split(r'[,;]', line)
+                for m in meanings:
+                    clean_m = re.sub(r'\(.*?\)', '', m).strip().lower()
+                    clean_m = re.sub(r'^\d+[\.\)]\s*', '', clean_m).strip('* ')
+                    if len(clean_m) >= 2 and not clean_m.startswith(('từ bạn', 'từ tiếng anh', 'ví dụ', 'trình độ')):
+                        self.vie_meanings.add(clean_m)
+
+        logger.info(
+            "TopicTracker đã nạp %d từ vựng tiếng Anh, %d từ khóa và %d nghĩa tiếng Việt.",
+            len(self.vocab_words),
+            len(self.known_words),
+            len(self.vie_meanings),
+        )
+
+    def is_known_vietnamese_meaning(self, phrase: str) -> bool:
+        """Kiểm tra xem một cụm từ tiếng Việt có nằm trong kho nghĩa tiếng Việt của từ vựng không."""
+        if not phrase:
+            return False
+        clean_p = phrase.strip().lower()
+        clean_p = re.sub(r"^[\"'\s]+|[\"'\s\?]+$", "", clean_p)
+        return clean_p in self.vie_meanings
 
     def extract_target_word(self, query: str) -> Optional[str]:
         """Trích xuất từ tiếng Anh mục tiêu từ câu hỏi của người dùng."""
@@ -99,6 +127,27 @@ class TopicTracker:
             return None
 
         clean_lower = clean.lower()
+
+        # 0. Nếu câu hỏi có dấu hiệu dịch từ tiếng Việt sang tiếng Anh thì không coi là tra từ tiếng Anh mục tiêu
+        trans_markers = [
+            "tiếng anh là gì", "tieng anh la gi", "nghĩa tiếng anh", "dịch sang tiếng anh",
+            "dịch từ", "sang tiếng anh", "từ nào có nghĩa là", "từ nào nghĩa là", "từ nào có nghĩa"
+        ]
+        if any(m in clean_lower for m in trans_markers):
+            return None
+
+        # Nếu câu hỏi là dạng "X là gì?" hoặc "X có nghĩa là gì?" mà X là một nghĩa tiếng Việt đã biết
+        m_vie = re.match(
+            r"^(?:từ\s+|từ vựng\s+|nghĩa của từ\s+|nghĩa từ\s+|nghĩa của\s+)?(.+?)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*\??$",
+            clean_lower,
+        )
+        if m_vie:
+            cand = m_vie.group(1).strip().lower()
+            cand_clean = re.sub(r"^[^\w]+|[^\w]+$", "", cand)
+            if self.is_known_vietnamese_meaning(cand_clean) or self.is_known_vietnamese_meaning(cand):
+                return None
+
+        has_vietnamese_accent = bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", clean_lower))
 
         # 1. Ưu tiên từ nằm trong dấu ngoặc kép hoặc ngoặc đơn: "word", 'word', “word”, ‘word’
         quote_match = re.search(r"[\"'\u201c\u2018]([a-zA-Z\s\-]{2,})[\"'\u201d\u2019]", clean)
@@ -129,6 +178,8 @@ class TopicTracker:
         if self.vocab_words:
             sorted_vocab = sorted(self.vocab_words, key=len, reverse=True)
             for kw in sorted_vocab:
+                if has_vietnamese_accent and len(kw) <= 2:
+                    continue
                 pattern = r"(?:\b|\W)" + re.escape(kw) + r"(?:\b|\W)"
                 if re.search(pattern, f" {clean_lower} "):
                     return kw
@@ -152,19 +203,20 @@ class TopicTracker:
                     if nxt_lower not in VIETNAMESE_STOPWORDS and nxt_lower not in ("nay", "do", "tren", "kia"):
                         return nxt_lower
 
-        # 5. Nếu toàn bộ câu hỏi chỉ là 1 từ hoặc cụm 2 từ tiếng Anh thuần túy
+        # 5. Nếu toàn bộ câu hỏi chỉ là 1 từ hoặc cụm 2-3 từ tiếng Anh thuần túy
         valid_en_tokens = [t.lower() for t in cleaned_tokens if re.fullmatch(r"[a-zA-Z0-9_\-]{2,}", t) and t.lower() not in VIETNAMESE_STOPWORDS]
-        if len(cleaned_tokens) <= 3 and valid_en_tokens:
-            return valid_en_tokens[0]
+        if len(cleaned_tokens) <= 3 and len(valid_en_tokens) == len(cleaned_tokens) and not has_vietnamese_accent:
+            return " ".join(valid_en_tokens)
 
         # 6. Token tiếng Anh hợp lệ đầu tiên nếu dài >= 3 ký tự và không phải stopword
-        if self.vocab_words:
+        if not has_vietnamese_accent:
+            if self.vocab_words:
+                for t in valid_en_tokens:
+                    if t in self.vocab_words:
+                        return t
             for t in valid_en_tokens:
-                if t in self.vocab_words:
+                if len(t) >= 3 and t not in VIETNAMESE_STOPWORDS:
                     return t
-        for t in valid_en_tokens:
-            if len(t) >= 3 and t not in VIETNAMESE_STOPWORDS:
-                return t
 
         return None
 

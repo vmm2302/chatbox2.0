@@ -5,7 +5,6 @@ from pathlib import Path
 
 from src.core.models import QARecord
 from src.data.batch_ingestion import BatchIngestionManager, FileStatus
-from src.data.loaders.oxford_pdf_loader import OxfordPDFParser
 from src.data.loaders.pdf_loader import PDFLoader
 from src.retriever.bge_chroma import BGEChromaRetriever
 
@@ -30,23 +29,6 @@ class TestUpsertDeduplication(unittest.TestCase):
             self.assertEqual(count, 2)
         except ValueError as e:
             self.fail(f"upsert_records ném ngoại lệ ValueError do duplicate ID: {e}")
-
-    def test_oxford_pdf_loader_never_returns_duplicate_ids(self):
-        """Đảm bảo OxfordPDFParser không bao giờ sinh ra các bản ghi có ID trùng nhau."""
-        pdf_path = Path("data/raw/The_Oxford_3000_by_CEFR_level.pdf")
-        if not pdf_path.exists():
-            self.skipTest("Không tìm thấy tệp Oxford PDF để kiểm thử")
-
-        parser = OxfordPDFParser()
-        records = parser.load(pdf_path)
-        record_ids = [r.record_id for r in records]
-
-        unique_ids = set(record_ids)
-        self.assertEqual(
-            len(record_ids),
-            len(unique_ids),
-            f"Phát hiện {len(record_ids) - len(unique_ids)} ID bị trùng trong kết quả của OxfordPDFParser!",
-        )
 
     def test_pdf_loader_generic_disambiguates_duplicate_terms(self):
         """Đảm bảo PDFLoader tự động phân biệt ID khi có các mục trùng lặp trong PDF thông thường."""

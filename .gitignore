@@ -25,6 +25,9 @@ cached_embs.pkl
 *.log
 *.tmp
 .env
+.env.*
+!.env.example
+.streamlit/secrets.toml
 
 # 4. Kiểm thử & Coverage
 .pytest_cache/

@@ -298,7 +298,7 @@ def get_active_sources(user_id: int = Query(...)):
     # Check raw data dir for loaded files
     if settings.RAW_DATA_DIR.exists():
         for file_path in settings.RAW_DATA_DIR.glob("*.*"):
-            if file_path.suffix.lower() in {".xlsx", ".xls", ".docx", ".doc", ".pdf", ".csv", ".tsv", ".sqlite", ".db"}:
+            if file_path.suffix.lower() in {".xlsx", ".xls", ".pdf", ".csv"}:
                 results.append({
                     "name": file_path.name,
                     "filename": file_path.name,
@@ -345,10 +345,12 @@ async def upload_knowledge_files(
     seen_hashes: Dict[str, str] = {}  # hash -> raw_name in current batch
     pre_skipped_results: List[Dict[str, Any]] = []
 
+    ALLOWED_UPLOAD_EXTS = {".xlsx", ".xls", ".csv", ".pdf"}
+
     # Quét tất cả mã băm hiện có trong data/raw/ để kiểm tra trùng lặp
     existing_raw_by_hash: Dict[str, Path] = {}
     for p in settings.RAW_DATA_DIR.iterdir():
-        if p.is_file() and not p.name.startswith(".git") and p.name != "dictionary_en_vi.db":
+        if p.is_file() and not p.name.startswith(".git"):
             try:
                 h = hashlib.sha256(p.read_bytes()).hexdigest()
                 existing_raw_by_hash[h] = p
@@ -356,9 +358,24 @@ async def upload_knowledge_files(
                 pass
 
     for file in files:
+        raw_name = Path(file.filename or f"upload_{uuid4().hex[:8]}.bin").name
+        ext = Path(file.filename or "").suffix.lower()
+
+        # Kiểm tra phần mở rộng định dạng hỗ trợ (A1–A2)
+        if ext not in ALLOWED_UPLOAD_EXTS:
+            pre_skipped_results.append({
+                "file_name": raw_name,
+                "status": "FAILED",
+                "records_added": 0,
+                "records_extracted": 0,
+                "duplicates_skipped": 0,
+                "reason": f"Định dạng '{ext}' chưa được hỗ trợ. Chỉ hỗ trợ .xlsx, .xls, .csv, .pdf.",
+                "action": "Từ chối tệp không hợp lệ.",
+            })
+            continue
+
         content = await file.read()
         uf_hash = hashlib.sha256(content).hexdigest()
-        raw_name = Path(file.filename or f"upload_{uuid4().hex[:8]}.bin").name
 
         # 1. Kiểm tra trùng lặp trong cùng đợt nạp (Batch Duplicate)
         if uf_hash in seen_hashes:

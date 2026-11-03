@@ -6,8 +6,6 @@ export default function LevelSelector({ selectedLevel, onSelectLevel }) {
     CEFR_LEVELS.ALL,
     CEFR_LEVELS.A1,
     CEFR_LEVELS.A2,
-    CEFR_LEVELS.B1,
-    CEFR_LEVELS.B2,
   ];
 
   return (
@@ -17,11 +15,11 @@ export default function LevelSelector({ selectedLevel, onSelectLevel }) {
           <span>Ưu tiên cấp độ CEFR</span>
         </label>
         <span className="text-xs text-slate-400 dark:text-zinc-500">
-          {selectedLevel === 'Tất cả' ? 'Hiển thị mọi cấp độ' : `Đang lọc từ vựng cấp độ ${selectedLevel}`}
+          {selectedLevel === 'Tất cả' ? 'Tất cả A1 & A2' : `Đang lọc từ vựng cấp độ ${selectedLevel}`}
         </span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2">
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
         {levels.map((lvl) => {
           const isSelected = selectedLevel === lvl.id;
           return (

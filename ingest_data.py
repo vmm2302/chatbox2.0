@@ -36,8 +36,8 @@ from src.data.ingestion_manager import IngestionManager
 def print_banner():
     banner = r"""
 ===================================================================
-     CHATBOX 2.0 - CÔNG CỤ NẠP VÀ CẬP NHẬT TRI THỨC (DYNAMIC RAG)
-  Hỗ trợ 8 định dạng: TXT, PDF, CSV, XLSX, DOCX, JSON, JSONL, MD
+ CHATBOT CHO TỪ VỰNG A1 - A2 - CÔNG CỤ NẠP TRI THỨC (DYNAMIC RAG)
+         Hỗ trợ các định dạng: PDF, CSV, Excel (XLSX, XLS)
 ===================================================================
     """
     print(banner)
@@ -47,13 +47,13 @@ def main():
     print_banner()
 
     parser = argparse.ArgumentParser(
-        description="Công cụ nạp và lập chỉ mục dữ liệu động cho Chatbox 2.0 (Dynamic Knowledge Base)"
+        description="Công cụ nạp và lập chỉ mục dữ liệu động cho Chatbot cho từ vựng A1 - A2"
     )
     parser.add_argument(
         "--file", "-f",
         type=str,
         default=str(settings.RAW_EXCEL_PATH),
-        help=f"Đường dẫn tới tệp dữ liệu (TXT, PDF, CSV, XLSX, DOCX, JSON, JSONL, MD). Mặc định: {settings.RAW_EXCEL_PATH}"
+        help=f"Đường dẫn tới tệp dữ liệu (PDF, CSV, XLSX, XLS). Mặc định: {settings.RAW_EXCEL_PATH}"
     )
     parser.add_argument(
         "--mode", "-m",

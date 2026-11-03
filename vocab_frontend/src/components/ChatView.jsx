@@ -1,22 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Send,
-  Bot,
   User,
-  Sparkles,
   RefreshCw,
-  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Loader2,
-  AlertCircle,
 } from 'lucide-react';
 import VocabCard from './VocabCard';
 import SidebarHistory from './SidebarHistory';
 import {
   streamChatMessage,
-  saveNotebookWord,
-  deleteNotebookWord,
   getConversationMessages,
   createConversation,
 } from '../services/api';
@@ -24,7 +18,6 @@ import {
 export default function ChatView({
   selectedLevel,
   onSelectLevel,
-  onStatsUpdate,
   initialQuery = '',
   currentUser,
   onLogout,
@@ -37,13 +30,7 @@ export default function ChatView({
       role: 'assistant',
       isWelcome: true,
       content:
-        'Xin chào bạn! Mình là Trợ lý Tra cứu Từ vựng Tiếng Anh A1–B2.\n\nNhập bất kỳ từ vựng tiếng Anh nào để tra cứu nghĩa, cấp độ CEFR, phiên âm IPA, nghe phát âm chuẩn và xem câu ví dụ thực tế nhé!',
-      suggestions: [
-        'generous nghĩa là gì?',
-        'Cho ví dụ với từ improve',
-        'Phân biệt borrow và lend',
-        'Từ vựng trình độ A1 phổ biến',
-      ],
+        'Xin chào bạn! Mình là Chatbot cho từ vựng A1 - A2.\n\nNhập bất kỳ từ vựng tiếng Anh trình độ A1 hoặc A2 để tra cứu nghĩa, cấp độ CEFR, phiên âm IPA, nghe phát âm chuẩn và xem câu ví dụ thực tế nhé!',
     },
   ]);
   const [inputValue, setInputValue] = useState('');
@@ -136,7 +123,6 @@ export default function ChatView({
             content: m.content,
             meta: meta,
             cardData: m.cardData || extractCardFromContent(m.content, meta),
-            isSaved: false,
           };
         });
         setMessages(parsed);
@@ -161,12 +147,7 @@ export default function ChatView({
         role: 'assistant',
         isWelcome: true,
         content:
-          'Cuộc trò chuyện mới đã sẵn sàng! Hãy nhập một từ vựng tiếng Anh bạn muốn học hôm nay.',
-        suggestions: [
-          'confident nghĩa là gì?',
-          'Cách dùng từ sustainable',
-          'Các từ vựng B2 thường gặp trong IELTS',
-        ],
+          'Cuộc trò chuyện mới đã sẵn sàng! Hãy nhập một từ vựng tiếng Anh (A1–A2) bạn muốn học hôm nay.',
       },
     ]);
   };
@@ -251,13 +232,11 @@ export default function ChatView({
                     content: finalPayload.reply,
                     cardData: finalPayload.structured_card,
                     meta: finalPayload.meta,
-                    suggestions: finalPayload.suggestions || [],
                     isStreaming: false,
                   }
                 : m
             )
           );
-          if (onStatsUpdate) onStatsUpdate();
         },
         onError: (errMsg) => {
           setStreamingStatus(null);
@@ -293,28 +272,6 @@ export default function ChatView({
     } finally {
       setIsLoading(false);
       setStreamingStatus(null);
-    }
-  };
-
-  const handleToggleSave = async (msgId, cardData) => {
-    const msg = messages.find((m) => m.id === msgId);
-    if (!msg || !cardData?.word) return;
-
-    try {
-      if (msg.isSaved) {
-        await deleteNotebookWord(cardData.word, userId);
-        setMessages((prev) =>
-          prev.map((m) => (m.id === msgId ? { ...m, isSaved: false } : m))
-        );
-      } else {
-        await saveNotebookWord(cardData, userId);
-        setMessages((prev) =>
-          prev.map((m) => (m.id === msgId ? { ...m, isSaved: true } : m))
-        );
-      }
-      if (onStatsUpdate) onStatsUpdate();
-    } catch (err) {
-      console.error('Toggle save error:', err);
     }
   };
 
@@ -387,9 +344,6 @@ export default function ChatView({
                       <VocabCard
                         cardData={msg.cardData}
                         meta={msg.meta}
-                        isSaved={msg.isSaved}
-                        onToggleSave={(data) => handleToggleSave(msg.id, data)}
-                        onSelectSuggestion={handleSend}
                       />
                     ) : (
                       /* Regular text message / Streaming text */
@@ -402,23 +356,6 @@ export default function ChatView({
                         {msg.isStreaming && (
                           <span className="inline-block w-2 h-4 ml-1 bg-emerald-500 animate-pulse align-middle" />
                         )}
-                      </div>
-                    )}
-
-                    {/* Suggestion Chips */}
-                    {msg.suggestions && msg.suggestions.length > 0 && !msg.isStreaming && (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 self-center">Gợi ý tiếp theo:</span>
-                        {msg.suggestions.map((sug, sIdx) => (
-                          <button
-                            key={sIdx}
-                            onClick={() => handleSend(sug)}
-                            className="px-3.5 py-1.5 rounded-full bg-white dark:bg-[#262626] hover:bg-emerald-50 dark:hover:bg-[#303030] hover:border-emerald-300 dark:hover:border-emerald-500/40 text-slate-700 dark:text-zinc-300 hover:text-emerald-800 dark:hover:text-white text-xs font-bold border border-slate-200 dark:border-white/10 shadow-2xs transition-all cursor-pointer flex items-center space-x-1"
-                          >
-                            <span>{sug}</span>
-                            <span className="text-emerald-500 dark:text-emerald-400">↗</span>
-                          </button>
-                        ))}
                       </div>
                     )}
                   </div>
@@ -451,7 +388,7 @@ export default function ChatView({
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Nhập từ vựng tiếng Anh bất kỳ (ví dụ: 'generous', 'accommodate', 'cách dùng mitigate')..."
+              placeholder="Nhập từ vựng tiếng Anh A1–A2 (ví dụ: 'family', 'school', 'happy', 'hello')..."
               className="w-full py-2.5 sm:py-3 px-3 sm:px-4 text-slate-800 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 font-medium text-sm sm:text-base focus:outline-hidden bg-transparent"
             />
 
@@ -501,7 +438,8 @@ function extractCardFromContent(content, meta) {
   let word = meta?.word || '';
   if (!word) {
     const searchLine = lines.find((l) =>
-      l.toLowerCase().startsWith('từ bạn tìm kiếm:')
+      l.toLowerCase().startsWith('từ bạn tìm kiếm:') ||
+      l.toLowerCase().startsWith('từ tiếng anh phù hợp:')
     );
     if (searchLine) {
       word = searchLine.split(':')[1]?.trim() || '';
@@ -511,13 +449,13 @@ function extractCardFromContent(content, meta) {
   // If we don't have a recognizable word, treat as normal message
   if (!word) return null;
 
-  // Extract level
+  // Extract level (only A1 or A2)
   let level = meta?.level || 'A1';
   const levelLine = lines.find((l) =>
     l.toLowerCase().includes('trình độ:') || l.toLowerCase().includes('level:')
   );
   if (levelLine) {
-    const match = levelLine.match(/(A1|A2|B1|B2)/i);
+    const match = levelLine.match(/(A1|A2)/i);
     if (match) level = match[1].toUpperCase();
   }
 
@@ -535,6 +473,7 @@ function extractCardFromContent(content, meta) {
   const meaningLines = lines.filter(
     (l) =>
       !l.toLowerCase().startsWith('từ bạn tìm kiếm:') &&
+      !l.toLowerCase().startsWith('từ tiếng anh phù hợp:') &&
       !l.toLowerCase().includes('trình độ:') &&
       !l.toLowerCase().includes('phát âm:') &&
       !l.startsWith('•') &&

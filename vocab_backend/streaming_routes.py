@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Generator, Optional, Union
+from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -24,19 +26,18 @@ class StreamChatRequest(BaseModel):
     query: str = Field(..., min_length=1)
     level: str = "Tất cả"
     conversation_id: Optional[str] = None
-    user_id: int
+    user_id: Optional[Union[int, str]] = "default_user"
 
 
 @streaming_router.post("/stream")
 def stream_chat_endpoint(payload: StreamChatRequest):
     """Endpoint streaming tokens using Server-Sent Events (SSE).
-    Guarantees prefix 'Từ bạn tìm kiếm: <word>' and updates conversation history.
+    Guarantees prefix 'Từ bạn tìm kiếm: <word>' or 'Từ tiếng Anh phù hợp: <word>' and updates conversation history.
     """
     from vocab_backend.api_server import (
         get_chat_engine,
         get_or_create_tracker,
         get_word_index,
-        _build_level_suggestions,
     )
 
     word_index = get_word_index()
@@ -47,7 +48,6 @@ def stream_chat_endpoint(payload: StreamChatRequest):
 
     # 1. Ensure conversation exists in DB with robust fallback
     if not conv_id:
-        from uuid import uuid4
         short_title = clean_query[:35] + ("..." if len(clean_query) > 35 else "")
         try:
             new_conv = conv_repo.create_conversation(user_id=user_id, title=short_title)
@@ -149,14 +149,15 @@ def stream_chat_endpoint(payload: StreamChatRequest):
             if not active_word and word_candidate in word_index:
                 active_word = word_candidate
 
-            # Ensure mandatory prefix in final complete text
-            final_answer = ensure_required_search_prefix(raw_answer, active_word)
+            # Ensure mandatory prefix in final complete text ('Từ bạn tìm kiếm:' or 'Từ tiếng Anh phù hợp:')
+            final_intent = getattr(response_meta, "intent", None)
+            final_answer = ensure_required_search_prefix(raw_answer, active_word, intent=final_intent)
 
             # Parse structured card
             structured_card = parse_vocabulary_text(
                 final_answer,
                 default_word=active_word or word_candidate,
-                default_level=payload.level if payload.level in {"A1", "A2", "B1", "B2"} else "A1",
+                default_level=payload.level if payload.level in {"A1", "A2"} else "A1",
             )
 
             # Resolve source and sheet from response_meta or candidates
@@ -180,10 +181,6 @@ def stream_chat_endpoint(payload: StreamChatRequest):
             "source": resolved_source if not is_out_of_scope else None,
             "sheet": resolved_sheet if not is_out_of_scope else None,
         }
-
-        # Build suggestions
-        current_level = structured_card.get("level", "A1") if structured_card else "A1"
-        suggestions = _build_level_suggestions(active_word, current_level) if (active_word and not is_out_of_scope) else []
 
         # Save assistant message to DB
         try:
@@ -209,7 +206,6 @@ def stream_chat_endpoint(payload: StreamChatRequest):
             "conversation_id": conv_id,
             "structured_card": structured_card,
             "meta": meta_dict,
-            "suggestions": suggestions,
         }
         yield f"data: {json.dumps(result_payload, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"

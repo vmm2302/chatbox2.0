@@ -145,8 +145,19 @@ class QueryRouter:
         vn_norm = normalize_vietnamese_text(no_punct)
 
         # -------------------------------------------------------------
-        # NHÁNH 2: OUT OF SCOPE (Chủ đề hoàn toàn ngoài phạm vi tra từ)
+        # NHÁNH 2: OUT OF SCOPE (Chủ đề hoàn toàn ngoài phạm vi tra từ hoặc cấp độ ngoài A1-A2)
         # -------------------------------------------------------------
+        # Kiểm tra yêu cầu về các cấp độ nằm ngoài phạm vi A1–A2 (B1, B2, C1, C2)
+        non_a1_a2_match = re.search(r"\b(b1|b2|c1|c2)\b", clean_q, re.IGNORECASE)
+        if non_a1_a2_match:
+            return RoutingDecision(
+                route_type="OUT_OF_SCOPE",
+                intent="OUT_OF_SCOPE",
+                template_response=settings.OUT_OF_SCOPE_RESPONSE,
+                confidence=1.0,
+                reason=f"Requested non A1-A2 CEFR level: {non_a1_a2_match.group(1).upper()}"
+            )
+
         # Chỉ coi là OUT_OF_SCOPE nếu:
         # 1. Không có active_word trong tracker từ lượt trước
         # 2. Không chứa từ tiếng Anh nào có trong từ điển

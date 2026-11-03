@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
-import { Volume2, Bookmark, BookmarkCheck, Sparkles, Snail, Check, Copy, ArrowUpRight, Database, Cpu, ChevronDown, ChevronUp, Layers, Zap } from 'lucide-react';
+import { Volume2, ArrowUpRight, Database, Cpu, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 import { tts } from '../services/tts';
 import { getLevelConfig } from '../utils/cefr';
 
-export default function VocabCard({ cardData, meta, isSaved, onToggleSave, onSelectSuggestion }) {
+export default function VocabCard({ cardData, meta, onSelectSuggestion }) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isSlowPlaying, setIsSlowPlaying] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [showInspector, setShowInspector] = useState(false);
+  const [ttsError, setTtsError] = useState(null);
 
   if (!cardData) return null;
 
@@ -32,27 +31,25 @@ export default function VocabCard({ cardData, meta, isSaved, onToggleSave, onSel
   const latency = metadata.latency_ms || 0;
   const rrf = metadata.rrf_score || 0;
 
-  const handlePlayAudio = (slow = false) => {
+  const handlePlayAudio = () => {
     if (!word) return;
-    if (slow) {
-      setIsSlowPlaying(true);
-      tts.speakSlow(word, 'en-US', {
-        onEnd: () => setIsSlowPlaying(false),
-      });
-    } else {
-      setIsPlaying(true);
-      tts.speak(word, {
-        lang: 'en-US',
-        rate: 1.0,
-        onEnd: () => setIsPlaying(false),
-      });
+    if (isPlaying) {
+      tts.cancel();
+      setIsPlaying(false);
+      return;
     }
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(word);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTtsError(null);
+    setIsPlaying(true);
+    tts.speak(word, {
+      voice: 'af_heart',
+      speed: 1.0,
+      onStart: () => setIsPlaying(true),
+      onEnd: () => setIsPlaying(false),
+      onError: (err) => {
+        setIsPlaying(false);
+        setTtsError(err);
+      },
+    });
   };
 
   return (
@@ -64,7 +61,9 @@ export default function VocabCard({ cardData, meta, isSaved, onToggleSave, onSel
       {/* TOP HEADER MANDATORY PREFIX REQUIRED BY USER */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-200/60 dark:border-white/10">
         <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-white/[0.06] border border-slate-200/90 dark:border-white/10 shadow-2xs">
-          <span className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">🎯 Từ bạn tìm kiếm:</span>
+          <span className="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+            {intent === 'TRANSLATE_VIE_TO_ENG' ? '🎯 Từ tiếng Anh phù hợp:' : '🎯 Từ bạn tìm kiếm:'}
+          </span>
           <span className="text-sm sm:text-base font-black text-slate-900 dark:text-white tracking-tight underline decoration-emerald-500 decoration-2 underline-offset-2">
             {word}
           </span>
@@ -75,28 +74,6 @@ export default function VocabCard({ cardData, meta, isSaved, onToggleSave, onSel
           <span className={`px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide ${lvlConf.bgLight} ${lvlConf.text} border ${lvlConf.border} dark:bg-white/[0.08] dark:border-white/15 shadow-2xs`}>
             {lvlConf.badge}
           </span>
-
-          {/* Bookmark Button */}
-          <button
-            onClick={() => onToggleSave && onToggleSave(cardData)}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              isSaved
-                ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 shadow-2xs font-extrabold'
-                : 'bg-white dark:bg-white/[0.08] text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.14] border border-slate-200 dark:border-white/10 shadow-2xs'
-            }`}
-          >
-            {isSaved ? (
-              <>
-                <BookmarkCheck className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
-                <span>Đã lưu sổ tay</span>
-              </>
-            ) : (
-              <>
-                <Bookmark className="w-3.5 h-3.5 text-slate-400" />
-                <span>Lưu sổ tay</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
 
@@ -113,39 +90,32 @@ export default function VocabCard({ cardData, meta, isSaved, onToggleSave, onSel
           )}
         </div>
 
-        {/* Audio buttons */}
-        <div className="flex items-center space-x-2">
+        {/* Audio buttons - Normal audio only */}
+        <div className="flex flex-col items-end space-y-1">
           <button
-            onClick={() => handlePlayAudio(false)}
-            disabled={isPlaying}
-            title="Nghe phát âm chuẩn giọng Mỹ (US)"
+            onClick={handlePlayAudio}
+            title={isPlaying ? "Dừng phát âm" : "Nghe phát âm chuẩn giọng Mỹ (Kokoro TTS Cục bộ)"}
             className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-md shadow-emerald-500/25 active:scale-95 transition-all cursor-pointer ${
-              isPlaying ? 'animate-pulse' : ''
+              isPlaying ? 'ring-2 ring-emerald-400 animate-pulse' : ''
             }`}
           >
             <Volume2 className="w-4 h-4" />
-            <span>{isPlaying ? 'Đang đọc...' : 'Phát âm (US)'}</span>
-          </button>
-
-          <button
-            onClick={() => handlePlayAudio(true)}
-            disabled={isSlowPlaying}
-            title="Nghe chậm (0.75x) dành cho người mới học"
-            className="flex items-center space-x-1 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 bg-white dark:bg-white/[0.08] hover:bg-slate-50 dark:hover:bg-white/[0.14] border border-slate-200 dark:border-white/10 shadow-2xs active:scale-95 transition-all cursor-pointer"
-          >
-            <Snail className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span>Nghe chậm</span>
-          </button>
-
-          <button
-            onClick={handleCopy}
-            title="Sao chép từ"
-            className="p-2 rounded-xl text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 bg-white dark:bg-white/[0.08] hover:bg-slate-50 dark:hover:bg-white/[0.14] border border-slate-200 dark:border-white/10 shadow-2xs transition-colors cursor-pointer"
-          >
-            {copied ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-4 h-4" />}
+            <span>{isPlaying ? 'Dừng phát' : 'Phát âm (US)'}</span>
           </button>
         </div>
       </div>
+
+      {ttsError && (
+        <div className="mb-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center justify-between">
+          <span>⚠️ {ttsError}</span>
+          <button
+            onClick={() => setTtsError(null)}
+            className="text-rose-500 hover:text-rose-700 font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* DEFINITION & EXAMPLES CONTENT */}
       <div className="space-y-4">
@@ -264,7 +234,7 @@ export default function VocabCard({ cardData, meta, isSaved, onToggleSave, onSel
                 <Zap className="w-3.5 h-3.5 text-amber-400" />
                 <span>RAG Pipeline Diagnostic Inspector</span>
               </span>
-              <span className="text-[10px] text-slate-400 dark:text-zinc-500">Chatbox 2.0 Engine</span>
+              <span className="text-[10px] text-slate-400 dark:text-zinc-500">Chatbox Engine</span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">

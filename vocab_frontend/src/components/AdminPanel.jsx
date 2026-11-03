@@ -858,7 +858,7 @@ export default function AdminPanel({ currentUser }) {
                 <span>Nạp Dữ liệu Tri thức Mới (Multi-format Ingestion)</span>
               </h2>
               <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
-                Hỗ trợ 8 định dạng: <span className="font-semibold text-slate-700 dark:text-zinc-200">.xlsx, .xls, .docx, .doc, .pdf, .csv, .tsv, .sqlite, .db</span>. Tự động đồng bộ vào 4 tầng lưu trữ.
+                Hỗ trợ các định dạng: <span className="font-semibold text-slate-700 dark:text-zinc-200">.xlsx, .xls, .csv, .pdf</span> (chỉ lưu các từ vựng thuộc trình độ A1–A2).
               </p>
             </div>
 
@@ -904,7 +904,7 @@ export default function AdminPanel({ currentUser }) {
                 <input
                   type="file"
                   multiple
-                  accept=".xlsx,.xls,.docx,.doc,.pdf,.csv,.tsv,.sqlite,.db"
+                  accept=".xlsx,.xls,.csv,.pdf"
                   id="admin-file-input"
                   onChange={(e) => {
                     if (e.target.files) {

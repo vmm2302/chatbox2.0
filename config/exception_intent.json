@@ -11,7 +11,7 @@
         "Hello",
         "Hi"
       ],
-      "response": "Xin chào! Tôi là chatbot hỗ trợ bạn học và tra cứu từ vựng tiếng Anh."
+      "response": "Xin chào! Tôi là Chatbot cho từ vựng A1 - A2 hỗ trợ bạn học và tra cứu từ vựng tiếng Anh cấp độ A1–A2."
     },
     {
       "intent": "thanks",
@@ -44,7 +44,7 @@
         "Bạn có phải người thật không?",
         "Bạn là AI phải không?"
       ],
-      "response": "Tôi là chatbot AI hỗ trợ học từ vựng tiếng Anh, giúp tra cứu nghĩa, phát âm, loại từ, trình độ và đưa ra ví dụ."
+      "response": "Tôi là Chatbot cho từ vựng A1 - A2, hỗ trợ tra cứu nghĩa, phát âm, loại từ, trình độ và đưa ra ví dụ cho các từ vựng tiếng Anh cấp độ A1 và A2."
     },
     {
       "intent": "chatbot_capabilities",
@@ -55,7 +55,7 @@
         "Tôi có thể hỏi bạn những gì?",
         "Bạn có thể tra từ không?"
       ],
-      "response": "Tôi hỗ trợ học từ vựng tiếng Anh, bao gồm nghĩa, loại từ, phát âm, trình độ và ví dụ. Hãy hỏi tôi 1 từ tiếng Anh để bắt đầu."
+      "response": "Tôi hỗ trợ học từ vựng tiếng Anh cấp độ A1–A2, bao gồm nghĩa, loại từ, phát âm, trình độ và ví dụ. Hãy hỏi tôi 1 từ tiếng Anh A1–A2 để bắt đầu."
     },
     {
       "intent": "casual_chat",
@@ -137,9 +137,23 @@
         "Bạn có thể chơi cờ với tôi không?",
         "Hãy kể một câu chuyện cổ tích",
         "Bạn có thể hát không?",
-        "Hãy kể một câu chuyện hài hước"
+        "Hãy kể một câu chuyện hài hước",
+        "Cho mình danh sách từ vựng B1",
+        "Các từ vựng phổ biến cấp độ B1",
+        "Từ vựng trình độ B2",
+        "Cho tôi từ vựng C1",
+        "Liệt kê từ B1",
+        "Các từ vựng B2 thường gặp trong IELTS",
+        "Từ vựng cấp độ B1",
+        "Từ vựng cấp độ B2",
+        "Cấp độ B1",
+        "Cấp độ B2",
+        "Trình độ B1",
+        "Trình độ B2",
+        "Level B1",
+        "Level B2"
       ],
-      "response": "Xin lỗi, yêu cầu này nằm ngoài phạm vi hỗ trợ. Tôi chỉ hỗ trợ học và tra cứu từ vựng tiếng Anh."
+      "response": "Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
     },
     {
       "intent": "translation_request",

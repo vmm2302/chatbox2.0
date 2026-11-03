@@ -8,15 +8,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from vocab_backend.vocab_parser import ensure_required_search_prefix, parse_vocabulary_text
-from vocab_backend.notebook_db import (
-    init_notebook_db,
-    save_word,
-    get_word,
-    delete_word,
-    update_word_status,
-    list_saved_words,
-    get_learning_stats,
-)
 
 
 def test_required_search_prefix():
@@ -68,46 +59,6 @@ Kinh ngạc, sửng sốt, tuyệt vời, phi thường
     assert parsed_oos is None, "Out-of-scope response must return None for parsed card"
 
 
-def test_notebook_db():
-    init_notebook_db()
-    test_user = "test_user_unit"
-    delete_word("comprehensive", user_id=test_user)
-    
-    # Save word
-    saved = save_word(
-        word="comprehensive",
-        level="B2",
-        ipa="/ˌkɒmprɪˈhensɪv/",
-        part_of_speech="Tính từ",
-        meaning="Toàn diện, bao hàm",
-        example="This is a comprehensive study.",
-        user_id=test_user,
-    )
-    assert saved["word"] == "comprehensive"
-    assert saved["level"] == "B2"
-    assert saved["status"] == "learning"
-
-    # Get word
-    w = get_word("comprehensive", user_id=test_user)
-    assert w is not None
-    assert w["meaning"] == "Toàn diện, bao hàm"
-
-    # Update status to mastered
-    up = update_word_status("comprehensive", "mastered", user_id=test_user, increment_review=True)
-    assert up["status"] == "mastered"
-    assert up["review_count"] == 1
-
-    # Stats
-    stats = get_learning_stats(user_id=test_user)
-    assert stats["total_saved"] >= 1
-    assert stats["mastered"] >= 1
-    assert stats["by_level"]["B2"] >= 1
-
-    # Cleanup
-    delete_word("comprehensive", user_id=test_user)
-    assert get_word("comprehensive", user_id=test_user) is None
-
-
 if __name__ == "__main__":
     print("Running test_required_search_prefix...")
     test_required_search_prefix()
@@ -116,9 +67,5 @@ if __name__ == "__main__":
     print("Running test_parse_vocabulary_text...")
     test_parse_vocabulary_text()
     print("Passed: test_parse_vocabulary_text")
-
-    print("Running test_notebook_db...")
-    test_notebook_db()
-    print("Passed: test_notebook_db")
 
     print("ALL TESTS PASSED SUCCESSFULLY!")

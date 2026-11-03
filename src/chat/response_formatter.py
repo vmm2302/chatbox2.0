@@ -78,12 +78,13 @@ def format_vocabulary_response(text: str, word: Optional[str] = None) -> str:
             idx += 1
             continue
 
-        # Bỏ qua các dòng tiền tố tìm kiếm thừa thãi (ví dụ 'Từ bạn tìm kiếm: Bank')
+        # Bỏ qua các dòng tiền tố tìm kiếm thừa thãi (ví dụ 'Từ bạn tìm kiếm: Bank', 'Từ tiếng Anh phù hợp: Bank')
         low_line = line.lower()
         if (
             low_line.startswith("từ bạn tìm kiếm:")
+            or low_line.startswith("từ tiếng anh phù hợp:")
             or low_line.startswith("từ **")
-            or re.match(r"^(?:\*\*)?(?:\d+[\.\)]\s*)?từ bạn tìm kiếm:", low_line)
+            or re.match(r"^(?:\*\*)?(?:\d+[\.\)]\s*)?từ (?:bạn tìm kiếm|tiếng anh phù hợp):", low_line)
         ):
             idx += 1
             continue

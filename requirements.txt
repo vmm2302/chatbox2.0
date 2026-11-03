@@ -36,6 +36,10 @@ pytesseract>=0.3.10
 # Xác thực & Bảo mật mật khẩu (Authentication & Password Security)
 bcrypt>=4.0.0
 
+# Text-to-Speech Cục bộ (Offline Kokoro ONNX)
+kokoro-onnx>=0.6.0
+soundfile>=0.12.0
+
 # Cấu hình môi trường & Tiện ích
 python-dotenv>=1.0.0
 numpy>=1.24.0

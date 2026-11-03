@@ -103,6 +103,22 @@ class LexicalMatcher:
                 if w not in self.vocab_en_map or _source_priority(r) > _source_priority(self.vocab_en_map[w]):
                     self.vocab_en_map[w] = r
 
+        # Ánh xạ nghĩa tiếng Việt -> QARecord (phục vụ tra cứu Việt -> Anh)
+        self.vie_meaning_map: Dict[str, QARecord] = {}
+        for r in self.records:
+            lines = [l.strip() for l in r.answer.split('\n') if l.strip()]
+            for line in lines:
+                if line.startswith(('Từ bạn tìm kiếm', 'Trình độ:', 'Phát âm:', '•', 'Danh từ', 'Động từ', 'Tính từ', 'Trạng từ', 'Mạo từ', 'Giới từ', 'Liên từ')):
+                    continue
+                # Tách theo dấu phẩy hoặc chấm phẩy
+                meanings = re.split(r'[,;]', line)
+                for m in meanings:
+                    clean_m = re.sub(r'\(.*?\)', '', m).strip().lower()
+                    clean_m = re.sub(r'^\d+[\.\)]\s*', '', clean_m).strip('* ')
+                    if len(clean_m) >= 2 and not clean_m.startswith(('từ bạn', 'ví dụ', 'trình độ')):
+                        if clean_m not in self.vie_meaning_map or _source_priority(r) > _source_priority(self.vie_meaning_map[clean_m]):
+                            self.vie_meaning_map[clean_m] = r
+
     @staticmethod
     def _calculate_token_jaccard(tokens1: List[str], tokens2: List[str]) -> float:
         """Tính chỉ số Jaccard giữa hai tập hợp token."""
@@ -146,6 +162,47 @@ class LexicalMatcher:
                 record=self.normalized_map[norm_core],
                 score=0.96,
                 method="CORE_NORMALIZED_EXACT"
+            )
+
+        # 3.1 So khớp mẫu tra cứu Việt -> Anh (Vietnamese to English Translation)
+        vie_patterns = [
+            r"^(?:từ\s+nào\s+có\s+nghĩa\s+là|từ\s+nào\s+nghĩa\s+là|từ\s+nào\s+mang\s+nghĩa\s+là)\s+(.+?)\??$",
+            r"^(?:dịch\s+(?:từ\s+)?)(.+?)(?:\s+sang\s+tiếng\s+anh|\s+ra\s+tiếng\s+anh)\??$",
+            r"^(?:trong\s+tiếng\s+anh\s+)(.+?)(?:\s+là\s+gì|\s+viết\s+thế\s+nào)\??$",
+            r"^(.+?)\s+(?:trong\s+tiếng\s+anh\s+là\s+gì|tiếng\s+anh\s+là\s+gì|nghĩa\s+tiếng\s+anh\s+là\s+gì|nghĩa\s+tiếng\s+anh)\??$",
+            r"^(?:tiếng\s+anh\s+của\s+(?:từ\s+)?)(.+?)(?:\s+là\s+gì)?\??$",
+            r"^(?:nghĩa của từ|nghĩa của|nghĩa từ)\s+(.+?)(?:\s+(?:là\s+gì|có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì))?\??$",
+            r"^(?:từ\s+|từ vựng\s+)?(.+?)\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\??$",
+        ]
+        for candidate_text in (clean_raw, core_query):
+            for pat in vie_patterns:
+                m = re.match(pat, candidate_text)
+                if m:
+                    target_phrase = m.group(1).strip().lower()
+                    target_phrase = re.sub(r"^[\"'\s]+|[\"'\s\?]+$", "", target_phrase)
+                    # Nếu target_phrase là từ tiếng Anh trong kho từ vựng (ví dụ: "school là gì?"),
+                    # để bước 4 (tra nghĩa từ tiếng Anh) xử lý, không nhận nhầm thành tra nghĩa tiếng Việt
+                    if target_phrase in self.vocab_en_map:
+                        continue
+                    if target_phrase in self.vie_meaning_map:
+                        return RetrievalResult(
+                            record=self.vie_meaning_map[target_phrase],
+                            score=0.98,
+                            method="VIE_TO_ENG_PATTERN"
+                        )
+
+        # Nếu query là một cụm từ tiếng Việt độc lập khớp chính xác trong vie_meaning_map
+        if clean_raw in self.vie_meaning_map:
+            return RetrievalResult(
+                record=self.vie_meaning_map[clean_raw],
+                score=0.98,
+                method="VIE_TO_ENG_EXACT"
+            )
+        if core_query in self.vie_meaning_map:
+            return RetrievalResult(
+                record=self.vie_meaning_map[core_query],
+                score=0.96,
+                method="VIE_TO_ENG_CORE_EXACT"
             )
 
         # 4. So khớp mẫu tra nghĩa từ vựng: "từ [X] là gì", "nghĩa của [X]", "[X] có nghĩa là gì", "[X] trong tiếng việt có nghĩa là gì"

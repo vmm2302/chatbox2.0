@@ -11,7 +11,6 @@ import {
   X,
   Clock,
   Calendar,
-  Sparkles,
   ChevronUp,
   Shield,
   LogOut,
@@ -382,21 +381,6 @@ export default function SidebarHistory({
                   </button>
                 )}
 
-                {setActiveTab && (
-                  <button
-                    onClick={() => {
-                      setActiveTab('flashcards');
-                      setShowUserMenu(false);
-                      if (typeof window !== 'undefined' && window.innerWidth < 1024 && onClose) {
-                        onClose();
-                      }
-                    }}
-                    className="w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-zinc-200 hover:text-teal-700 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                    <span>Sổ tay từ vựng</span>
-                  </button>
-                )}
 
                 <div className="border-t border-slate-100 dark:border-white/10 my-1" />
 

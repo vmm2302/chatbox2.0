@@ -25,20 +25,31 @@ from src.retriever.lexical_matcher import (
 logger = logging.getLogger(__name__)
 
 
-def is_in_scope_domain(query: str, vocab_words: Set[str], knowledge_words: Optional[Set[str]] = None) -> bool:
-    """Kiểm tra câu hỏi có thuộc phạm vi tri thức hiện có hay không."""
+def is_in_scope_domain(
+    query: str,
+    vocab_words: Set[str],
+    knowledge_words: Optional[Set[str]] = None,
+    vietnamese_words: Optional[Set[str]] = None,
+) -> bool:
+    """Kiểm tra câu hỏi có thuộc phạm vi tri thức hiện có hay không (giới hạn A1–A2)."""
     clean = query.strip()
     q_lower = clean.lower()
 
-    # 1. Có chứa từ vựng hoặc từ khóa nằm trong kho tri thức
+    # 0. Yêu cầu cấp độ ngoài A1–A2 (B1, B2, C1, C2) luôn nằm NGOÀI phạm vi
+    if re.search(r"\b(b1|b2|c1|c2)\b", q_lower):
+        return False
+
+    # 1. Có chứa từ vựng hoặc từ khóa nằm trong kho tri thức A1–A2
     tokens = re.findall(r"\b[\w\-]+\b", q_lower)
     if any(t in vocab_words for t in tokens):
         return True
     if knowledge_words and any(t in knowledge_words for t in tokens):
         return True
+    if vietnamese_words and any(t in vietnamese_words for t in tokens):
+        return True
 
-    # 2. Câu hỏi yêu cầu danh sách từ theo trình độ (A1, A2, B1, B2)
-    for level in ["a1", "a2", "b1", "b2"]:
+    # 2. Câu hỏi yêu cầu danh sách từ theo trình độ A1 hoặc A2
+    for level in ["a1", "a2"]:
         if level in q_lower and any(k in q_lower for k in ["trình độ", "trinh do", "cấp độ", "danh sách"]):
             return True
 
@@ -99,6 +110,22 @@ class HybridRetriever:
             for w in re.findall(r"\b[\w\-]+\b", f"{r.word} {r.question}")
             if len(w) > 1 and w.lower() not in VIETNAMESE_STOPWORDS
         }
+        # Tập hợp từ khóa tiếng Việt trong phần giải nghĩa A1-A2
+        self.vietnamese_meaning_words: Set[str] = self._extract_vietnamese_words(records)
+
+    def _extract_vietnamese_words(self, records: List[QARecord]) -> Set[str]:
+        words: Set[str] = set()
+        for r in records:
+            for line in r.answer.split("\n"):
+                line_str = line.strip()
+                if not line_str or line_str.startswith("•") or line_str.startswith("Trình độ:") or line_str.startswith("Phát âm:"):
+                    continue
+                if line_str.lower().startswith("từ bạn tìm kiếm:") or line_str.lower().startswith("từ tiếng anh"):
+                    continue
+                for w in re.findall(r"\b[a-zA-ZàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđĐ\w\-]+\b", line_str.lower()):
+                    if len(w) > 1 and w not in VIETNAMESE_STOPWORDS:
+                        words.add(w)
+        return words
 
     @property
     def bge_retriever(self) -> BGEChromaRetriever:
@@ -124,6 +151,7 @@ class HybridRetriever:
             for w in re.findall(r"\b[\w\-]+\b", f"{r.word} {r.question}")
             if len(w) > 1 and w.lower() not in VIETNAMESE_STOPWORDS
         }
+        self.vietnamese_meaning_words = self._extract_vietnamese_words(new_records)
         logger.info("HybridRetriever đã cập nhật hoàn tất %d bản ghi tri thức.", len(new_records))
 
     def retrieve(
@@ -147,7 +175,12 @@ class HybridRetriever:
 
         # 0. Cổng kiểm soát miền (Domain Gate)
         # Nếu đang có active entity từ lượt trước thì vẫn coi là in-scope
-        if not active_entity and not is_in_scope_domain(clean_query, self.english_vocab_words, self.knowledge_words):
+        if not active_entity and not is_in_scope_domain(
+            clean_query,
+            self.english_vocab_words,
+            self.knowledge_words,
+            self.vietnamese_meaning_words,
+        ):
             logger.info("Câu hỏi '%s' nằm ngoài phạm vi tra cứu tri thức -> Chặn tại Domain Gate", clean_query)
             return "NO_MATCH", None, []
 

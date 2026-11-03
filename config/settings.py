@@ -64,7 +64,6 @@ class Settings:
     PROCESSED_JSONL_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "processed" / "qa_records.jsonl")
     SOURCES_MANIFEST_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "processed" / "sources_manifest.json")
     EXCEPTION_INTENTS_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "config" / "exception_intent.json")
-    DICTIONARY_DB_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "raw" / "dictionary_en_vi.db")
     APP_DB_PATH: Path = field(default_factory=lambda: Path(os.getenv("APP_DB_PATH", str(Path(__file__).resolve().parent.parent / "data" / "app_data.db"))))
     OXFORD_PDF_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "raw" / "The_Oxford_3000_by_CEFR_level.pdf")
     EMBEDDINGS_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "processed" / "embeddings.npy")
@@ -117,6 +116,13 @@ class Settings:
     OLLAMA_NUM_PREDICT: int = field(default_factory=lambda: int(os.getenv("OLLAMA_NUM_PREDICT", "1024")))
     OLLAMA_NUM_THREAD: int = field(default_factory=lambda: int(os.getenv("OLLAMA_NUM_THREAD", "4")))
     STATE_TRANSITION_TIMEOUT: float = field(default_factory=lambda: float(os.getenv("STATE_TRANSITION_TIMEOUT", "30.0")))
+
+    # Cấu hình Text-to-Speech Cục bộ (Kokoro ONNX 100% Offline)
+    KOKORO_MODEL_DIR: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "models" / "kokoro")
+    KOKORO_MODEL_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "models" / "kokoro" / "kokoro-v1.0.int8.onnx")
+    KOKORO_VOICES_PATH: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data" / "models" / "kokoro" / "voices-v1.0.bin")
+    KOKORO_DEFAULT_VOICE: str = field(default_factory=lambda: os.getenv("KOKORO_DEFAULT_VOICE", "af_heart"))
+    KOKORO_DEFAULT_SPEED: float = field(default_factory=lambda: float(os.getenv("KOKORO_DEFAULT_SPEED", "1.0")))
 
 
 
