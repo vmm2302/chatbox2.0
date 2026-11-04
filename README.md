@@ -4,6 +4,12 @@
 > **Dự án Chatbot Tra cứu Từ vựng Tiếng Anh A1 - A2 bằng Ngôn ngữ Tự nhiên chạy 100% Cục bộ (Local-Only).**
 > Ứng dụng giới hạn phạm vi kiến thức chuẩn CEFR A1 và A2, hỗ trợ kho tri thức do người triển khai cung cấp và nạp vào máy local. Các corpus nguồn và dữ liệu đã xử lý không được phân phối trong repository.
 
+> 📚 **Tài liệu Kỹ thuật & Báo cáo Chuyên sâu:**
+> - 📖 **[Giải thích Chi tiết Mã nguồn, Luồng dữ liệu & Bản chất Core Chatbot](docs/GIAI_THICH_CODE_VA_LUONG_DU_LIEU.md)**: Phân tích kiến trúc RAG, vị trí & vai trò của LangChain LCEL, cơ chế đọc hiểu PhoBERT/BGE-M3, TopicTracker đa lượt, chống hallucination và bảng ánh xạ file/dòng code.
+> - 🎤 **[Kịch bản Demo & 12 Câu hỏi Vấn đáp Bảo vệ Đồ án](docs/DEMO_AND_DEFENSE_GUIDE.md)**: Kịch bản 10 bước phô diễn hệ thống và bộ câu hỏi phản biện hội đồng kinh điển.
+> - 🛠️ **[Cẩm nang Cài đặt Môi trường Máy mới từ A-Z](HUONG_DAN_CAI_DAT_MAY_MOI.md)**: Hướng dẫn thiết lập Python, Ollama, React và Models offline.
+> - 📊 **[Báo cáo Kiểm thử Đồ án (Rubric Evaluation Report)](docs/CHATBOT_TEST_REPORT.md)**: Kết quả chạy tự động 15/15 ca kiểm thử chuẩn Rubric.
+
 ---
 
 ## 1. TỔNG QUAN KIẾN TRÚC HỆ THỐNG (SYSTEM ARCHITECTURE)
@@ -70,7 +76,7 @@ chatbox2.0/
 ├── run_vocab_web.py             # Script 1-Click khởi chạy thống nhất Backend & Frontend (Cổng 8000)
 ├── run_vocab_web.ps1            # PowerShell script khởi chạy siêu tốc trên Windows
 ├── assets/                      # Ảnh đại diện bot/user, flowchart kiến trúc RAG
-├── docs/                        # Báo cáo kỹ thuật, Rubric review, giấy phép Kokoro TTS
+├── docs/                        # Tài liệu giải thích code, kiến trúc RAG, Rubric review, Demo guide
 ├── scripts/
 │   ├── create_admin.py          # Khởi tạo Quản trị viên (Admin) đầu tiên an toàn qua CLI
 │   ├── setup_kokoro_model.py    # Tải và đóng gói mô hình phát âm Kokoro TTS (100% offline)
@@ -243,3 +249,16 @@ Hệ thống cho phép tải lên đồng thời nhiều tệp thuộc các đ�
 3. **Quản lý Nguồn (Source Management):**
    - **Xóa Nguồn (Delete Source):** Xóa sạch vector khỏi ChromaDB, loại bỏ bản ghi trong JSONL và lập lại chỉ mục BM25 trong 1 click.
 4. **Báo cáo tổng kết (Batch Ingestion Report):** Bảng tổng hợp chi tiết tỉ lệ thành công, số bản ghi trích xuất, số bản ghi A1/A2 thêm mới, số bản ghi ngoài phạm vi bị bỏ qua (`out_of_scope_skipped`) và số bản ghi trùng lặp.
+
+---
+
+## 9. HỆ THỐNG TÀI LIỆU KỸ THUẬT & HƯỚNG DẪN BẢO VỆ ĐỒ ÁN
+
+| Tệp tài liệu | Mô tả nội dung chi tiết | Đối tượng sử dụng |
+| :--- | :--- | :--- |
+| **[`docs/GIAI_THICH_CODE_VA_LUONG_DU_LIEU.md`](docs/GIAI_THICH_CODE_VA_LUONG_DU_LIEU.md)** | **Tài liệu cốt lõi:** Giải thích chi tiết mã nguồn từng file, sơ đồ luồng dữ liệu tuần tự, phân tích vị trí & vai trò của LangChain LCEL, hệ thống RAG, cơ chế đọc hiểu PhoBERT/BGE-M3 và bảng tra cứu code. | Sinh viên báo cáo, Giảng viên đánh giá kỹ thuật |
+| **[`docs/DEMO_AND_DEFENSE_GUIDE.md`](docs/DEMO_AND_DEFENSE_GUIDE.md)** | Kịch bản 10 bước demo thực tế, bộ 12 câu hỏi vấn đáp hội đồng (Viva Defense Q&A) kèm gợi ý trả lời chuẩn xác. | Chuẩn bị trước buổi bảo vệ đồ án |
+| **[`HUONG_DAN_CAI_DAT_MAY_MOI.md`](HUONG_DAN_CAI_DAT_MAY_MOI.md)** | Hướng dẫn cài đặt từng bước từ clone mã nguồn, tạo venv, cài PyTorch CUDA, cấu hình Ollama, tải models đến khởi chạy. | Cài đặt ứng dụng trên máy tính mới |
+| **[`docs/CHATBOT_TEST_REPORT.md`](docs/CHATBOT_TEST_REPORT.md)** | Báo cáo kiểm thử tự động 15 ca hội thoại theo rubric đánh giá môn học (100% PASS). | Báo cáo kiểm chứng chất lượng |
+| **[`docs/huong_dan_nap_du_lieu_excel.md`](docs/huong_dan_nap_du_lieu_excel.md)** | Hướng dẫn định dạng tệp Excel chuẩn và cách sử dụng giao diện quản trị hoặc CLI để nạp tri thức mới. | Quản trị viên, Người triển khai dữ liệu |
+
