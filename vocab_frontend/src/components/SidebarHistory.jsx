@@ -148,7 +148,7 @@ export default function SidebarHistory({
         onClick={() => {
           if (!isEditing) {
             onSelectConversation(conv.id);
-            if (typeof window !== 'undefined' && window.innerWidth < 1024 && onClose) {
+            if (typeof window !== 'undefined' && window.innerWidth < 768 && onClose) {
               onClose();
             }
           }
@@ -224,25 +224,25 @@ export default function SidebarHistory({
       {isOpen && (
         <div
           onClick={onClose}
-          className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-xs z-40 lg:hidden"
+          className="fixed inset-0 bg-slate-900/40 dark:bg-black/60 backdrop-blur-xs z-40 md:hidden"
         />
       )}
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 bg-white dark:bg-[#171717] border-r border-slate-200/90 dark:border-white/10 shadow-lg lg:shadow-none flex flex-col transition-all duration-300 ease-in-out lg:static overflow-hidden ${
+        className={`fixed top-0 bottom-0 left-0 z-40 bg-white dark:bg-[#171717] border-r border-slate-200/90 dark:border-white/10 shadow-lg md:shadow-none flex flex-col transition-all duration-300 ease-in-out md:static overflow-hidden ${
           isOpen
-            ? 'w-72 sm:w-80 translate-x-0 opacity-100'
-            : 'w-0 -translate-x-full opacity-0 pointer-events-none border-r-0 lg:translate-x-0'
+            ? 'w-64 lg:w-72 translate-x-0 opacity-100'
+            : 'w-0 -translate-x-full opacity-0 pointer-events-none border-r-0 md:translate-x-0'
         }`}
       >
-        <div className="w-72 sm:w-80 h-full flex flex-col shrink-0">
+        <div className="w-64 lg:w-72 h-full flex flex-col shrink-0">
         {/* Top Header: New Chat & Search */}
         <div className="p-4 border-b border-slate-100 dark:border-white/10 space-y-3">
           <button
             onClick={() => {
               onNewChat();
-              if (typeof window !== 'undefined' && window.innerWidth < 1024 && onClose) {
+              if (typeof window !== 'undefined' && window.innerWidth < 768 && onClose) {
                 onClose();
               }
             }}
@@ -361,7 +361,7 @@ export default function SidebarHistory({
                   <button
                     onClick={() => {
                       setShowUserMenu(false);
-                      if (typeof window !== 'undefined' && window.innerWidth < 1024 && onClose) {
+                      if (typeof window !== 'undefined' && window.innerWidth < 768 && onClose) {
                         onClose();
                       }
                       if (onNavigateToAdmin) {

@@ -46,7 +46,7 @@ export default function ChatView({
       if (saved !== null) {
         return saved === 'true';
       }
-      return typeof window !== 'undefined' ? window.innerWidth >= 1024 : true;
+      return typeof window !== 'undefined' ? window.innerWidth >= 768 : true;
     } catch (e) {
       return true;
     }

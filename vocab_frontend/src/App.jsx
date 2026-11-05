@@ -184,14 +184,14 @@ export default function App() {
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+                    <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
                       Vocab<span className="text-indigo-600 dark:text-indigo-400">Admin</span>
                     </span>
                     <span className="px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider rounded-full bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
                       Portal Quản Trị
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium hidden sm:block">
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium hidden xl:block">
                     Hệ thống quản trị tài khoản, cơ sở tri thức & giám sát AI trung tâm
                   </p>
                 </div>

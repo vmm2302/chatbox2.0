@@ -32,7 +32,7 @@ export default function ThemeToggle({ themeMode, currentTheme, onThemeChange, cl
 
   return (
     <div
-      className={`inline-flex items-center p-1 rounded-2xl bg-slate-100/90 dark:bg-[#212121] border border-slate-200/80 dark:border-white/10 shadow-2xs ${className}`}
+      className={`inline-flex items-center p-0.5 sm:p-1 rounded-2xl bg-slate-100/90 dark:bg-[#212121] border border-slate-200/80 dark:border-white/10 shadow-2xs shrink-0 ${className}`}
       title="Cài đặt giao diện Sáng / Tối"
     >
       {options.map((opt) => {
@@ -43,14 +43,14 @@ export default function ThemeToggle({ themeMode, currentTheme, onThemeChange, cl
             type="button"
             onClick={() => onThemeChange(opt.id)}
             title={opt.tooltip}
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               isActive
                 ? 'bg-white dark:bg-[#2f2f2f] text-emerald-700 dark:text-white shadow-xs font-extrabold dark:border dark:border-white/10'
                 : 'text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/[0.06]'
             }`}
           >
             {opt.icon}
-            <span className="hidden sm:inline">{opt.label}</span>
+            <span className="hidden xl:inline">{opt.label}</span>
           </button>
         );
       })}
