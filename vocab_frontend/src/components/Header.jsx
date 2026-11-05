@@ -22,14 +22,11 @@ export default function Header({ activeTab, setActiveTab, themeMode, onThemeChan
             <div className="min-w-0">
               <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
                 <span className="text-base sm:text-lg lg:text-xl font-black tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
-                  Chatbot cho từ vựng <span className="text-emerald-600 dark:text-emerald-400">A1 - A2</span>
-                </span>
-                <span className="hidden sm:inline-flex px-2 py-0.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider rounded-full bg-emerald-100 dark:bg-white/[0.08] text-emerald-800 dark:text-emerald-400 border border-emerald-200/60 dark:border-white/10 shrink-0 whitespace-nowrap">
-                  CEFR A1–A2
+                  Chatbot cho từ vựng tiếng Anh
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium hidden xl:block truncate">
-                Trợ lý tra cứu & học từ vựng tiếng Anh cấp độ A1–A2
+                Trợ lý tra cứu & học từ vựng tiếng Anh
               </p>
             </div>
           </div>

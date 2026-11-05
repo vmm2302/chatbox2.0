@@ -4,6 +4,14 @@ import { getDiscoveryWords, getAvailableLevels } from '../services/api';
 import { tts } from '../services/tts';
 import { getLevelConfig } from '../utils/cefr';
 
+const getGridColsClass = (count) => {
+  if (count === 1) return 'grid-cols-1';
+  if (count === 2) return 'grid-cols-1 sm:grid-cols-2'; // 50/50 khi có 2 nút
+  if (count === 3) return 'grid-cols-1 sm:grid-cols-3';
+  if (count === 4) return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'; // 25% mỗi nút khi có 4 nút
+  return 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5';
+};
+
 export default function DiscoveryView({ onSelectWord }) {
   const [level, setLevel] = useState('A1');
   const [availableLevels, setAvailableLevels] = useState(['A1', 'A2']);
@@ -82,12 +90,10 @@ export default function DiscoveryView({ onSelectWord }) {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
-              <span>🌟 Khám Phá Từ Vựng Theo Trình Độ CEFR</span>
+              <span>🌟 Khám Phá Từ Vựng</span>
             </h1>
             <p className="text-sm text-slate-500 dark:text-zinc-400 font-medium mt-1">
-              {availableLevels.length > 0
-                ? `Khám phá các bộ từ vựng theo từng cấp độ (${availableLevels.join(', ')}) kèm ngữ cảnh thực tế`
-                : 'Khám phá vốn từ vựng chuẩn CEFR kèm ngữ cảnh thực tế'}
+              Khám phá các bộ từ vựng kèm ngữ cảnh thực tế
             </p>
           </div>
 
@@ -101,8 +107,8 @@ export default function DiscoveryView({ onSelectWord }) {
           </button>
         </div>
 
-        {/* Dynamic Level Selector: centered, flexible spacing as buttons increase */}
-        <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-6">
+        {/* Dynamic Level Selector: wide, slim and elegant */}
+        <div className={`grid ${getGridColsClass(availableLevels.length)} gap-3 sm:gap-4 mt-6 w-full`}>
           {availableLevels.map((lvl) => {
             const conf = getLevelConfig(lvl);
             const isSelected = level === lvl;
@@ -111,20 +117,22 @@ export default function DiscoveryView({ onSelectWord }) {
               <button
                 key={lvl}
                 onClick={() => setLevel(lvl)}
-                className={`flex-1 min-w-[130px] sm:min-w-[150px] max-w-[200px] p-3.5 rounded-2xl border text-center transition-all duration-200 cursor-pointer flex flex-col items-center justify-center ${
+                className={`w-full px-5 py-2.5 sm:py-3 rounded-2xl border transition-all duration-200 cursor-pointer flex items-center justify-between gap-3 text-left ${
                   isSelected
-                    ? `bg-gradient-to-r ${conf.gradient} text-white shadow-lg border-transparent scale-[1.03] ring-2 ring-white/20`
+                    ? `bg-gradient-to-r ${conf.gradient} text-white shadow-md border-transparent scale-[1.02] ring-2 ring-white/20`
                     : 'bg-white dark:bg-[#262626] hover:bg-slate-50 dark:hover:bg-white/10 text-slate-800 dark:text-zinc-100 border-slate-200 dark:border-white/10 hover:border-slate-300 shadow-xs'
                 }`}
               >
-                <div className="font-extrabold text-sm tracking-wide">{conf.badge}</div>
-                <div className={`text-[11px] font-medium mt-1 truncate max-w-full ${isSelected ? 'text-white/85' : 'text-slate-400 dark:text-zinc-500'}`}>
-                  {conf.label}
+                <div className="min-w-0">
+                  <div className="font-extrabold text-sm tracking-wide truncate">{conf.badge}</div>
+                  <div className={`text-[11px] font-medium truncate ${isSelected ? 'text-white/85' : 'text-slate-400 dark:text-zinc-500'}`}>
+                    {conf.label}
+                  </div>
                 </div>
                 {count !== undefined && (
-                  <div className={`text-[11px] font-bold mt-1.5 px-2.5 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'}`}>
+                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap ${isSelected ? 'bg-white/20 text-white' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'}`}>
                     {count.toLocaleString()} từ
-                  </div>
+                  </span>
                 )}
               </button>
             );

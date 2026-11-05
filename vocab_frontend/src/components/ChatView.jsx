@@ -30,7 +30,7 @@ export default function ChatView({
       role: 'assistant',
       isWelcome: true,
       content:
-        'Xin chào bạn! Mình là Chatbot cho từ vựng A1 - A2.\n\nNhập bất kỳ từ vựng tiếng Anh trình độ A1 hoặc A2 để tra cứu nghĩa, cấp độ CEFR, phiên âm IPA, nghe phát âm chuẩn và xem câu ví dụ thực tế nhé!',
+        'Xin chào bạn! Mình là Chatbot cho từ vựng tiếng Anh.\n\nNhập bất kỳ từ vựng tiếng Anh nào để bắt đầu tra cứu nghĩa, cấp độ CEFR, phiên âm IPA, nghe phát âm chuẩn và xem câu ví dụ thực tế nhé!',
     },
   ]);
   const [inputValue, setInputValue] = useState('');
@@ -147,7 +147,7 @@ export default function ChatView({
         role: 'assistant',
         isWelcome: true,
         content:
-          'Cuộc trò chuyện mới đã sẵn sàng! Hãy nhập một từ vựng tiếng Anh (A1–A2) bạn muốn học hôm nay.',
+          'Cuộc trò chuyện mới đã sẵn sàng! Hãy nhập một từ vựng tiếng Anh mà bạn muốn học hôm nay.',
       },
     ]);
   };
@@ -390,7 +390,7 @@ export default function ChatView({
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Nhập từ vựng tiếng Anh A1–A2 (ví dụ: 'family', 'school', 'happy', 'hello')..."
+              placeholder="Nhập từ vựng tiếng Anh (ví dụ: 'family', 'school', 'happy', 'hello')..."
               className="w-full py-2.5 sm:py-3 px-3 sm:px-4 text-slate-800 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 font-medium text-sm sm:text-base focus:outline-hidden bg-transparent"
             />
 

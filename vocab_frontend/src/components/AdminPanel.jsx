@@ -419,16 +419,16 @@ export default function AdminPanel({ currentUser }) {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 sm:space-y-6">
       
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-indigo-50/90 via-purple-50/40 to-indigo-50/80 dark:from-[#171717] dark:via-[#1c1a24] dark:to-[#171717] text-slate-900 dark:text-[#ececec] rounded-3xl p-6 sm:p-8 shadow-xs dark:shadow-xl border border-indigo-100 dark:border-white/10 flex flex-wrap items-center justify-between gap-4 transition-colors">
+      <div className="bg-gradient-to-r from-indigo-50/90 via-purple-50/40 to-indigo-50/80 dark:from-[#171717] dark:via-[#1c1a24] dark:to-[#171717] text-slate-900 dark:text-[#ececec] rounded-3xl p-4 sm:p-6 lg:p-7 shadow-xs dark:shadow-xl border border-indigo-100 dark:border-white/10 flex flex-wrap items-center justify-between gap-3 sm:gap-4 transition-colors">
         <div>
           <div className="flex items-center space-x-2 text-indigo-600 dark:text-emerald-400 text-xs font-black uppercase tracking-widest mb-1">
             <ShieldAlert className="w-4 h-4" />
             <span>Hệ Thống Quản Trị Hệ Thống • Chatbox 2.0</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
             Bảng Điều Khiển Quản Trị Viên (Admin Portal)
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 dark:text-zinc-300 mt-1 max-w-2xl">
@@ -475,53 +475,53 @@ export default function AdminPanel({ currentUser }) {
       )}
 
       {/* Sub-Tabs Navigation (4 Modules Migrated from app.py) */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-white/10 pb-3">
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-white/10 pb-3 overflow-x-auto">
         <button
           onClick={() => setActiveSubTab('users')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeSubTab === 'users'
               ? 'bg-slate-900 dark:bg-[#2f2f2f] text-white dark:border dark:border-white/10 shadow-md'
               : 'bg-white dark:bg-[#212121] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 border border-slate-200 dark:border-white/10'
           }`}
         >
           <Users className="w-4 h-4 text-cyan-400" />
-          <span>👥 Quản lý Người dùng & Tài khoản</span>
+          <span>Tài khoản & Người dùng</span>
         </button>
 
         <button
           onClick={() => setActiveSubTab('kb')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeSubTab === 'kb'
               ? 'bg-slate-900 dark:bg-[#2f2f2f] text-white dark:border dark:border-white/10 shadow-md'
               : 'bg-white dark:bg-[#212121] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 border border-slate-200 dark:border-white/10'
           }`}
         >
           <Database className="w-4 h-4 text-emerald-400" />
-          <span>🗄️ Quản lý Tri thức (Knowledge Base)</span>
+          <span>Cơ sở Tri thức (KB)</span>
         </button>
 
         <button
           onClick={() => setActiveSubTab('telemetry')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeSubTab === 'telemetry'
               ? 'bg-slate-900 dark:bg-[#2f2f2f] text-white dark:border dark:border-white/10 shadow-md'
               : 'bg-white dark:bg-[#212121] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 border border-slate-200 dark:border-white/10'
           }`}
         >
           <Activity className="w-4 h-4 text-teal-400" />
-          <span>📈 Chẩn đoán & Telemetry</span>
+          <span>Chẩn đoán & Telemetry</span>
         </button>
 
         <button
           onClick={() => setActiveSubTab('audit')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center space-x-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
             activeSubTab === 'audit'
               ? 'bg-slate-900 dark:bg-[#2f2f2f] text-white dark:border dark:border-white/10 shadow-md'
               : 'bg-white dark:bg-[#212121] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 border border-slate-200 dark:border-white/10'
           }`}
         >
           <Terminal className="w-4 h-4 text-amber-400" />
-          <span>📜 Nhật ký Kiểm toán (Audit Logs)</span>
+          <span>Nhật ký Kiểm toán</span>
         </button>
       </div>
 
@@ -575,20 +575,20 @@ export default function AdminPanel({ currentUser }) {
 
           {/* User Search & Filters */}
           <div className="bg-white dark:bg-[#212121] rounded-3xl p-5 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
                 <Search className="w-4 h-4 text-emerald-600" />
                 <span>Danh Sách Tài Khoản Hệ Thống ({usersList.length})</span>
               </h2>
 
-              <form onSubmit={handleSearchUsers} className="flex flex-wrap items-center gap-2">
-                <div className="relative">
+              <form onSubmit={handleSearchUsers} className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <div className="relative flex-1 sm:flex-initial">
                   <input
                     type="text"
                     value={userSearch}
                     onChange={(e) => setUserSearch(e.target.value)}
                     placeholder="Tìm username hoặc tên hiển thị..."
-                    className="py-1.5 pl-8 pr-3 text-xs bg-slate-50 dark:bg-[#171717] rounded-xl border border-slate-200 dark:border-white/10 text-slate-800 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20"
+                    className="w-full sm:w-56 py-1.5 pl-8 pr-3 text-xs bg-slate-50 dark:bg-[#171717] rounded-xl border border-slate-200 dark:border-white/10 text-slate-800 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20"
                   />
                   <Search className="w-3.5 h-3.5 text-slate-400 dark:text-zinc-500 absolute left-2.5 top-2.5" />
                 </div>
@@ -623,18 +623,18 @@ export default function AdminPanel({ currentUser }) {
             </div>
 
             {/* User Data Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto rounded-2xl border border-slate-200/80 dark:border-white/10">
+              <table className="w-full text-left text-xs min-w-[850px]">
                 <thead className="bg-slate-50 dark:bg-[#1a1a1a] border-b border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 uppercase font-black">
                   <tr>
-                    <th className="py-3 px-3">ID</th>
-                    <th className="py-3 px-4">Tài Khoản</th>
-                    <th className="py-3 px-4">Tên Hiển Thị</th>
-                    <th className="py-3 px-3">Vai Trò</th>
-                    <th className="py-3 px-3">Trạng Thái</th>
-                    <th className="py-3 px-4">Ngày Tạo</th>
-                    <th className="py-3 px-4">Đăng Nhập Gần Nhất</th>
-                    <th className="py-3 px-3 text-right">Thao Tác Quản Trị</th>
+                    <th className="py-3 px-3 whitespace-nowrap">ID</th>
+                    <th className="py-3 px-4 whitespace-nowrap">Tài Khoản</th>
+                    <th className="py-3 px-4 whitespace-nowrap">Tên Hiển Thị</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Vai Trò</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Trạng Thái</th>
+                    <th className="py-3 px-4 whitespace-nowrap">Ngày Tạo</th>
+                    <th className="py-3 px-4 whitespace-nowrap">Đăng Nhập Gần Nhất</th>
+                    <th className="py-3 px-3 text-right whitespace-nowrap">Thao Tác Quản Trị</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
@@ -650,8 +650,8 @@ export default function AdminPanel({ currentUser }) {
                       const isAdmin = u.role === 'admin';
                       return (
                         <tr key={u.id} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.04] transition-colors">
-                          <td className="py-3 px-3 font-mono text-slate-400 dark:text-zinc-500">#{u.id}</td>
-                          <td className="py-3 px-4 font-bold text-slate-900 dark:text-zinc-100 flex items-center space-x-2">
+                          <td className="py-3 px-3 font-mono text-slate-400 dark:text-zinc-500 whitespace-nowrap">#{u.id}</td>
+                          <td className="py-3 px-4 font-bold text-slate-900 dark:text-zinc-100 flex items-center space-x-2 whitespace-nowrap">
                             <div className={`w-6 h-6 rounded-lg text-white font-black text-[10px] flex items-center justify-center shrink-0 ${
                               isAdmin ? 'bg-indigo-600' : 'bg-emerald-600'
                             }`}>
@@ -664,8 +664,8 @@ export default function AdminPanel({ currentUser }) {
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-slate-700 dark:text-zinc-300">{u.display_name || u.username}</td>
-                          <td className="py-3 px-3">
+                          <td className="py-3 px-4 text-slate-700 dark:text-zinc-300 whitespace-nowrap max-w-[180px] truncate">{u.display_name || u.username}</td>
+                          <td className="py-3 px-3 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold ${
                               isAdmin
                                 ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60'
@@ -674,7 +674,7 @@ export default function AdminPanel({ currentUser }) {
                               {isAdmin ? '🛡️ ADMIN' : '👤 USER'}
                             </span>
                           </td>
-                          <td className="py-3 px-3">
+                          <td className="py-3 px-3 whitespace-nowrap">
                             <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
                               u.is_active
                                 ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
@@ -684,13 +684,13 @@ export default function AdminPanel({ currentUser }) {
                               <span>{u.is_active ? 'Hoạt động' : 'Đã khóa'}</span>
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
+                          <td className="py-3 px-4 text-slate-500 dark:text-zinc-400 font-mono text-[11px] whitespace-nowrap">
                             {u.created_at ? u.created_at.slice(0, 10) : '-'}
                           </td>
-                          <td className="py-3 px-4 text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
+                          <td className="py-3 px-4 text-slate-500 dark:text-zinc-400 font-mono text-[11px] whitespace-nowrap">
                             {u.last_login_at ? u.last_login_at.slice(0, 16).replace('T', ' ') : 'Chưa từng'}
                           </td>
-                          <td className="py-3 px-3 text-right">
+                          <td className="py-3 px-3 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end space-x-1.5">
                               {/* Toggle active / lock */}
                               <button
@@ -1024,29 +1024,29 @@ export default function AdminPanel({ currentUser }) {
                 Chưa có tệp nạp bổ sung nào. Cơ sở tri thức đang sử dụng bộ dữ liệu Oxford 3,000 mặc định.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+              <div className="overflow-x-auto rounded-2xl border border-slate-200/80 dark:border-white/10">
+                <table className="w-full text-left text-xs min-w-[850px]">
                   <thead className="bg-slate-50 dark:bg-[#1a1a1a] border-b border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 uppercase font-black">
                     <tr>
-                      <th className="py-3 px-4">Tên Nguồn Dữ Liệu</th>
-                      <th className="py-3 px-4">Định Dạng</th>
-                      <th className="py-3 px-4">Số Bản Ghi</th>
-                      <th className="py-3 px-4">Thời Gian Nạp</th>
-                      <th className="py-3 px-4 text-right">Thao Tác</th>
+                      <th className="py-3 px-4 whitespace-nowrap">Tên Nguồn Dữ Liệu</th>
+                      <th className="py-3 px-4 whitespace-nowrap">Định Dạng</th>
+                      <th className="py-3 px-4 whitespace-nowrap">Số Bản Ghi</th>
+                      <th className="py-3 px-4 whitespace-nowrap">Thời Gian Nạp</th>
+                      <th className="py-3 px-4 text-right whitespace-nowrap">Thao Tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                     {sources.map((src, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/80 dark:hover:bg-white/[0.04]">
-                        <td className="py-3 px-4 font-bold text-slate-800 dark:text-zinc-200">📄 {src.filename || src.name}</td>
-                        <td className="py-3 px-4">
+                        <td className="py-3 px-4 font-bold text-slate-800 dark:text-zinc-200 whitespace-nowrap">📄 {src.filename || src.name}</td>
+                        <td className="py-3 px-4 whitespace-nowrap">
                           <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-zinc-300 font-mono text-[10px]">
                             {src.format || 'CORPUS'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-emerald-700 dark:text-emerald-400">{src.record_count || src.count || 0}</td>
-                        <td className="py-3 px-4 text-slate-500 dark:text-zinc-400">{src.ingested_at || 'Mặc định'}</td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-3 px-4 font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">{src.record_count || src.count || 0}</td>
+                        <td className="py-3 px-4 text-slate-500 dark:text-zinc-400 whitespace-nowrap">{src.ingested_at || 'Mặc định'}</td>
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
                           {src.format !== 'CORPUS' && src.format !== 'JSONL' && (
                             <button
                               onClick={() => handleDeleteSource(src)}
@@ -1099,13 +1099,13 @@ export default function AdminPanel({ currentUser }) {
             
             {/* Hardware Resources */}
             <div className="bg-white dark:bg-[#212121] rounded-3xl p-6 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
                   <Cpu className="w-5 h-5 text-teal-600" />
                   <span>Tài Nguyên Phần Cứng Máy Chủ</span>
                 </h2>
                 {telemetry?.resource_state && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 shrink-0 whitespace-nowrap">
                     🟢 {telemetry.resource_state}
                   </span>
                 )}
@@ -1160,13 +1160,13 @@ export default function AdminPanel({ currentUser }) {
 
             {/* Ollama LLM Service */}
             <div className="bg-white dark:bg-[#212121] rounded-3xl p-6 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center space-x-2">
                   <Server className="w-5 h-5 text-indigo-600" />
                   <span>Dịch Vụ Mô Hình Ngôn Ngữ Ollama</span>
                 </h2>
                 <span
-                  className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                  className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold shrink-0 whitespace-nowrap ${
                     ollama?.online
                       ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
                       : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
@@ -1243,15 +1243,15 @@ export default function AdminPanel({ currentUser }) {
             </button>
           </div>
 
-          <div className="overflow-x-auto max-h-[500px]">
-            <table className="w-full text-left text-xs font-mono">
+          <div className="overflow-x-auto max-h-[500px] rounded-2xl border border-slate-200/80 dark:border-white/10">
+            <table className="w-full text-left text-xs font-mono min-w-[720px]">
               <thead className="bg-slate-50 dark:bg-[#1a1a1a] border-b border-slate-200 dark:border-white/10 text-slate-600 dark:text-zinc-400 uppercase font-black sticky top-0">
                 <tr>
-                  <th className="py-2.5 px-3">Thời Gian</th>
-                  <th className="py-2.5 px-3">Người Dùng</th>
-                  <th className="py-2.5 px-3">Hành Động</th>
-                  <th className="py-2.5 px-3">Đối Tượng</th>
-                  <th className="py-2.5 px-3">Trạng Thái</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Thời Gian</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Người Dùng</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Hành Động</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Đối Tượng</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Trạng Thái</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5 text-[11px]">
@@ -1264,15 +1264,15 @@ export default function AdminPanel({ currentUser }) {
                 ) : (
                   auditLogs.map((log, idx) => (
                     <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-white/[0.04]">
-                      <td className="py-2 px-3 text-slate-500 dark:text-zinc-400">{log.timestamp || log.created_at || 'Vừa xong'}</td>
-                      <td className="py-2 px-3 font-bold text-slate-800 dark:text-zinc-200">{log.user_id || log.username || log.actor_username || 'System'}</td>
-                      <td className="py-2 px-3">
+                      <td className="py-2 px-3 text-slate-500 dark:text-zinc-400 whitespace-nowrap">{log.timestamp || log.created_at || 'Vừa xong'}</td>
+                      <td className="py-2 px-3 font-bold text-slate-800 dark:text-zinc-200 whitespace-nowrap">{log.user_id || log.username || log.actor_username || 'System'}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">
                         <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-800 dark:text-zinc-200 font-bold">
                           {log.action || log.event_type}
                         </span>
                       </td>
                       <td className="py-2 px-3 text-slate-600 dark:text-zinc-400 truncate max-w-xs">{log.target || log.details ? (typeof log.details === 'object' ? JSON.stringify(log.details) : log.details) : '-'}</td>
-                      <td className="py-2 px-3">
+                      <td className="py-2 px-3 whitespace-nowrap">
                         <span
                           className={`px-1.5 py-0.5 rounded font-bold ${
                             log.status === 'success' || log.status === 'SUCCESS' || !log.status

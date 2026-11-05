@@ -96,9 +96,9 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 📚
               </div>
               <div>
-                <h1 className="text-2xl font-black tracking-tight">Chatbot cho từ vựng A1 - A2</h1>
+                <h1 className="text-2xl font-black tracking-tight">Chatbot cho từ vựng tiếng Anh</h1>
                 <p className="text-xs font-semibold text-emerald-200 uppercase tracking-wider">
-                  Trợ lý từ vựng tiếng Anh A1 - A2
+                  Trợ lý từ vựng tiếng Anh
                 </p>
               </div>
             </div>
@@ -109,7 +109,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
                 <span className="text-emerald-300">một bước tiến gần hơn.</span>
               </h2>
               <p className="text-sm sm:text-base text-emerald-100/90 leading-relaxed max-w-md">
-                Tra cứu từ vựng chuẩn CEFR A1 và A2, giải thích nghĩa rõ ràng, nghe phát âm bản ngữ và xem câu ví dụ thực tế.
+                Tra cứu từ vựng chuẩn, giải thích nghĩa rõ ràng, nghe phát âm bản ngữ và xem câu ví dụ thực tế.
               </p>
             </div>
           </div>
@@ -118,10 +118,6 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
             <div className="flex items-center space-x-2">
               <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
               <span>Xử lý 100% Cục bộ — An toàn và bảo mật dữ liệu tuyệt đối</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Sparkles className="w-4 h-4 text-emerald-300 shrink-0" />
-              <span>Hỗ trợ chuẩn 2 cấp độ CEFR: A1 · A2</span>
             </div>
           </div>
         </div>
