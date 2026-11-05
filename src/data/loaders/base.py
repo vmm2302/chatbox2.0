@@ -42,12 +42,21 @@ def clean_source_name(source: str) -> str:
     return m.group(1) if m else src_str
 
 
-def generate_stable_record_id(source: str, question: str, custom_id: Optional[str] = None) -> str:
-    """Tạo stable ID cho bản ghi. Nếu có custom_id thì dùng, ngược lại hash nguồn (đã làm sạch) và câu hỏi."""
+def generate_stable_record_id(
+    source: str,
+    question: str,
+    custom_id: Optional[str] = None,
+    level: Optional[str] = None
+) -> str:
+    """Tạo stable ID cho bản ghi. Nếu có custom_id thì dùng, ngược lại hash nguồn (đã làm sạch), câu hỏi và level."""
     if custom_id and str(custom_id).strip():
         return str(custom_id).strip()
     clean_src = clean_source_name(source)
-    raw = f"{clean_src}:{question.strip().lower()}"
+    clean_lvl = str(level).strip().upper() if level else ""
+    if clean_lvl:
+        raw = f"{clean_src}:{question.strip().lower()}:{clean_lvl}"
+    else:
+        raw = f"{clean_src}:{question.strip().lower()}"
     h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     return f"REC_{h}"
 

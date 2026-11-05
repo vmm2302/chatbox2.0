@@ -393,43 +393,17 @@ async def upload_knowledge_files(
 
         seen_hashes[uf_hash] = raw_name
 
-        # 2. Kiểm tra trùng lặp với tệp đã có sẵn trong data/raw/ hoặc trong active sources
-        existing_file = existing_raw_by_hash.get(uf_hash)
-        active_dup = batch_manager.is_duplicate_file(uf_hash) if not is_replace else None
+        # 2. Quản lý lưu trữ tệp trên đĩa:
+        # Nếu tệp đã có trên đĩa raw với cùng mã băm (SHA-256), tái sử dụng tệp vật lý đó, không tạo bản sao trùng
+        if existing_file:
+            target_path = existing_file
+        else:
+            target_path = settings.RAW_DATA_DIR / raw_name
+            with open(target_path, "wb") as f:
+                f.write(content)
+            existing_raw_by_hash[uf_hash] = target_path
 
-        if existing_file and not is_replace:
-            # Tệp đã tồn tại trong raw: Tuyệt đối không lưu thêm bản sao mới vào raw!
-            pre_skipped_results.append({
-                "file_name": raw_name,
-                "status": "SKIPPED",
-                "records_added": 0,
-                "records_extracted": 0,
-                "duplicates_skipped": 0,
-                "reason": f"Tệp đã tồn tại trong thư viện raw ('{existing_file.name}'). Không thêm vào raw để tránh trùng lặp.",
-                "action": "Bỏ qua tệp để tránh nhân bản dữ liệu.",
-            })
-            continue
-        elif active_dup and not is_replace:
-            dup_title = active_dup.get("file_name") or active_dup.get("source_name") or "kho tri thức"
-            pre_skipped_results.append({
-                "file_name": raw_name,
-                "status": "SKIPPED",
-                "records_added": 0,
-                "records_extracted": 0,
-                "duplicates_skipped": 0,
-                "reason": f"Tệp đã được nạp trước đó ('{dup_title}'). Không thêm vào raw để tránh trùng lặp.",
-                "action": "Bỏ qua tệp để tránh nhân bản dữ liệu.",
-            })
-            continue
-
-        # 3. Tệp hợp lệ để nạp:
-        # Nếu đã có tệp cùng tên trong raw nhưng nội dung mới (người dùng cập nhật),
-        # ghi đè trực tiếp lên chính tệp đó để không bao giờ sinh file rác raw_xxxx_...
-        target_path = settings.RAW_DATA_DIR / raw_name
-        with open(target_path, "wb") as f:
-            f.write(content)
         saved_paths.append(target_path)
-        existing_raw_by_hash[uf_hash] = target_path
 
     # Nếu tất cả các tệp đều là trùng lặp và không có tệp nào mới cần nạp
     if not saved_paths:
@@ -469,6 +443,11 @@ async def upload_knowledge_files(
         new_records = batch_manager.loader.load_from_jsonl()
         if engine:
             engine.update_knowledge_base(new_records or [])
+        try:
+            from vocab_backend.api_server import reload_records
+            reload_records()
+        except Exception as rl_err:
+            logger.warning("Không thể làm mới cache bản ghi sau nạp: %s", rl_err)
 
         # Tự động dọn dẹp các tệp bản sao dư thừa nếu có
         try:
@@ -562,6 +541,11 @@ def clear_knowledge_base(user_id: int = Query(...)):
     engine = get_chat_engine()
     result = batch_manager.clear_knowledge_base(engine)
     if result.get("success"):
+        try:
+            from vocab_backend.api_server import reload_records
+            reload_records()
+        except Exception as rl_err:
+            logger.warning("Không thể làm mới cache bản ghi sau xóa KB: %s", rl_err)
         audit_repo.log(
             actor_username=admin_user.username,
             actor_id=admin_user.id,
@@ -573,6 +557,37 @@ def clear_knowledge_base(user_id: int = Query(...)):
         return {"status": "success", "result": result}
     else:
         raise HTTPException(status_code=500, detail=result.get("message", "Thao tác xóa thất bại."))
+
+
+@admin_router.delete("/sources/{source_id}")
+def delete_knowledge_source(source_id: str, user_id: int = Query(...)):
+    """Delete a specific knowledge source from ChromaDB, JSONL, and manifest."""
+    admin_user = require_admin(user_id)
+    from vocab_backend.api_server import get_chat_engine
+
+    engine = get_chat_engine()
+    result = batch_manager.delete_source(source_id)
+    if result.get("status") == "SUCCESS":
+        new_records = batch_manager.loader.load_from_jsonl()
+        if engine:
+            engine.update_knowledge_base(new_records or [])
+        try:
+            from vocab_backend.api_server import reload_records
+            reload_records()
+        except Exception as rl_err:
+            logger.warning("Không thể reload records sau khi xóa nguồn: %s", rl_err)
+        audit_repo.log(
+            actor_username=admin_user.username,
+            actor_id=admin_user.id,
+            action="DELETE_KNOWLEDGE_SOURCE",
+            target_type="knowledge_base",
+            target_id=source_id,
+            details=result,
+            status="SUCCESS",
+        )
+        return {"status": "success", "result": result}
+    else:
+        raise HTTPException(status_code=400, detail=result.get("message", "Xóa nguồn tài liệu thất bại."))
 
 
 # =============================================================

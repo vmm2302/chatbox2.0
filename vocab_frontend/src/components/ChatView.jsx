@@ -457,7 +457,7 @@ function extractCardFromContent(content, meta) {
     l.toLowerCase().includes('trình độ:') || l.toLowerCase().includes('level:')
   );
   if (levelLine) {
-    const match = levelLine.match(/(A1|A2)/i);
+    const match = levelLine.match(/(A1|A2|B1|B2|C1|C2)/i);
     if (match) level = match[1].toUpperCase();
   }
 

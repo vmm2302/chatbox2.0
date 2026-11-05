@@ -57,7 +57,7 @@ export default function Header({ activeTab, setActiveTab, themeMode, onThemeChan
               }`}
             >
               <BookOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-500 shrink-0" />
-              <span>Khám phá A1–A2</span>
+              <span>Khám phá từ vựng</span>
             </button>
           </nav>
 

@@ -73,6 +73,14 @@ _CHAT_ENGINE = None
 _USER_TRACKERS: Dict[str, Any] = {}
 
 
+def reload_records():
+    """Invalidate memory cache and reload all records from disk."""
+    global _RECORDS_CACHE, _WORD_INDEX
+    _RECORDS_CACHE = None
+    _WORD_INDEX.clear()
+    return get_records()
+
+
 def get_records():
     global _RECORDS_CACHE, _WORD_INDEX
     if _RECORDS_CACHE is None:
@@ -80,14 +88,21 @@ def get_records():
             from src.data.loader import QALoader
             loader = QALoader()
             all_recs = loader.get_or_create_records()
-            # Strictly filter to A1 and A2 vocabulary
-            _RECORDS_CACHE = [r for r in all_recs if getattr(r, "level", "").strip().upper() in {"A1", "A2"}]
+            # Retain all valid records with question & answer (supporting any CEFR/custom level)
+            _RECORDS_CACHE = [
+                r for r in all_recs
+                if getattr(r, "question", "") and getattr(r, "answer", "")
+            ]
             _WORD_INDEX.clear()
             for rec in _RECORDS_CACHE:
                 w = getattr(rec, "word", "").strip().lower()
-                if w and w not in _WORD_INDEX:
-                    _WORD_INDEX[w] = rec
-            logger.info("Loaded %d A1–A2 vocabulary records into memory.", len(_RECORDS_CACHE))
+                lvl = (getattr(rec, "level", "") or "").strip().upper()
+                if w:
+                    if (w, lvl) not in _WORD_INDEX:
+                        _WORD_INDEX[(w, lvl)] = rec
+                    if w not in _WORD_INDEX:
+                        _WORD_INDEX[w] = rec
+            logger.info("Loaded %d vocabulary records into memory.", len(_RECORDS_CACHE))
         except Exception as e:
             logger.error("Failed to load records: %s", e)
             _RECORDS_CACHE = []
@@ -267,7 +282,7 @@ def search_words(
     records = get_records()
     results = []
 
-    level_filter = level.upper() if level and level.upper() in {"A1", "A2"} else None
+    level_filter = level.strip().upper() if level and level.strip().upper() not in {"", "TẤT CẢ", "ALL"} else None
 
     # 1. Exact match & prefix match first
     for rec in records:
@@ -343,22 +358,56 @@ def get_word_detail(word: str):
     }
 
 
+@app.get("/api/words/levels")
+def get_available_levels():
+    """Get dynamic list of CEFR levels present in qa_records.jsonl without hardcoding."""
+    records = get_records()
+    unique_levels = {
+        (getattr(r, "level", "") or "").strip().upper()
+        for r in records
+        if getattr(r, "level", None) and str(r.level).strip()
+    }
+    # Standard CEFR sorting order first, then any other dynamic levels
+    cefr_canonical = ["A1", "A2", "B1", "B2", "C1", "C2"]
+    known_levels = [lvl for lvl in cefr_canonical if lvl in unique_levels]
+    other_levels = sorted([lvl for lvl in unique_levels if lvl not in cefr_canonical])
+    available = known_levels + other_levels
+    if not available:
+        available = ["A1", "A2"]
+
+    counts = {
+        lvl: sum(1 for r in records if (getattr(r, "level", "") or "").strip().upper() == lvl)
+        for lvl in available
+    }
+    return {"levels": available, "counts": counts}
+
+
 @app.get("/api/words/discover")
 def discover_words(
     level: Optional[str] = Query("A1"),
     count: int = Query(6, ge=1, le=20),
 ):
-    """Get a set of discovery words for a given CEFR level (A1 or A2 only)."""
+    """Get a set of discovery words for any given level present in the knowledge base."""
     records = get_records()
-    level_filter = level.upper() if level and level.upper() in {"A1", "A2"} else "A1"
-    matched = [r for r in records if getattr(r, "level", "A1").upper() == level_filter]
-    sample = random.sample(matched, min(count, len(matched))) if matched else []
+    eff_count = count if isinstance(count, int) else 6
+    eff_level = level if isinstance(level, str) else "A1"
+    req_level = eff_level.strip().upper()
+    matched = [r for r in records if (getattr(r, "level", "") or "").strip().upper() == req_level]
+    if not matched:
+        matched = [r for r in records if (getattr(r, "level", "") or "").strip().upper() in {req_level, "A1"}]
+
+    sample = random.sample(matched, min(eff_count, len(matched))) if matched else []
 
     cards = []
     for r in sample:
-        cards.append(parse_vocabulary_text(r.answer, default_word=r.word, default_level=r.level))
+        card = parse_vocabulary_text(r.answer, default_word=r.word, default_level=r.level)
+        if card:
+            # Enforce level based on the level column of qa_records.jsonl
+            if getattr(r, "level", None) and str(r.level).strip():
+                card["level"] = str(r.level).strip().upper()
+            cards.append(card)
 
-    return {"level": level_filter, "words": cards}
+    return {"level": req_level, "words": cards, "total_available": len(matched)}
 
 
 # ---------------------------------------------------------

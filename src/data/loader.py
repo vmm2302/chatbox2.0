@@ -308,7 +308,7 @@ class QALoader:
                 custom_id = row[col_map["record_id"]].strip()
 
             from src.data.loaders.base import clean_source_name, generate_stable_record_id
-            rec_id = generate_stable_record_id(clean_source_name(source_default), question, custom_id=custom_id or None)
+            rec_id = generate_stable_record_id(clean_source_name(source_default), question, custom_id=custom_id or None, level=level)
             records.append(QARecord(
                 record_id=rec_id,
                 word=word,

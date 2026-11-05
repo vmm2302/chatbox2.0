@@ -1,15 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, Volume2, ArrowRight } from 'lucide-react';
-import { getDiscoveryWords } from '../services/api';
+import { getDiscoveryWords, getAvailableLevels } from '../services/api';
 import { tts } from '../services/tts';
 import { getLevelConfig } from '../utils/cefr';
 
 export default function DiscoveryView({ onSelectWord }) {
   const [level, setLevel] = useState('A1');
+  const [availableLevels, setAvailableLevels] = useState(['A1', 'A2']);
+  const [levelCounts, setLevelCounts] = useState({});
   const [words, setWords] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [playingWord, setPlayingWord] = useState(null);
   const [ttsError, setTtsError] = useState(null);
+
+  // Fetch dynamic levels discovered in qa_records.jsonl on mount
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLevels = async () => {
+      try {
+        const data = await getAvailableLevels();
+        if (isMounted && data && Array.isArray(data.levels) && data.levels.length > 0) {
+          setAvailableLevels(data.levels);
+          setLevelCounts(data.counts || {});
+          if (!data.levels.includes(level)) {
+            setLevel(data.levels[0]);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load available levels:', err);
+      }
+    };
+    fetchLevels();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const fetchDiscovery = async (lvl) => {
     setIsLoading(true);
@@ -24,7 +49,9 @@ export default function DiscoveryView({ onSelectWord }) {
   };
 
   useEffect(() => {
-    fetchDiscovery(level);
+    if (level) {
+      fetchDiscovery(level);
+    }
   }, [level]);
 
   const handlePlayAudio = (e, word) => {
@@ -55,10 +82,12 @@ export default function DiscoveryView({ onSelectWord }) {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
-              <span>🌟 Khám Phá Từ Vựng Chuẩn CEFR A1 - A2</span>
+              <span>🌟 Khám Phá Từ Vựng Theo Trình Độ CEFR</span>
             </h1>
             <p className="text-sm text-slate-500 dark:text-zinc-400 font-medium mt-1">
-              Khám phá vốn từ vựng chuẩn CEFR A1 và A2 kèm ngữ cảnh thực tế
+              {availableLevels.length > 0
+                ? `Khám phá các bộ từ vựng theo từng cấp độ (${availableLevels.join(', ')}) kèm ngữ cảnh thực tế`
+                : 'Khám phá vốn từ vựng chuẩn CEFR kèm ngữ cảnh thực tế'}
             </p>
           </div>
 
@@ -72,25 +101,31 @@ export default function DiscoveryView({ onSelectWord }) {
           </button>
         </div>
 
-        {/* Level Selector */}
-        <div className="grid grid-cols-2 gap-2 mt-5">
-          {['A1', 'A2'].map((lvl) => {
+        {/* Dynamic Level Selector: centered, flexible spacing as buttons increase */}
+        <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 mt-6">
+          {availableLevels.map((lvl) => {
             const conf = getLevelConfig(lvl);
             const isSelected = level === lvl;
+            const count = levelCounts[lvl];
             return (
               <button
                 key={lvl}
                 onClick={() => setLevel(lvl)}
-                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                className={`flex-1 min-w-[130px] sm:min-w-[150px] max-w-[200px] p-3.5 rounded-2xl border text-center transition-all duration-200 cursor-pointer flex flex-col items-center justify-center ${
                   isSelected
-                    ? `bg-gradient-to-r ${conf.gradient} text-white shadow-md border-transparent`
-                    : 'bg-white dark:bg-[#262626] hover:bg-slate-50 dark:hover:bg-white/10 text-slate-800 dark:text-zinc-100 border-slate-200 dark:border-white/10'
+                    ? `bg-gradient-to-r ${conf.gradient} text-white shadow-lg border-transparent scale-[1.03] ring-2 ring-white/20`
+                    : 'bg-white dark:bg-[#262626] hover:bg-slate-50 dark:hover:bg-white/10 text-slate-800 dark:text-zinc-100 border-slate-200 dark:border-white/10 hover:border-slate-300 shadow-xs'
                 }`}
               >
-                <div className="font-extrabold text-sm">{conf.badge}</div>
-                <div className={`text-[11px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-slate-400 dark:text-zinc-500'}`}>
+                <div className="font-extrabold text-sm tracking-wide">{conf.badge}</div>
+                <div className={`text-[11px] font-medium mt-1 truncate max-w-full ${isSelected ? 'text-white/85' : 'text-slate-400 dark:text-zinc-500'}`}>
                   {conf.label}
                 </div>
+                {count !== undefined && (
+                  <div className={`text-[11px] font-bold mt-1.5 px-2.5 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'}`}>
+                    {count.toLocaleString()} từ
+                  </div>
+                )}
               </button>
             );
           })}
@@ -114,12 +149,21 @@ export default function DiscoveryView({ onSelectWord }) {
         <div className="text-center py-16 text-slate-400 font-medium">
           Đang tải từ vựng mới...
         </div>
+      ) : words.length === 0 ? (
+        <div className="text-center py-16 text-slate-400 font-medium bg-white dark:bg-[#1c1c1c] rounded-3xl border border-slate-200 dark:border-white/10 p-8">
+          <p className="text-base font-bold text-slate-700 dark:text-zinc-200">
+            Chưa có từ vựng nào thuộc cấp độ {level} trong kho tri thức.
+          </p>
+          <p className="text-xs text-slate-400 dark:text-zinc-500 mt-2">
+            Bạn có thể nạp thêm tài liệu cấp độ {level} từ trang Quản trị để bổ sung dữ liệu tra cứu.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {words.map((card) => {
             return (
               <div
-                key={card.word}
+                key={`${card.word}-${card.level || level}`}
                 onClick={() => onSelectWord(card.word)}
                 className="bg-white dark:bg-[#212121] hover:bg-emerald-50/30 dark:hover:bg-[#262626] rounded-3xl p-5 border border-slate-200 dark:border-white/10 hover:border-emerald-300 dark:hover:border-white/20 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between group"
               >
@@ -133,6 +177,11 @@ export default function DiscoveryView({ onSelectWord }) {
                         {card.ipa && (
                           <span className="text-xs font-mono text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded-md border border-transparent dark:border-white/10">
                             {card.ipa}
+                          </span>
+                        )}
+                        {card.level && (
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
+                            {card.level}
                           </span>
                         )}
                       </div>

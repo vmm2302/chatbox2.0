@@ -31,6 +31,7 @@ import {
   getAdminSources,
   uploadAdminFiles,
   clearAdminKnowledgeBase,
+  deleteAdminSource,
   getAdminTelemetry,
   getAdminOllama,
   getAdminAuditLogs,
@@ -333,6 +334,40 @@ export default function AdminPanel({ currentUser }) {
     } finally {
       setIsUploading(false);
     }
+  };
+
+  
+  // Handle Delete Single Source
+  const handleDeleteSource = (source) => {
+    const srcIdentifier = source.source_id || source.filename || source.name;
+    const displayName = source.filename || source.name;
+    setConfirmModal({
+      isOpen: true,
+      title: `Xóa Nguồn Tài Liệu '${displayName}'?`,
+      message: `Hành động này sẽ xóa các bản ghi thuộc nguồn tài liệu này khỏi cơ sở tri thức (JSONL, ChromaDB, BM25). Bạn có chắc chắn muốn xóa không?`,
+      confirmText: 'Xác nhận xóa',
+      showCancel: true,
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        setLoading(true);
+        try {
+          await deleteAdminSource(adminUserId, srcIdentifier);
+          setMessage({
+            type: 'success',
+            text: `Đã xóa nguồn tài liệu '${displayName}' thành công!`,
+          });
+          await loadData();
+        } catch (err) {
+          setMessage({
+            type: 'error',
+            text: `Lỗi xóa nguồn tài liệu: ${err.message}`,
+          });
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
   };
 
   // Handle Clear KB
@@ -997,6 +1032,7 @@ export default function AdminPanel({ currentUser }) {
                       <th className="py-3 px-4">Định Dạng</th>
                       <th className="py-3 px-4">Số Bản Ghi</th>
                       <th className="py-3 px-4">Thời Gian Nạp</th>
+                      <th className="py-3 px-4 text-right">Thao Tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
@@ -1010,6 +1046,18 @@ export default function AdminPanel({ currentUser }) {
                         </td>
                         <td className="py-3 px-4 font-semibold text-emerald-700 dark:text-emerald-400">{src.record_count || src.count || 0}</td>
                         <td className="py-3 px-4 text-slate-500 dark:text-zinc-400">{src.ingested_at || 'Mặc định'}</td>
+                        <td className="py-3 px-4 text-right">
+                          {src.format !== 'CORPUS' && src.format !== 'JSONL' && (
+                            <button
+                              onClick={() => handleDeleteSource(src)}
+                              className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 transition-colors cursor-pointer inline-flex items-center space-x-1"
+                              title="Xóa nguồn tài liệu này"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span className="text-[11px] font-bold">Xóa</span>
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
