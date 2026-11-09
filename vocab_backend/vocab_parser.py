@@ -278,17 +278,28 @@ def parse_vocabulary_text(text: str, default_word: str = "", default_level: str 
 
     blocks = valid_blocks
 
-    # CEFR Level visual attributes
+    # CEFR Level visual attributes (dynamically generated for any level discovered in data)
     level_normalized = (level or "A1").upper().strip()
-    if level_normalized not in {"A1", "A2", "B1", "B2"}:
-        level_normalized = "A1"
-
-    level_meta = {
+    KNOWN_METAS = {
         "A1": {"name": "Beginner", "vn": "Khởi đầu", "color": "emerald", "badge": "🌱 A1"},
         "A2": {"name": "Elementary", "vn": "Nền tảng", "color": "sky", "badge": "🌿 A2"},
         "B1": {"name": "Intermediate", "vn": "Trung cấp", "color": "amber", "badge": "🚀 B1"},
         "B2": {"name": "Upper-Intermediate", "vn": "Nâng cao", "color": "purple", "badge": "🌟 B2"},
-    }.get(level_normalized, {"name": "Beginner", "vn": "Khởi đầu", "color": "emerald", "badge": "🌱 A1"})
+        "C1": {"name": "Advanced", "vn": "Cao cấp", "color": "rose", "badge": "🔥 C1"},
+        "C2": {"name": "Proficiency", "vn": "Thành thạo", "color": "indigo", "badge": "👑 C2"},
+    }
+    if level_normalized in KNOWN_METAS:
+        level_meta = KNOWN_METAS[level_normalized]
+    else:
+        # Dynamically generate styling for any newly discovered level from data
+        PALETTES = ["teal", "cyan", "blue", "violet", "fuchsia", "pink", "orange"]
+        palette = PALETTES[sum(ord(c) for c in level_normalized) % len(PALETTES)]
+        level_meta = {
+            "name": level_normalized,
+            "vn": f"Cấp độ {level_normalized}",
+            "color": palette,
+            "badge": f"🏷️ {level_normalized}",
+        }
 
     # Extract primary definition & example for quick flashcard / bookmark
     primary_pos = blocks[0]["pos"] if blocks else ""

@@ -105,7 +105,7 @@ class BatchIngestionReport:
         """Định dạng báo cáo dạng văn bản chuẩn theo yêu cầu dự án."""
         lines = [
             "================================",
-            "BATCH INGESTION REPORT (A1–A2)",
+            "BATCH INGESTION REPORT",
             "================================",
             f"Total Files: {self.total_files}",
             "",
@@ -116,7 +116,7 @@ class BatchIngestionReport:
             f"Records Extracted: {self.total_records_extracted:,}",
             f"Records Added:     {self.total_records_added:,}",
             f"Duplicates:        {self.total_duplicates_skipped:,}",
-            f"Out of Scope (Non A1-A2): {self.total_out_of_scope_skipped:,}",
+            f"Out of Scope / Skipped: {self.total_out_of_scope_skipped:,}",
             "",
             f"ChromaDB: {self.chromadb_status}",
             f"BM25:     {self.bm25_status}",
@@ -395,6 +395,10 @@ class BatchIngestionManager:
             (r.question.strip().lower(), r.answer.strip().lower()): r.record_id
             for r in working_records
         }
+        working_question_levels: Dict[Tuple[str, str], str] = {
+            (r.question.strip().lower(), (r.level or "").strip().upper()): r.record_id
+            for r in working_records
+        }
 
         newly_accumulated_records: List[QARecord] = []
         sources_dict = manifest.setdefault("sources", {})
@@ -450,7 +454,7 @@ class BatchIngestionManager:
                     duplicate_src_name = clean_source_name(duplicate_src.get("file_name") or duplicate_src.get("source_name") or "")
                     dup_origin = "đã nạp trước đó"
 
-            if duplicate_src_name:
+            if duplicate_src_name and dup_origin == "trong cùng đợt nạp":
                 f_res.status = FileStatus.SKIPPED
                 f_res.reason = f"Duplicate file: Trùng nội dung với tệp '{duplicate_src_name}' ({dup_origin})."
                 f_res.action = "Bỏ qua tệp để tránh nhân bản dữ liệu."
@@ -500,41 +504,47 @@ class BatchIngestionManager:
                     progress_callback(f"Không có bản ghi trong {display_file_name}", pct, f_res)
                 continue
 
-            # Bước 2.4: Giới hạn trình độ A1–A2 (Bỏ qua dòng B1 trở lên hoặc không xác định)
-            a1_a2_records: List[QARecord] = []
+            # Bước 2.4: Chuẩn hóa & Tiếp nhận tài liệu đa trình độ (A1, A2, B1, B2, C1, C2...)
+            normalized_extracted: List[QARecord] = []
             out_of_scope_skipped = 0
             for r in raw_extracted:
-                lvl = (r.level or "").strip().upper()
-                if lvl in {"A1", "A2"}:
-                    a1_a2_records.append(r)
-                else:
+                if not r.question or not r.answer:
                     out_of_scope_skipped += 1
+                    continue
+                lvl = (r.level or "").strip().upper()
+                if not lvl:
+                    _, ext_lvl = self.loader._extract_word_and_level_fallback(r.question, r.answer)
+                    lvl = ext_lvl.strip().upper() if ext_lvl else ""
+                r.level = lvl
+                normalized_extracted.append(r)
 
             f_res.out_of_scope_skipped = out_of_scope_skipped
 
-            if not a1_a2_records:
+            if not normalized_extracted:
                 f_res.status = FileStatus.SKIPPED
-                f_res.reason = (
-                    f"Tất cả {f_res.records_extracted} bản ghi đều ngoài phạm vi A1–A2 "
-                    f"({out_of_scope_skipped} dòng B1+ hoặc không xác định cấp độ)."
-                )
-                f_res.action = "Bỏ qua tệp do không chứa từ vựng cấp độ A1–A2."
+                f_res.reason = f"Không có bản ghi hợp lệ nào trong {display_file_name}."
+                f_res.action = "Bỏ qua tệp do không có dữ liệu tra cứu."
                 f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
                 file_results.append(f_res)
                 if progress_callback:
-                    progress_callback(f"Bỏ qua {display_file_name} (không có từ vựng A1–A2)", pct, f_res)
+                    progress_callback(f"Bỏ qua {display_file_name} (không có bản ghi hợp lệ)", pct, f_res)
                 continue
 
-            # Bước 2.5: Phân loại theo Stable ID (ADD / UPDATE / DUPLICATE)
+            # Bước 2.5: Phân loại theo Stable ID & Khử trùng lặp (1 từ có thể có nhiều câu hỏi 2 chiều và nhiều level, chỉ xóa khi trùng câu hỏi + level)
             file_valid_records: List[QARecord] = []
             file_seen_ids: Set[str] = set()
-            for r in a1_a2_records:
+            for r in normalized_extracted:
                 if not r.record_id:
                     continue
 
                 # Chuẩn hóa metadata nguồn về display_file_name
                 if not r.source or r.source == file_path.name:
                     r.source = display_file_name
+
+                q_clean = r.question.strip().lower()
+                lvl = (r.level or "").strip().upper()
+                sig = (q_clean, r.answer.strip().lower())
+                q_lvl_key = (q_clean, lvl)
 
                 # 1. Nếu trong cùng tệp đã xuất hiện ID này rồi:
                 # Cập nhật đè lên bản ghi trước trong file_valid_records và working_records thay vì append duplicate
@@ -546,6 +556,7 @@ class BatchIngestionManager:
                     if r.record_id in working_by_id:
                         old_idx, _ = working_by_id[r.record_id]
                         working_records[old_idx] = r
+                    f_res.duplicates_skipped += 1
                     continue
 
                 file_seen_ids.add(r.record_id)
@@ -555,30 +566,39 @@ class BatchIngestionManager:
                     old_idx, old_r = working_by_id[r.record_id]
                     old_sig = (old_r.question.strip().lower(), old_r.answer.strip().lower())
                     working_signatures.pop(old_sig, None)
+                    old_q = old_r.question.strip().lower()
+                    old_lvl = (old_r.level or "").strip().upper()
+                    working_question_levels.pop((old_q, old_lvl), None)
 
                     working_records[old_idx] = r
-                    new_sig = (r.question.strip().lower(), r.answer.strip().lower())
+                    new_sig = (q_clean, r.answer.strip().lower())
                     working_signatures[new_sig] = r.record_id
+                    working_question_levels[q_lvl_key] = r.record_id
                     working_by_id[r.record_id] = (old_idx, r)
                     file_valid_records.append(r)
                     continue
 
-                # 3. Nếu trùng hoàn toàn nội dung mà không có ID mới -> Bỏ qua duplicate
-                sig = (r.question.strip().lower(), r.answer.strip().lower())
+                # 3. Trùng câu hỏi ở cùng cấp độ: Nếu câu hỏi giống nhau ở cùng level -> Bỏ qua duplicate
+                if q_lvl_key in working_question_levels:
+                    f_res.duplicates_skipped += 1
+                    continue
+
+                # 4. Nếu trùng hoàn toàn nội dung (câu hỏi + câu trả lời) -> Bỏ qua duplicate
                 if sig in working_signatures:
                     f_res.duplicates_skipped += 1
                     continue
 
-                # 4. ID mới và nội dung mới -> ADD
+                # 5. ID mới và nội dung mới -> ADD
                 new_idx = len(working_records)
                 working_signatures[sig] = r.record_id
+                working_question_levels[q_lvl_key] = r.record_id
                 working_by_id[r.record_id] = (new_idx, r)
                 working_records.append(r)
                 file_valid_records.append(r)
 
             if not file_valid_records:
                 f_res.status = FileStatus.SKIPPED
-                f_res.reason = f"Toàn bộ {f_res.records_extracted} bản ghi đã có sẵn trong kho tri thức."
+                f_res.reason = f"Toàn bộ {f_res.records_extracted} bản ghi đều đã có sẵn trong kho tri thức."
                 f_res.action = "Không cần thêm bản ghi mới."
                 f_res.elapsed_seconds = round(time.perf_counter() - file_start, 2)
                 file_results.append(f_res)
@@ -751,15 +771,18 @@ class BatchIngestionManager:
                             res.status = FileStatus.SUCCESS
                             if getattr(res, "out_of_scope_skipped", 0) > 0:
                                 res.reason = (
-                                    f"Đã nạp thành công {res.records_added} bản ghi A1–A2 "
-                                    f"(bỏ qua {res.out_of_scope_skipped} dòng B1+ hoặc không xác định)."
+                                    f"Đã nạp thành công {res.records_added} bản ghi "
+                                    f"(bỏ qua {res.out_of_scope_skipped} dòng không hợp lệ)."
                                 )
-                                res.action = f"Nạp {res.records_added} từ A1–A2, bỏ qua {res.out_of_scope_skipped} dòng ngoài cấp độ."
+                                res.action = f"Nạp {res.records_added} từ, bỏ qua {res.out_of_scope_skipped} dòng không hợp lệ."
                             else:
-                                res.reason = f"Đã nạp thành công {res.records_added} bản ghi A1–A2 vào kho tri thức."
+                                res.reason = f"Đã nạp thành công {res.records_added} bản ghi vào kho tri thức."
                                 res.action = "Sẵn sàng tra cứu."
 
                             source_id = f"SRC_{res.file_hash[:12]}"
+                            existing_source = sources_dict.get(source_id, {})
+                            existing_ids = list(existing_source.get("record_ids", []))
+                            combined_ids = list(dict.fromkeys(existing_ids + res.record_ids))
                             sources_dict[source_id] = {
                                 "source_id": source_id,
                                 "file_name": res.file_name,
@@ -768,8 +791,8 @@ class BatchIngestionManager:
                                 "file_hash": res.file_hash,
                                 "file_type": res.file_type,
                                 "file_size_bytes": res.file_size_bytes,
-                                "record_count": res.records_added,
-                                "record_ids": res.record_ids,
+                                "record_count": len(combined_ids),
+                                "record_ids": combined_ids,
                                 "ingested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                                 "status": "ACTIVE",
                             }

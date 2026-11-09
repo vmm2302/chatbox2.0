@@ -349,7 +349,7 @@ class TestBatchMultiFileIngestion(unittest.TestCase):
         self.assertFalse(any(r.word == del_word for r in records_after))
 
     def test_case_9_scope_filter_skips_b1_plus(self):
-        """Case 9: Mixed level file skips B1+ records and tracks out_of_scope_skipped."""
+        """Case 9: Mixed level file accepts higher CEFR levels (B1, B2, C1) and dedups by (word, level)."""
         uid = uuid.uuid4().hex[:6]
         f_mixed = self.test_dir / f"c9_{uid}_mixed.xlsx"
         create_test_xlsx(f_mixed, [
@@ -363,12 +363,23 @@ class TestBatchMultiFileIngestion(unittest.TestCase):
         report = self.manager.ingest_batch([f_mixed])
         self.assertEqual(report.total_files, 1)
         self.assertEqual(report.success_count, 1)
-        self.assertEqual(report.total_records_added, 2)  # Only A1 & A2
-        self.assertEqual(report.total_out_of_scope_skipped, 3)  # B2, C1, unknown
+        self.assertEqual(report.total_records_added, 5)  # All levels A1, A2, B2, C1, unknown accepted
+        self.assertEqual(report.total_duplicates_skipped, 0)
 
         res = report.file_results[0]
-        self.assertEqual(res.records_added, 2)
-        self.assertEqual(res.out_of_scope_skipped, 3)
+        self.assertEqual(res.records_added, 5)
+
+        # Test duplicate behavior: same word in different level is allowed; same word in same level is skipped
+        f_dup_test = self.test_dir / f"c9_{uid}_dup_test.csv"
+        create_test_csv(f_dup_test, [
+            (f"happy_{uid}", "Hạnh phúc khác ở trình độ B1.", "B1"),  # Different level: MUST BE ADDED
+            (f"happy_{uid}", "Hạnh phúc trùng lặp ở trình độ A1.", "A1"),  # Same level: MUST BE SKIPPED
+        ])
+        report_dup = self.manager.ingest_batch([f_dup_test])
+        self.assertEqual(report_dup.success_count, 1)
+        res_dup = report_dup.file_results[0]
+        self.assertEqual(res_dup.records_added, 1)
+        self.assertEqual(res_dup.duplicates_skipped, 1)
 
     def test_case_10_source_trace(self):
         """Case 10: Source trace (Câu trả lời phải truy ngược được về đúng file nguồn)."""

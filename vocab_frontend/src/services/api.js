@@ -219,8 +219,14 @@ export async function searchWords(q, level = null, limit = 10) {
   return res.json();
 }
 
+export async function getAvailableLevels() {
+  const res = await fetch(`${API_BASE}/words/levels`);
+  if (!res.ok) return { levels: ['A1', 'A2'], counts: {} };
+  return res.json();
+}
+
 export async function getDiscoveryWords(level = 'A1', count = 8) {
-  const res = await fetch(`${API_BASE}/words/discover?level=${level}&count=${count}`);
+  const res = await fetch(`${API_BASE}/words/discover?level=${encodeURIComponent(level)}&count=${count}`);
   if (!res.ok) return { words: [] };
   return res.json();
 }
@@ -264,6 +270,17 @@ export async function clearAdminKnowledgeBase(userId) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || 'Clear KB failed');
+  return data;
+}
+
+
+
+export async function deleteAdminSource(userId, sourceId) {
+  const res = await fetch(`${API_BASE}/admin/sources/${sourceId}?user_id=${userId}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || 'Delete source failed');
   return data;
 }
 

@@ -175,42 +175,44 @@ export default function App() {
       <div className="h-screen max-h-screen overflow-hidden bg-gradient-to-b from-slate-50 via-slate-100/50 to-slate-200/40 dark:from-[#171717] dark:via-[#171717] dark:to-[#171717] text-slate-900 dark:text-[#ececec] flex flex-col font-sans">
         {/* Dedicated Admin Header */}
         <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#171717]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-white/10 shadow-xs shrink-0">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-16 sm:h-20">
+          <div className="w-full px-3 sm:px-6">
+            <div className="flex items-center justify-between gap-2 sm:gap-3 h-14 sm:h-16">
               {/* Admin Brand */}
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-indigo-700 flex items-center justify-center shadow-md shadow-indigo-500/20 text-white font-black text-xl">
+              <div className="flex items-center space-x-2.5 sm:space-x-3 shrink-0">
+                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-indigo-700 flex items-center justify-center shadow-md shadow-indigo-500/20 text-white font-black text-lg sm:text-xl shrink-0">
                   🛡️
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+                    <span className="text-lg sm:text-xl font-black tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
                       Vocab<span className="text-indigo-600 dark:text-indigo-400">Admin</span>
                     </span>
-                    <span className="px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider rounded-full bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
+                    <span className="hidden sm:inline-flex px-2 py-0.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider rounded-full bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 whitespace-nowrap">
                       Portal Quản Trị
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium hidden sm:block">
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium hidden xl:block">
                     Hệ thống quản trị tài khoản, cơ sở tri thức & giám sát AI trung tâm
                   </p>
                 </div>
               </div>
 
               {/* Admin Actions */}
-              <div className="flex items-center space-x-2 sm:space-x-3">
+              <div className="flex items-center space-x-1.5 sm:space-x-2.5 shrink-0">
                 <button
                   onClick={handleNavigateToHome}
-                  className="flex items-center space-x-2 px-3.5 sm:px-4 py-2 rounded-xl bg-slate-100 dark:bg-[#262626] hover:bg-slate-200 dark:hover:bg-[#2f2f2f] text-slate-700 dark:text-[#ececec] text-xs sm:text-sm font-bold transition-all cursor-pointer border border-slate-200 dark:border-white/10"
+                  className="flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-[#262626] hover:bg-slate-200 dark:hover:bg-[#2f2f2f] text-slate-700 dark:text-[#ececec] text-xs sm:text-sm font-bold transition-all cursor-pointer border border-slate-200 dark:border-white/10 shrink-0 whitespace-nowrap"
                   title="Quay lại ứng dụng tra cứu từ vựng"
                 >
-                  <span>← Quay lại ứng dụng chính</span>
+                  <span>←</span>
+                  <span className="hidden sm:inline">Quay lại</span>
+                  <span className="hidden md:inline">ứng dụng chính</span>
                 </button>
 
                 {/* Theme Toggle in Admin Portal */}
                 <ThemeToggle themeMode={themeMode} onThemeChange={handleThemeChange} />
 
-                <div className="hidden sm:flex items-center space-x-2 bg-slate-50 dark:bg-[#212121] px-3 py-1.5 rounded-2xl border border-slate-200 dark:border-white/10">
+                <div className="hidden lg:flex items-center space-x-2 bg-slate-50 dark:bg-[#212121] px-2.5 py-1 rounded-2xl border border-slate-200 dark:border-white/10 shrink-0">
                   <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white text-xs font-black flex items-center justify-center">
                     {currentUser?.username?.slice(0, 1)?.toUpperCase() || 'A'}
                   </div>
@@ -226,7 +228,7 @@ export default function App() {
 
                 <button
                   onClick={handleLogout}
-                  className="p-2 sm:px-3 sm:py-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-900/40 text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5"
+                  className="p-1.5 sm:px-3 sm:py-1.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-900/40 text-xs font-bold transition-all cursor-pointer flex items-center space-x-1 shrink-0 whitespace-nowrap"
                   title="Đăng xuất khỏi hệ thống"
                 >
                   <span>Đăng xuất</span>
