@@ -10,16 +10,50 @@ import { verifySession } from './services/api';
 import { getInitialTheme, applyTheme, subscribeSystemTheme, THEME_STORAGE_KEY } from './utils/theme';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vocab_chat_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      return null;
-    }
-  });
-
+  // Luôn bắt đầu ở trạng thái đăng xuất khi khởi chạy giao diện
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAdminPage, setIsAdminPage] = useState(false);
+  const [activeTab, setActiveTab] = useState('chat');
+  const [selectedLevel, setSelectedLevel] = useState('Tất cả');
+  const [searchTriggerWord, setSearchTriggerWord] = useState('');
   const [themeMode, setThemeMode] = useState(getInitialTheme);
+
+  const clearAdminQueryParam = () => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('page')) {
+        url.searchParams.delete('page');
+        window.history.replaceState({ page: 'chat' }, '', url.pathname + (url.search ? url.search : ''));
+      }
+    } catch (e) {
+      try {
+        window.history.replaceState({ page: 'chat' }, '', window.location.pathname);
+      } catch (err) {}
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setIsAdminPage(false);
+    try {
+      localStorage.removeItem('vocab_chat_user');
+      sessionStorage.removeItem('vocab_chat_user');
+    } catch (e) {
+      console.error('Failed to clear storage:', e);
+    }
+    setActiveTab('chat');
+    // Clear URL query parameters so the address bar cleanly returns to /
+    clearAdminQueryParam();
+  };
+
+  // Khi giao diện được khởi chạy hoặc tải lại: xóa sạch phiên lưu cũ để luôn luôn đăng xuất
+  useEffect(() => {
+    try {
+      localStorage.removeItem('vocab_chat_user');
+      sessionStorage.removeItem('vocab_chat_user');
+    } catch (e) {}
+    clearAdminQueryParam();
+  }, []);
 
   // Auto-apply theme and listen to OS system changes (prefers-color-scheme)
   useEffect(() => {
@@ -42,15 +76,6 @@ export default function App() {
     applyTheme(newMode);
   };
 
-  const [isAdminPage, setIsAdminPage] = useState(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      return params.get('page') === 'admin';
-    } catch (e) {
-      return false;
-    }
-  });
-
   // Listen to popstate (browser back / forward buttons)
   useEffect(() => {
     const handlePopState = () => {
@@ -62,20 +87,6 @@ export default function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-
-  const clearAdminQueryParam = () => {
-    try {
-      const url = new URL(window.location.href);
-      if (url.searchParams.has('page')) {
-        url.searchParams.delete('page');
-        window.history.replaceState({ page: 'chat' }, '', url.pathname + (url.search ? url.search : ''));
-      }
-    } catch (e) {
-      try {
-        window.history.replaceState({ page: 'chat' }, '', window.location.pathname);
-      } catch (err) {}
-    }
-  };
 
   const handleNavigateToAdmin = () => {
     setIsAdminPage(true);
@@ -89,10 +100,6 @@ export default function App() {
     clearAdminQueryParam();
   };
 
-  const [activeTab, setActiveTab] = useState('chat');
-  const [selectedLevel, setSelectedLevel] = useState('Tất cả');
-  const [searchTriggerWord, setSearchTriggerWord] = useState('');
-
   useEffect(() => {
     if (currentUser?.id) {
       verifySession(currentUser.id).then((res) => {
@@ -105,29 +112,16 @@ export default function App() {
 
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
+    // Không lưu vĩnh viễn vào localStorage để khi chạy lại giao diện luôn luôn bắt đầu ở trang đăng nhập
     try {
-      localStorage.setItem('vocab_chat_user', JSON.stringify(user));
-    } catch (e) {
-      console.error('Failed to persist user in storage:', e);
-    }
+      localStorage.removeItem('vocab_chat_user');
+      sessionStorage.removeItem('vocab_chat_user');
+    } catch (e) {}
     // If the logged-in user is not an admin, ensure they never land on ?page=admin
     if (user?.role !== 'admin') {
       setIsAdminPage(false);
       clearAdminQueryParam();
     }
-  };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setIsAdminPage(false);
-    try {
-      localStorage.removeItem('vocab_chat_user');
-    } catch (e) {
-      console.error('Failed to clear storage:', e);
-    }
-    setActiveTab('chat');
-    // Clear URL query parameters so the address bar cleanly returns to /
-    clearAdminQueryParam();
   };
 
   const handleSelectWordFromDiscovery = (word) => {
