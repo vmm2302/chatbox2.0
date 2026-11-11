@@ -6,6 +6,10 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Loader2,
+  Sparkles,
+  MessageSquare,
+  Plus,
+  ArrowRight,
 } from 'lucide-react';
 import VocabCard from './VocabCard';
 import SidebarHistory from './SidebarHistory';
@@ -17,11 +21,9 @@ import {
 
 export default function ChatView({
   selectedLevel,
-  onSelectLevel,
   initialQuery = '',
   currentUser,
   onLogout,
-  setActiveTab,
   onNavigateToAdmin,
 }) {
   const [messages, setMessages] = useState([
@@ -47,7 +49,7 @@ export default function ChatView({
         return saved === 'true';
       }
       return typeof window !== 'undefined' ? window.innerWidth >= 768 : true;
-    } catch (e) {
+    } catch {
       return true;
     }
   });
@@ -73,7 +75,7 @@ export default function ChatView({
       if (saved !== null) {
         setSidebarOpen(saved === 'true');
       }
-    } catch (e) {}
+    } catch {}
   }, [currentUser?.id]);
 
   const messagesEndRef = useRef(null);
@@ -92,6 +94,7 @@ export default function ChatView({
     if (initialQuery && initialQuery.trim()) {
       handleSend(initialQuery.trim());
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery]);
 
   // Load past conversation messages when switching conversations
@@ -113,7 +116,7 @@ export default function ChatView({
           } else if (m.meta_json) {
             try {
               meta = typeof m.meta_json === 'string' ? JSON.parse(m.meta_json) : m.meta_json;
-            } catch (e) {
+            } catch {
               meta = {};
             }
           }
@@ -278,7 +281,7 @@ export default function ChatView({
   return (
     <div className="flex h-full w-full overflow-hidden">
       
-      {/* ChatGPT-style Sidebar for Conversation History & User Account */}
+      {/* Modern Sidebar for Conversation History & User Account */}
       <SidebarHistory
         currentUser={currentUser}
         currentConvId={currentConvId}
@@ -287,31 +290,50 @@ export default function ChatView({
         isOpen={sidebarOpen}
         onClose={() => toggleSidebar(false)}
         onLogout={onLogout}
-        setActiveTab={setActiveTab}
         onNavigateToAdmin={onNavigateToAdmin}
       />
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden px-3 sm:px-6 py-3 sm:py-4">
+      <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden px-3 sm:px-6 py-2.5 sm:py-3.5">
         
-        {/* Top Minimal Bar: Sidebar Toggle */}
-        <div className="shrink-0 flex items-center justify-between pb-2 mb-1">
+        {/* Top Minimal Bar: Sidebar Toggle, Current Session Title & Quick New Chat */}
+        <div className="shrink-0 flex items-center justify-between gap-2 pb-2 mb-1">
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => toggleSidebar()}
+              className="px-3 py-1.5 rounded-xl text-slate-700 dark:text-zinc-200 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#262626] bg-white/90 dark:bg-[#1a1a1a] border border-slate-200/90 dark:border-white/10 shadow-2xs transition-all cursor-pointer flex items-center space-x-2 text-xs font-bold active:scale-[0.98]"
+              title={sidebarOpen ? 'Đóng lịch sử cuộc trò chuyện' : 'Mở lịch sử cuộc trò chuyện'}
+            >
+              {sidebarOpen ? (
+                <>
+                  <PanelLeftClose className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <span>Đóng lịch sử</span>
+                </>
+              ) : (
+                <>
+                  <PanelLeftOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <span>Lịch sử chat</span>
+                </>
+              )}
+            </button>
+
+            {/* Current Session Title Badge with Outer Border */}
+            <div className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-[#1f1f1f] border border-slate-200/80 dark:border-white/10 text-xs font-bold text-slate-600 dark:text-zinc-300 shadow-2xs">
+              <MessageSquare className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              <span className="truncate max-w-[200px] lg:max-w-[320px]">
+                {currentConvId ? 'Cuộc trò chuyện đang chọn' : 'Đoạn chat mới'}
+              </span>
+            </div>
+          </div>
+
+          {/* Quick New Chat Button */}
           <button
-            onClick={() => toggleSidebar()}
-            className="px-3 py-1.5 rounded-xl text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#262626] bg-white/80 dark:bg-[#171717] border border-slate-200/80 dark:border-white/10 shadow-xs transition-all cursor-pointer flex items-center space-x-2 text-xs font-bold active:scale-98"
-            title={sidebarOpen ? 'Đóng lịch sử cuộc trò chuyện' : 'Mở lịch sử cuộc trò chuyện'}
+            onClick={handleNewChat}
+            className="px-3 py-1.5 rounded-xl text-slate-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 bg-white/90 dark:bg-[#1a1a1a] border border-slate-200/80 dark:border-white/10 shadow-2xs transition-all cursor-pointer flex items-center space-x-1.5 text-xs font-bold active:scale-[0.98]"
+            title="Tạo đoạn chat mới"
           >
-            {sidebarOpen ? (
-              <>
-                <PanelLeftClose className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Đóng lịch sử</span>
-              </>
-            ) : (
-              <>
-                <PanelLeftOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Lịch sử chat</span>
-              </>
-            )}
+            <Plus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">Tạo mới</span>
           </button>
         </div>
 
@@ -320,22 +342,87 @@ export default function ChatView({
           <div className="max-w-4xl mx-auto w-full space-y-4 pb-2">
             {messages.map((msg) => (
               <div key={msg.id} className="animate-in fade-in duration-150">
-                {msg.role === 'user' ? (
-                  /* User Bubble (ChatGPT Minimalist Style) */
+                {msg.isWelcome ? (
+                  /* Welcome Hero Card with Outer Border & Quick Suggestion Chips */
+                  <div className="rounded-3xl border-2 border-emerald-500/30 dark:border-white/10 p-5 sm:p-7 bg-gradient-to-br from-white via-emerald-50/20 to-teal-50/30 dark:from-[#202020] dark:via-[#1e1e1e] dark:to-[#171717] shadow-lg dark:shadow-2xl relative overflow-hidden">
+                    <div className="absolute -top-12 -right-12 w-44 h-44 bg-emerald-400/10 rounded-full blur-2xl pointer-events-none" />
+
+                    <div className="flex items-center space-x-3 mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center font-black text-2xl shadow-md shadow-emerald-500/25 border border-white/20 shrink-0">
+                        📚
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                            Trợ lý Từ Vựng Tiếng Anh
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
+                          Học từ vựng thông minh, tra cứu chuẩn xác, phát âm bản ngữ và lưu trữ lịch sử cá nhân.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 sm:p-4 rounded-2xl bg-white/80 dark:bg-[#252525] border border-slate-200/80 dark:border-white/10 shadow-2xs mb-4">
+                      <p className="text-xs sm:text-sm text-slate-700 dark:text-zinc-200 font-medium leading-relaxed">
+                        Xin chào! Hãy nhập bất kỳ từ vựng tiếng Anh hoặc tiếng Việt vào ô bên dưới để xem nghĩa, phiên âm IPA, nghe phát âm chuẩn Kokoro TTS và các câu ví dụ thực tế. Hoặc bạn có thể click ngay vào một trong các gợi ý dưới đây:
+                      </p>
+                    </div>
+
+                    {/* Quick Suggestion Chips */}
+                    <div>
+                      <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-zinc-500 mb-2.5 flex items-center space-x-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Gợi ý tra cứu nhanh</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[
+                          { word: 'amazing', meaning: 'Tuyệt vời, kinh ngạc, phi thường', icon: '🌟' },
+                          { word: 'discover', meaning: 'Khám phá ra, tìm ra, phát hiện ra', icon: '🚀' },
+                          { word: 'brilliant', meaning: 'Sáng dạ, tài giỏi, xuất sắc, rực rỡ', icon: '💡' },
+                          { word: 'future', meaning: 'Tương lai, những điều phía trước', icon: '🎯' },
+                        ].map((chip) => (
+                          <button
+                            key={chip.word}
+                            type="button"
+                            onClick={() => handleSend(chip.word)}
+                            className="flex items-center justify-between p-3 rounded-2xl border border-slate-200/90 dark:border-white/10 bg-white hover:bg-emerald-50/60 dark:bg-[#252525] dark:hover:bg-[#2d2d2d] hover:border-emerald-400 dark:hover:border-emerald-500/50 shadow-2xs transition-all cursor-pointer text-left group"
+                          >
+                            <div className="flex items-center space-x-2.5">
+                              <span className="text-base">{chip.icon}</span>
+                              <div>
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="text-xs sm:text-sm font-extrabold text-slate-800 dark:text-zinc-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                                    {chip.word}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-medium truncate max-w-[170px] sm:max-w-[200px]">
+                                  {chip.meaning}
+                                </div>
+                              </div>
+                            </div>
+                            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : msg.role === 'user' ? (
+                  /* User Bubble with Outer Border */
                   <div className="flex items-start justify-end space-x-2.5">
-                    <div className="max-w-xl bg-gradient-to-r from-emerald-600 to-teal-600 dark:from-[#2f2f2f] dark:to-[#2f2f2f] text-white dark:text-[#ececec] p-3.5 sm:p-4 rounded-3xl rounded-tr-xs shadow-md dark:shadow-none dark:border dark:border-white/10">
+                    <div className="max-w-xl bg-gradient-to-r from-emerald-600 to-teal-600 dark:from-[#2c2c2c] dark:to-[#2c2c2c] text-white dark:text-[#ececec] p-3.5 sm:p-4 rounded-3xl rounded-tr-xs shadow-md border border-emerald-500/40 dark:border-white/15">
                       <p className="text-sm sm:text-base font-semibold dark:font-normal leading-relaxed">
                         {msg.content}
                       </p>
                     </div>
-                    <div className="w-8 h-8 rounded-xl bg-slate-900 dark:bg-[#2f2f2f] dark:border dark:border-white/10 text-white dark:text-zinc-200 flex items-center justify-center font-bold text-xs shrink-0 shadow-sm">
+                    <div className="w-8 h-8 rounded-xl bg-slate-900 dark:bg-[#282828] border border-slate-700 dark:border-white/15 text-white dark:text-zinc-200 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
                       <User className="w-4 h-4" />
                     </div>
                   </div>
                 ) : (
-                  /* Bot Message or VocabCard */
+                  /* Bot Message or VocabCard with Outer Border */
                   <div className="flex items-start space-x-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center font-black text-base shrink-0 shadow-md shadow-emerald-500/20">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-600 border border-emerald-400/40 text-white flex items-center justify-center font-black text-base shrink-0 shadow-md shadow-emerald-500/20">
                       📚
                     </div>
 
@@ -347,12 +434,18 @@ export default function ChatView({
                           meta={msg.meta}
                         />
                       ) : (
-                        /* Regular text message / Streaming text */
-                        <div className={`bg-white dark:bg-[#262626] rounded-3xl p-4 sm:p-5 border shadow-xs text-slate-800 dark:text-[#ececec] leading-relaxed text-sm sm:text-base whitespace-pre-line ${
-                          msg.isError ? 'border-rose-300 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200' : 'border-slate-200 dark:border-white/10'
-                        }`}>
+                        /* Regular text message / Streaming text with Outer Border */
+                        <div
+                          className={`rounded-3xl p-4 sm:p-5 border-2 shadow-xs leading-relaxed text-sm sm:text-base whitespace-pre-line ${
+                            msg.isError
+                              ? 'border-rose-300 dark:border-rose-800 bg-rose-50/70 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200'
+                              : 'border-slate-200 dark:border-white/15 bg-white dark:bg-[#222222] text-slate-800 dark:text-[#ececec]'
+                          }`}
+                        >
                           {msg.content || (
-                            <span className="text-slate-400 dark:text-zinc-500 italic">Đang nhận dữ liệu...</span>
+                            <span className="text-slate-400 dark:text-zinc-500 italic">
+                              Đang phân tích và truy xuất từ vựng...
+                            </span>
                           )}
                           {msg.isStreaming && (
                             <span className="inline-block w-2 h-4 ml-1 bg-emerald-500 animate-pulse align-middle" />
@@ -365,9 +458,9 @@ export default function ChatView({
               </div>
             ))}
 
-            {/* Streaming Status Banner */}
+            {/* Streaming Status Banner with Outer Border */}
             {streamingStatus && (
-              <div className="flex items-center space-x-2.5 text-emerald-700 dark:text-emerald-300 bg-emerald-50/80 dark:bg-[#262626] border border-emerald-200/80 dark:border-emerald-500/30 px-4 py-2.5 rounded-2xl text-xs font-bold animate-pulse max-w-md">
+              <div className="flex items-center space-x-2.5 text-emerald-800 dark:text-emerald-300 bg-emerald-50/90 dark:bg-[#252525] border border-emerald-300/80 dark:border-emerald-500/40 px-4 py-2.5 rounded-2xl text-xs font-bold animate-pulse max-w-md shadow-xs">
                 <Loader2 className="w-4 h-4 animate-spin text-emerald-600 dark:text-emerald-400" />
                 <span>{streamingStatus}</span>
               </div>
@@ -377,27 +470,38 @@ export default function ChatView({
           </div>
         </div>
 
-        {/* Bottom Chat Input Form: Always stays at bottom without overlapping */}
+        {/* Bottom Chat Input Form: Floating Dock Style */}
         <div className="shrink-0 pt-2 sm:pt-3 max-w-4xl mx-auto w-full">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               handleSend();
             }}
-            className="relative flex items-center bg-white dark:bg-[#2f2f2f] rounded-3xl border-2 border-slate-200 dark:border-white/10 shadow-md dark:shadow-2xl dark:shadow-black/40 focus-within:border-emerald-500 dark:focus-within:border-white/30 focus-within:ring-4 focus-within:ring-emerald-500/15 transition-all p-1.5"
+            className="relative flex items-center bg-white/95 dark:bg-[#252525]/95 backdrop-blur-md rounded-3xl border-2 border-slate-200/90 dark:border-white/15 shadow-lg dark:shadow-2xl dark:shadow-black/50 focus-within:border-emerald-500 dark:focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-500/15 transition-all p-1.5"
           >
             <input
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Nhập từ vựng tiếng Anh (ví dụ: 'family', 'school', 'happy', 'hello')..."
-              className="w-full py-2.5 sm:py-3 px-3 sm:px-4 text-slate-800 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 font-medium text-sm sm:text-base focus:outline-hidden bg-transparent"
+              placeholder="Nhập từ vựng tiếng Anh hoặc tiếng Việt (ví dụ: 'family', 'diligent', 'thành công')..."
+              className="w-full py-2.5 sm:py-3 px-3.5 sm:px-4 text-slate-800 dark:text-[#ececec] placeholder-slate-400 dark:placeholder-zinc-500 font-medium text-sm sm:text-base focus:outline-hidden bg-transparent"
             />
+
+            {inputValue && (
+              <button
+                type="button"
+                onClick={() => setInputValue('')}
+                className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-zinc-700 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors mr-1 cursor-pointer text-xs"
+                title="Xóa nội dung"
+              >
+                ✕
+              </button>
+            )}
 
             <button
               type="button"
               onClick={handleNewChat}
-              title="Cuộc trò chuyện mới"
+              title="Khởi tạo cuộc trò chuyện mới"
               className="p-2 sm:p-2.5 rounded-xl text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors mr-1 cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" />
@@ -406,12 +510,20 @@ export default function ChatView({
             <button
               type="submit"
               disabled={!inputValue.trim() || isLoading}
-              className="flex items-center justify-center w-8 sm:w-9 h-8 sm:h-9 rounded-full bg-emerald-600 dark:bg-white hover:bg-emerald-700 dark:hover:bg-zinc-200 text-white dark:text-black font-black text-xs sm:text-sm shadow-md shadow-emerald-500/25 dark:shadow-none disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all cursor-pointer shrink-0"
+              className="flex items-center justify-center w-8 sm:w-9 h-8 sm:h-9 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-500/25 disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all cursor-pointer shrink-0"
               title="Gửi câu hỏi"
             >
               <Send className="w-4 h-4 ml-0.5" />
             </button>
           </form>
+
+          <div className="flex items-center justify-center space-x-3 text-[11px] text-slate-400 dark:text-zinc-500 pt-1.5 font-medium">
+            <span>Nhấn <kbd className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-white/10 text-[10px] font-mono">Enter</kbd> để tra cứu</span>
+            <span>•</span>
+            <span>Phát âm bản ngữ Kokoro TTS</span>
+            <span>•</span>
+            <span>Xử lý Cục bộ 100%</span>
+          </div>
         </div>
 
       </div>
@@ -451,7 +563,7 @@ function extractCardFromContent(content, meta) {
   // If we don't have a recognizable word, treat as normal message
   if (!word) return null;
 
-  // Extract level (only A1 or A2)
+  // Extract level
   let level = meta?.level || 'A1';
   const levelLine = lines.find((l) =>
     l.toLowerCase().includes('trình độ:') || l.toLowerCase().includes('level:')
@@ -467,7 +579,7 @@ function extractCardFromContent(content, meta) {
     l.toLowerCase().includes('phát âm:') || l.includes('/')
   );
   if (pronLine) {
-    const match = pronLine.match(/\/([^\/]+)\//);
+    const match = pronLine.match(/\/([^/]+)\//);
     if (match) ipa = `/${match[1]}/`;
   }
 
@@ -486,7 +598,7 @@ function extractCardFromContent(content, meta) {
   // Examples
   const exampleLines = lines
     .filter((l) => l.startsWith('•') || l.toLowerCase().startsWith('ví dụ:'))
-    .map((l) => l.replace(/^[•\s\-\*]+|(?:Ví dụ|Example):\s*/i, '').trim());
+    .map((l) => l.replace(/^[•\s\-*]+|(?:Ví dụ|Example):\s*/i, '').trim());
 
   return {
     word: word,

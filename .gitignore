@@ -68,3 +68,13 @@ vocab_frontend/node_modules/
 vocab_frontend/dist/
 vocab_frontend/dist-ssr/
 vocab_frontend/*.local
+
+# 10. Fine-tuning datasets, checkpoints, adapters & GGUF exports
+data/fine_tune/
+models/
+checkpoints/
+*.gguf
+adapter_model.*
+adapter_config.json
+trainer_state.json
+
