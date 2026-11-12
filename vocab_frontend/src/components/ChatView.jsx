@@ -316,25 +316,9 @@ export default function ChatView({
                 </>
               )}
             </button>
-
-            {/* Current Session Title Badge with Outer Border */}
-            <div className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-[#1f1f1f] border border-slate-200/80 dark:border-white/10 text-xs font-bold text-slate-600 dark:text-zinc-300 shadow-2xs">
-              <MessageSquare className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-              <span className="truncate max-w-[200px] lg:max-w-[320px]">
-                {currentConvId ? 'Cuộc trò chuyện đang chọn' : 'Đoạn chat mới'}
-              </span>
-            </div>
           </div>
 
-          {/* Quick New Chat Button */}
-          <button
-            onClick={handleNewChat}
-            className="px-3 py-1.5 rounded-xl text-slate-600 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 bg-white/90 dark:bg-[#1a1a1a] border border-slate-200/80 dark:border-white/10 shadow-2xs transition-all cursor-pointer flex items-center space-x-1.5 text-xs font-bold active:scale-[0.98]"
-            title="Tạo đoạn chat mới"
-          >
-            <Plus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span className="hidden sm:inline">Tạo mới</span>
-          </button>
+          
         </div>
 
         {/* Messages Feed: ONLY this container scrolls */}

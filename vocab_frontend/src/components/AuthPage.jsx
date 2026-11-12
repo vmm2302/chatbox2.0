@@ -264,7 +264,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
           <div className="pt-4 border-t border-white/20 relative z-10">
             <div className="flex items-center space-x-2 text-xs text-emerald-100/90 font-medium">
               <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
-              <span>Xử lý 100% Cục bộ — An toàn và bảo mật dữ liệu tuyệt đối</span>
+              <span>Xử lý 100% Cục bộ — An toàn và bảo mật dữ liệu</span>
             </div>
           </div>
         </div>

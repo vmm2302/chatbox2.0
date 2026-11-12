@@ -203,68 +203,9 @@ export default function VocabCard({ cardData, meta, onSelectSuggestion }) {
             ) : (
               <span className="font-medium text-slate-600 dark:text-zinc-400 truncate max-w-[200px] sm:max-w-xs">{sourceName}</span>
             )}
-            {sheetName && (
-              <span className="text-[10px] bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-zinc-300 px-1.5 py-0.5 rounded font-mono">
-                📑 {sheetName}
-              </span>
-            )}
-            {recordId && (
-              <span className="text-[10px] bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-zinc-400 px-1.5 py-0.5 rounded font-mono">
-                #{recordId}
-              </span>
-            )}
-          </div>
 
-          <button
-            type="button"
-            onClick={() => setShowInspector(!showInspector)}
-            className="inline-flex items-center space-x-1 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-white font-semibold px-2 py-1 rounded-lg hover:bg-white/80 dark:hover:bg-white/10 transition-colors cursor-pointer text-[11px]"
-          >
-            <Cpu className="w-3.5 h-3.5 text-teal-600" />
-            <span>Thông số RAG & Pipeline</span>
-            {showInspector ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
+          </div>
         </div>
-
-        {/* Technical Inspector Drawer */}
-        {showInspector && (
-          <div className="bg-slate-900/95 dark:bg-[#141414] text-slate-200 dark:text-zinc-300 rounded-2xl p-3.5 sm:p-4 text-xs font-mono border border-slate-800 dark:border-white/10 shadow-inner mt-2 space-y-2.5 animate-in fade-in duration-200">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800 dark:border-white/10">
-              <span className="font-bold text-emerald-400 flex items-center space-x-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <span>RAG Pipeline Diagnostic Inspector</span>
-              </span>
-              <span className="text-[10px] text-slate-400 dark:text-zinc-500">Chatbox Engine</span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-              <div className="bg-slate-800/80 dark:bg-white/[0.06] p-2 rounded-xl">
-                <div className="text-slate-400 dark:text-zinc-500 text-[10px] uppercase">Response Mode</div>
-                <div className="font-bold text-white truncate">{mode}</div>
-              </div>
-
-              <div className="bg-slate-800/80 dark:bg-white/[0.06] p-2 rounded-xl">
-                <div className="text-slate-400 dark:text-zinc-500 text-[10px] uppercase">PhoBERT Intent</div>
-                <div className="font-bold text-teal-300 truncate">{intent}</div>
-              </div>
-
-              <div className="bg-slate-800/80 dark:bg-white/[0.06] p-2 rounded-xl">
-                <div className="text-slate-400 dark:text-zinc-500 text-[10px] uppercase">RRF Score</div>
-                <div className="font-bold text-amber-300">{Number(rrf).toFixed(3)}</div>
-              </div>
-
-              <div className="bg-slate-800/80 dark:bg-white/[0.06] p-2 rounded-xl">
-                <div className="text-slate-400 dark:text-zinc-500 text-[10px] uppercase">Latency</div>
-                <div className="font-bold text-emerald-300">{latency} ms</div>
-              </div>
-            </div>
-
-            <div className="text-[10px] text-slate-400 dark:text-zinc-500 pt-1 flex items-center justify-between">
-              <span>Kiến trúc: 4-Layer Hybrid Retrieval (ChromaDB + BM25 + Exact RAM Cache)</span>
-              <span className="text-emerald-400">● 100% Offline Local</span>
-            </div>
-          </div>
-        )}
       </div>
 
     </div>
