@@ -1,5 +1,5 @@
 """Server-Sent Events (SSE) Streaming routes for Vocab Web Application.
-Streams tokens in real-time with status updates and TTFT measurement.
+Streams tokens in real-time with Bearer Access Token verification and user-bound session keys.
 """
 
 from __future__ import annotations
@@ -8,13 +8,14 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, Generator, Optional, Union
-from uuid import uuid4
-from fastapi import APIRouter, HTTPException, status
+from typing import Generator, Optional, Union
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.data.conversation_repository import ConversationRepository
+from src.data.user_repository import User
+from vocab_backend.dependencies import get_current_user, verify_actor_user_id_match
 from vocab_backend.vocab_parser import ensure_required_search_prefix, parse_vocabulary_text
 
 logger = logging.getLogger("vocab_api.streaming")
@@ -26,35 +27,52 @@ class StreamChatRequest(BaseModel):
     query: str = Field(..., min_length=1)
     level: str = "Tất cả"
     conversation_id: Optional[str] = None
-    user_id: Optional[Union[int, str]] = "default_user"
+    user_id: Optional[Union[int, str]] = None
 
 
 @streaming_router.post("/stream")
-def stream_chat_endpoint(payload: StreamChatRequest):
+def stream_chat_endpoint(
+    payload: StreamChatRequest,
+    current_user: User = Depends(get_current_user),
+):
     """Endpoint streaming tokens using Server-Sent Events (SSE).
-    Guarantees prefix 'Từ bạn tìm kiếm: <word>' or 'Từ tiếng Anh phù hợp: <word>' and updates conversation history.
+    Enforces Access Token identity, conversation ownership, and user-bound session key.
     """
     from vocab_backend.api_server import (
+        build_user_session_key,
         get_chat_engine,
         get_or_create_tracker,
+        get_session_lock,
         get_word_index,
     )
 
-    word_index = get_word_index()
+    user_id = verify_actor_user_id_match(
+        current_user,
+        payload.user_id,
+        allow_default_placeholder=True,
+    )
 
+    word_index = get_word_index()
     clean_query = payload.query.strip()
-    user_id = payload.user_id
     conv_id = payload.conversation_id
 
-    # 1. Ensure conversation exists in DB with robust fallback
-    if not conv_id:
+    # 1. Verify ownership if conversation_id is provided, otherwise create a new DB conversation
+    if conv_id:
+        existing_conv = conv_repo.get_conversation(user_id=user_id, conversation_id=conv_id)
+        if not existing_conv:
+            if conv_repo.is_owned_by_another_user(user_id, conv_id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Không có quyền truy cập cuộc trò chuyện của tài khoản khác.",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy cuộc trò chuyện.",
+            )
+    else:
         short_title = clean_query[:35] + ("..." if len(clean_query) > 35 else "")
-        try:
-            new_conv = conv_repo.create_conversation(user_id=user_id, title=short_title)
-            conv_id = new_conv.id
-        except Exception as e:
-            logger.warning("Could not persist conversation for user_id=%s (%s). Using guest session.", user_id, e)
-            conv_id = f"guest_{uuid4()}"
+        new_conv = conv_repo.create_conversation(user_id=user_id, title=short_title)
+        conv_id = new_conv.id
 
     # Save user message
     try:
@@ -62,11 +80,15 @@ def stream_chat_endpoint(payload: StreamChatRequest):
     except Exception as e:
         logger.warning("Could not persist user message: %s", e)
 
-    # 2. Extract potential candidate word
+    # 2. Acquire user-bound session key & tracker
     engine = get_chat_engine()
-    tracker = get_or_create_tracker(f"user_{user_id}_{conv_id}")
+    session_key = build_user_session_key(user_id, conv_id)
+    tracker = get_or_create_tracker(session_key)
+    session_lock = get_session_lock(session_key)
 
-    extracted_word = tracker.extract_target_word(clean_query)
+    with session_lock:
+        extracted_word = tracker.extract_target_word(clean_query)
+
     clean_lower = clean_query.lower()
     word_candidate = extracted_word if extracted_word else clean_lower
     if not extracted_word:
@@ -96,33 +118,34 @@ def stream_chat_endpoint(payload: StreamChatRequest):
             tokens_accumulated.append(prefix_chunk)
             yield f"data: {json.dumps({'type': 'token', 'token': prefix_chunk}, ensure_ascii=False)}\n\n"
 
-        if engine is not None:
-            try:
-                for token, meta in engine.ask_stream(effective_query, tracker=tracker):
-                    if meta is not None:
-                        response_meta = meta
-                    if token:
-                        tokens_accumulated.append(token)
-                        yield f"data: {json.dumps({'type': 'token', 'token': token}, ensure_ascii=False)}\n\n"
-            except Exception as exc:
-                logger.error("Error during streaming ask_stream: %s", exc)
-                error_msg = f"Lỗi xử lý mô hình AI: {exc}"
-                tokens_accumulated.append(error_msg)
-                yield f"data: {json.dumps({'type': 'token', 'token': error_msg}, ensure_ascii=False)}\n\n"
-        else:
-            # Fallback to direct word match
-            direct_rec = word_index.get(word_candidate)
-            if direct_rec:
-                ans = direct_rec.answer
-                active_word = direct_rec.word
-                for chunk in ans.split(" "):
-                    tokens_accumulated.append(chunk + " ")
-                    yield f"data: {json.dumps({'type': 'token', 'token': chunk + ' '}, ensure_ascii=False)}\n\n"
-                    time.sleep(0.01)
+        with session_lock:
+            if engine is not None:
+                try:
+                    for token, meta in engine.ask_stream(effective_query, tracker=tracker):
+                        if meta is not None:
+                            response_meta = meta
+                        if token:
+                            tokens_accumulated.append(token)
+                            yield f"data: {json.dumps({'type': 'token', 'token': token}, ensure_ascii=False)}\n\n"
+                except Exception as exc:
+                    logger.error("Error during streaming ask_stream: %s", exc)
+                    error_msg = f"Lỗi xử lý mô hình AI: {exc}"
+                    tokens_accumulated.append(error_msg)
+                    yield f"data: {json.dumps({'type': 'token', 'token': error_msg}, ensure_ascii=False)}\n\n"
             else:
-                msg = f"Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
-                tokens_accumulated.append(msg)
-                yield f"data: {json.dumps({'type': 'token', 'token': msg}, ensure_ascii=False)}\n\n"
+                # Fallback to direct word match
+                direct_rec = word_index.get(word_candidate)
+                if direct_rec:
+                    ans = direct_rec.answer
+                    active_word = direct_rec.word
+                    for chunk in ans.split(" "):
+                        tokens_accumulated.append(chunk + " ")
+                        yield f"data: {json.dumps({'type': 'token', 'token': chunk + ' '}, ensure_ascii=False)}\n\n"
+                        time.sleep(0.01)
+                else:
+                    msg = "Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
+                    tokens_accumulated.append(msg)
+                    yield f"data: {json.dumps({'type': 'token', 'token': msg}, ensure_ascii=False)}\n\n"
 
         raw_answer = "".join(tokens_accumulated)
         is_out_of_scope = (

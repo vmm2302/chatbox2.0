@@ -327,3 +327,15 @@ class ConversationRepository:
             cursor = conn.execute("SELECT COUNT(*) FROM conversations")
             row = cursor.fetchone()
             return row[0] if row else 0
+
+    def is_owned_by_another_user(self, user_id: int, conversation_id: str) -> bool:
+        """Kiểm tra xem conversation_id có tồn tại và thuộc về người dùng khác không."""
+        if not conversation_id:
+            return False
+        with self.db.connection() as conn:
+            cursor = conn.execute(
+                "SELECT user_id FROM conversations WHERE id = ?",
+                (conversation_id,),
+            )
+            row = cursor.fetchone()
+            return bool(row is not None and row["user_id"] != user_id)

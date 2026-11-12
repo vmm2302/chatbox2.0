@@ -199,21 +199,88 @@ npm run dev
 
 ---
 
-## 4. KIỂM THỬ TỰ ĐỘNG HỆ THỐNG (AUTOMATED VERIFICATION)
+## 4. THIẾT LẬP MÔI TRƯỜNG KIỂM THỬ & CHẠY BỘ TEST (TEST ENVIRONMENT & VERIFICATION)
 
-Để kiểm tra toàn diện hoạt động của tất cả các module trên máy tính mới:
+Hệ thống cung cấp bộ kiểm thử phân tầng toàn diện (Unit Test, Integration Test, Rubric Evaluation Test và Frontend Build Verification) nhằm đảm bảo hệ thống vận hành 100% chính xác, ổn định và độc lập trên máy tính mới.
+
+---
+
+### 4.1. Thiết lập biến môi trường kiểm thử (Test Environment Variables)
+
+Trước khi chạy các bài kiểm thử, cần cấu hình các biến môi trường để ép buộc toàn bộ hệ thống hoạt động ở chế độ **100% Cục bộ (Offline-only)** và ngăn chặn tự động tải lại trọng số mô hình:
+
+**Trên Windows (PowerShell):**
+```powershell
+$env:TESTING="1"
+$env:HF_HUB_OFFLINE="1"
+$env:TRANSFORMERS_OFFLINE="1"
+```
+
+**Trên Linux / macOS (Bash / Zsh):**
+```bash
+export TESTING=1
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+```
+
+> [!NOTE]
+> Để thực hiện các bài test có kiểm tra mô hình sinh ngôn ngữ tự nhiên (RAG Generation), hãy đảm bảo dịch vụ Ollama đang chạy ngầm (`ollama serve`).
+
+---
+
+### 4.2. Chuẩn bị dữ liệu mẫu phục vụ kiểm thử (Test Data Preparation)
+
+Nếu máy tính mới vừa được thiết lập và cơ sở tri thức chưa có dữ liệu, hãy tạo bộ dữ liệu kiểm thử tiêu chuẩn và nạp vào hệ thống bằng lệnh:
 
 ```bash
-# Kiểm thử toàn diện Auth, Admin, SSE Streaming, Chống trùng lặp tệp raw và Xóa tri thức:
-python tests/test_vocab_auth_admin.py
-```
+# 1. Tạo file dữ liệu mẫu chuẩn cấu trúc Excel A1 - B2
+python scripts/create_sample_excel.py
 
-Kết quả mong đợi:
-```
-ALL ADMIN & MULTI-FILE UPLOAD TESTS PASSED!
+# 2. Nạp dữ liệu vào cơ sở tri thức (ChromaDB + BM25 + JSONL)
+python ingest_data.py
 ```
 
 ---
+
+### 4.3. Bảng tổng hợp các lệnh kiểm thử phân hệ Backend
+
+Bạn có thể chạy kiểm thử theo từng phân hệ nghiệp vụ cụ thể hoặc chạy toàn bộ test suite để nghiệm thu hệ thống:
+
+| Phân hệ kiểm thử | Lệnh thực thi Terminal | Mục tiêu kiểm định | Kết quả mong đợi |
+| :--- | :--- | :--- | :---: |
+| **1. Quản trị & Xác thực (Auth & Admin)** | `python tests/test_vocab_auth_admin.py` | Kiểm tra luồng Đăng nhập, Đăng ký, Phân quyền Admin/User, Nạp nhiều file, Xóa nguồn tài liệu an toàn. | `ALL ADMIN & MULTI-FILE UPLOAD TESTS PASSED!` |
+| **2. Đánh giá 15 Ca Hội thoại Chuẩn Rubric** | `python -m unittest tests/test_chatbot_rubric.py` | Đánh giá 15 ca hội thoại theo tiêu chí Rubric (In-scope, Paraphrase, Multi-turn Context, Out-of-scope, Ambiguous) và đánh giá động ngẫu nhiên trên dữ liệu thực tế. | `Ran 16 tests ... OK` (Tự động xuất báo cáo tại `docs/CHATBOT_TEST_REPORT.md`) |
+| **3. Động cơ Phát âm TTS Cục bộ (Kokoro-ONNX)** | `python -m unittest tests/test_kokoro_tts.py` | Kiểm tra khả năng nạp mô hình ONNX, bộ đệm LRU Cache âm thanh, chuẩn hóa dấu câu và sinh tệp WAV 24kHz. | `Ran 7 tests ... OK` |
+| **4. Đánh giá Chất lượng Phát âm Âm học (Pronunciation Evaluation)** | `python -m unittest tests/test_pronunciation_evaluation.py` | Đo lường các chỉ số chất lượng âm học: tần số lấy mẫu 24.000 Hz, kênh Mono 16-bit, năng lượng RMS chống câm/vỡ tiếng, tương quan thời lượng - âm tiết và hệ số Real-Time Factor (RTF < 1.0). | `Ran 5 tests ... OK` |
+| **5. Luồng Tích hợp E2E Đa cấp độ (A1, A2, B1, B2)** | `python -m unittest tests/test_multi_level_e2e_flow.py` | Kiểm định trọn vẹn luồng tra cứu nhiều cấp độ từ vựng từ API Gateway đến ChatEngine. | `Ran 3 tests ... OK` |
+| **6. Toàn bộ Test Suite Dự án** | `python -m unittest discover -s tests -p "test_*.py"` | Tự động quét và thực thi toàn bộ hơn 30+ tệp kiểm thử tự động của toàn bộ dự án. | `OK (skipped=...)` |
+
+---
+
+### 4.4. Kiểm thử và Nghiệm thu Giao diện Frontend React (Vite UI Verification)
+
+Để kiểm tra tính toàn vẹn cú pháp JSX, styling Tailwind CSS và đảm bảo mã nguồn React đã sẵn sàng cho môi trường sản xuất (Production-ready):
+
+```bash
+cd vocab_frontend
+
+# 1. Kiểm tra tĩnh cú pháp và chất lượng mã nguồn (Linter):
+npm run lint
+
+# 2. Kiểm thử quy trình đóng gói & biên dịch (Vite Bundler):
+npm run build
+
+# 3. Chạy lệnh nghiệm thu tự động (Test script):
+npm test
+
+cd ..
+```
+
+**Tiêu chí nghiệm thu Frontend ĐẠT (PASS):**
+- Lệnh `npm run build` hoàn thành với **0 lỗi** (`✓ built in ...ms`).
+- Tạo đầy đủ các gói bundle tối ưu tại `vocab_frontend/dist/` (`index.html`, `assets/*.css`, `assets/*.js`).
+- Backend FastAPI tự động nhận diện và phục vụ trực tiếp thư mục `dist` này khi khởi chạy `run_vocab_web.py`.
+- Chi tiết bảng kiểm thử chức năng người dùng được lưu trữ tại: `docs/BIEN_BAN_NGHIEM_THU_REACT.md`.
 
 ## 5. XỬ LÝ SỰ CỐ THƯỜNG GẶP (TROUBLESHOOTING)
 

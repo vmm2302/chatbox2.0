@@ -4,17 +4,25 @@ Chịu trách nhiệm thực thi các quy tắc kiểm tra quyền hạn (Access
 ngăn chặn người dùng tự nâng quyền và bảo vệ an toàn cho hệ thống.
 """
 
+import hmac
 import sqlite3
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 
+from config.settings import settings
 from src.auth.security import (
+    create_access_token,
+    decode_and_verify_access_token,
     hash_password,
+    hash_token,
     validate_password,
     validate_username,
     verify_password,
 )
 from src.data.app_db import AppDatabase, app_db
 from src.data.audit_repository import AuditRepository
+from src.data.session_repository import SessionRepository, UserSession
 from src.data.user_repository import User, UserRepository
 
 
@@ -26,10 +34,12 @@ class AuthService:
         user_repo: Optional[UserRepository] = None,
         audit_repo: Optional[AuditRepository] = None,
         db: Optional[AppDatabase] = None,
+        session_repo: Optional[SessionRepository] = None,
     ):
         database = db or app_db
         self.user_repo = user_repo or UserRepository(db=database)
         self.audit_repo = audit_repo or AuditRepository(db=database)
+        self.session_repo = session_repo or SessionRepository(db=database)
 
     # --------------------------------------------------------------------------
     # 0. KIỂM TRA TRẠNG THÁI KHỞI TẠO HỆ THỐNG
@@ -274,8 +284,120 @@ class AuthService:
             return False, None, f"Lỗi khi khởi tạo tài khoản Admin: {exc}"
 
     # --------------------------------------------------------------------------
-    # 3. KIỂM TRA QUYỀN HẠN BACKEND (RBAC ENFORCEMENT)
+    # 3. KIỂM TRA QUYỀN HẠN BACKEND & ACCESS TOKEN (RBAC & TOKEN VERIFICATION)
     # --------------------------------------------------------------------------
+
+    def _get_token_secret(self) -> bytes:
+        """Lấy khóa bí mật dùng để ký và kiểm chứng Access Token."""
+        return self.session_repo.get_or_create_token_secret(
+            getattr(settings, "AUTH_TOKEN_SECRET", "")
+        )
+
+    def issue_access_token(
+        self,
+        user: User,
+        expires_minutes: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Phát hành Access Token HS256 gắn với phiên lưu trong bảng user_sessions."""
+        fresh = self.require_active_user(user)
+        ttl_minutes = expires_minutes if expires_minutes is not None else getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 480)
+        session_id = str(uuid4())
+        raw_token, expires_in, expires_at_iso = create_access_token(
+            user_id=fresh.id,
+            username=fresh.username,
+            role=fresh.role,
+            session_id=session_id,
+            secret=self._get_token_secret(),
+            expires_minutes=ttl_minutes,
+        )
+        self.session_repo.create_session(
+            session_id=session_id,
+            user_id=fresh.id,
+            token_hash=hash_token(raw_token),
+            expires_at=expires_at_iso,
+        )
+        return {
+            "access_token": raw_token,
+            "token_type": "bearer",
+            "expires_in": expires_in,
+            "expires_at": expires_at_iso,
+            "session_id": session_id,
+        }
+
+    def verify_access_token(
+        self,
+        token: str,
+    ) -> Tuple[Optional[User], Optional[UserSession], str]:
+        """Kiểm chứng Access Token (chữ ký, thời hạn, trạng thái phiên & quyền sống từ DB)."""
+        try:
+            payload = decode_and_verify_access_token(token, self._get_token_secret())
+        except ValueError as exc:
+            return None, None, str(exc)
+
+        try:
+            user_id = int(payload["sub"])
+        except (TypeError, ValueError):
+            return None, None, "Access token chứa định danh người dùng không hợp lệ."
+
+        jti = str(payload.get("jti", ""))
+        session = self.session_repo.get_session_by_id(jti)
+        if not session:
+            return None, None, "Phiên đăng nhập không tồn tại hoặc đã bị xóa."
+
+        if session.revoked_at is not None:
+            return None, None, "Phiên đăng nhập đã bị thu hồi."
+
+        if session.user_id != user_id or not hmac.compare_digest(session.token_hash, hash_token(token)):
+            return None, None, "Access token không khớp với phiên đăng nhập hợp lệ."
+
+        try:
+            expires_dt = datetime.fromisoformat(session.expires_at)
+            if expires_dt.tzinfo is None:
+                expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) >= expires_dt:
+                return None, None, "Phiên đăng nhập đã hết hạn."
+        except ValueError:
+            return None, None, "Thời hạn phiên đăng nhập không hợp lệ."
+
+        fresh_user = self.user_repo.get_by_id(user_id)
+        if not fresh_user or not fresh_user.is_active:
+            return None, None, "Tài khoản không tồn tại hoặc đã bị vô hiệu hóa."
+
+        # Cập nhật thời điểm dùng gần nhất (giới hạn tần suất ghi SQLite mỗi 60 giây)
+        should_touch = True
+        if session.last_used_at:
+            try:
+                last_dt = datetime.fromisoformat(session.last_used_at)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                should_touch = (datetime.now(timezone.utc) - last_dt).total_seconds() >= 60
+            except ValueError:
+                should_touch = True
+        if should_touch:
+            try:
+                self.session_repo.touch_session(jti)
+            except Exception:
+                pass
+
+        return fresh_user, session, ""
+
+    def revoke_session(self, session_id: str, actor: Optional[User] = None) -> bool:
+        """Thu hồi Access Token của phiên hiện tại (ví dụ khi đăng xuất)."""
+        revoked = self.session_repo.revoke_session(session_id)
+        if actor:
+            self.logout(actor)
+        return revoked
+
+    def revoke_user_sessions(
+        self,
+        user_id: int,
+        exclude_session_id: Optional[str] = None,
+    ) -> int:
+        """Thu hồi toàn bộ Access Token đang hoạt động của một người dùng."""
+        return self.session_repo.revoke_all_user_sessions(
+            user_id=user_id,
+            exclude_session_id=exclude_session_id,
+        )
 
     def verify_active_session(self, user_id: int) -> Optional[User]:
         """Xác minh tài khoản còn tồn tại và đang hoạt động."""
@@ -378,6 +500,8 @@ class AuthService:
 
         ok = self.user_repo.set_active_status(target_user_id, is_active)
         if ok:
+            if not is_active:
+                self.revoke_user_sessions(target_user_id)
             action_name = "ADMIN_ENABLE_USER" if is_active else "ADMIN_DISABLE_USER"
             self.audit_repo.log(
                 actor_username=actor.username,
@@ -412,6 +536,7 @@ class AuthService:
         hashed = hash_password(new_password)
         ok = self.user_repo.update_password(target_user_id, hashed)
         if ok:
+            self.revoke_user_sessions(target_user_id)
             self.audit_repo.log(
                 actor_username=actor.username,
                 actor_id=actor.id,
@@ -451,6 +576,7 @@ class AuthService:
 
         ok = self.user_repo.set_role(target_user_id, clean_role)
         if ok:
+            self.revoke_user_sessions(target_user_id)
             self.audit_repo.log(
                 actor_username=actor.username,
                 actor_id=actor.id,
@@ -484,6 +610,7 @@ class AuthService:
             return False, "Không thể xóa tài khoản Quản trị viên (Admin)."
 
         target_username = target.username
+        self.revoke_user_sessions(target_user_id)
         ok = self.user_repo.delete_user(target_user_id)
         if ok:
             self.audit_repo.log(
@@ -554,6 +681,7 @@ class AuthService:
         hashed = hash_password(new_password)
         ok = self.user_repo.update_password(actor.id, hashed)
         if ok:
+            self.revoke_user_sessions(actor.id)
             self.audit_repo.log(
                 actor_username=actor.username,
                 actor_id=actor.id,

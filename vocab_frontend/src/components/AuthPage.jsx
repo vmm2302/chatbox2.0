@@ -85,7 +85,7 @@ export default function AuthPage({ onLoginSuccess, themeMode, onThemeChange }) {
 
     try {
       const res = await loginUser(loginUsername.trim(), loginPassword);
-      onLoginSuccess(res.user);
+      onLoginSuccess(res.user, res.access_token);
     } catch (err) {
       setError(err.message || 'Đăng nhập không thành công. Vui lòng kiểm tra lại tài khoản hoặc mật khẩu.');
       triggerShake();

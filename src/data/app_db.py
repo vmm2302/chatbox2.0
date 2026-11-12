@@ -16,7 +16,7 @@ from typing import Generator, Optional, Union
 from config.settings import settings
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -26,6 +26,13 @@ PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL
+);
+
+-- Bảng cấu hình nội bộ hệ thống (ví dụ khóa ký token tự sinh cho môi trường offline)
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 
 -- Bảng tài khoản người dùng
@@ -39,6 +46,17 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL,
     last_login_at TEXT,
     updated_at TEXT NOT NULL
+);
+
+-- Bảng phiên đăng nhập và quản lý thu hồi Access Token
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at TEXT
 );
 
 -- Bảng cuộc hội thoại thuộc người dùng
@@ -77,6 +95,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 -- Các chỉ mục tối ưu truy vấn
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id, revoked_at);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, id ASC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at DESC);

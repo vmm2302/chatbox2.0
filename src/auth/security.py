@@ -6,11 +6,15 @@ khi thư viện ngoài không khả dụng.
 Tuyệt đối không lưu trữ hoặc in mật khẩu văn bản thuần ra log / console.
 """
 
+import base64
 import hashlib
 import hmac
+import json
 import os
 import re
-from typing import Tuple
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, Tuple
 
 try:
     import bcrypt
@@ -102,3 +106,105 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
     except Exception:
         return False
+
+
+def _b64url_encode(data: bytes) -> str:
+    """Mã hóa Base64URL không padding theo chuẩn JWT."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(segment: str) -> bytes:
+    """Giải mã Base64URL an toàn."""
+    padding = "=" * (-len(segment) % 4)
+    return base64.urlsafe_b64decode((segment + padding).encode("ascii"))
+
+
+def hash_token(raw_token: str) -> str:
+    """Băm SHA-256 chuỗi Access Token để lưu đối chiếu an toàn trong SQLite."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def create_access_token(
+    user_id: int,
+    username: str,
+    role: str,
+    session_id: str,
+    secret: bytes,
+    expires_minutes: int = 480,
+) -> Tuple[str, int, str]:
+    """Tạo Access Token định dạng JWT ký bằng HMAC-SHA256 (100% offline, stdlib).
+
+    Returns:
+        Tuple[str, int, str]: (raw_token, expires_in_seconds, expires_at_iso)
+    """
+    if not secret:
+        raise ValueError("Khóa bí mật ký token không được rỗng.")
+
+    ttl_minutes = max(1, int(expires_minutes))
+    now_ts = int(time.time())
+    expires_in = ttl_minutes * 60
+    exp_ts = now_ts + expires_in
+    expires_at_iso = datetime.fromtimestamp(exp_ts, tz=timezone.utc).isoformat()
+
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "role": role,
+        "jti": session_id,
+        "iat": now_ts,
+        "exp": exp_ts,
+    }
+
+    header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+    sig_bytes = hmac.new(secret, signing_input, hashlib.sha256).digest()
+    sig_b64 = _b64url_encode(sig_bytes)
+
+    return f"{header_b64}.{payload_b64}.{sig_b64}", expires_in, expires_at_iso
+
+
+def decode_and_verify_access_token(token: str, secret: bytes) -> Dict[str, Any]:
+    """Giải mã và kiểm chứng chữ ký + hạn dùng của Access Token HS256."""
+    if not token or not isinstance(token, str):
+        raise ValueError("Access token không hợp lệ.")
+    if not secret:
+        raise ValueError("Khóa bí mật xác thực token chưa được cấu hình.")
+
+    parts = token.strip().split(".")
+    if len(parts) != 3:
+        raise ValueError("Định dạng Access token không đúng chuẩn.")
+
+    header_b64, payload_b64, sig_b64 = parts
+    try:
+        header = json.loads(_b64url_decode(header_b64).decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("Không thể giải mã header của Access token.") from exc
+
+    if not isinstance(header, dict) or header.get("alg") != "HS256":
+        raise ValueError("Thuật toán ký Access token không được hỗ trợ.")
+
+    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+    expected_sig = _b64url_encode(hmac.new(secret, signing_input, hashlib.sha256).digest())
+    if not hmac.compare_digest(sig_b64, expected_sig):
+        raise ValueError("Chữ ký Access token không hợp lệ.")
+
+    try:
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("Không thể giải mã payload của Access token.") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError("Payload Access token không hợp lệ.")
+
+    sub = payload.get("sub")
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not sub or not jti or not isinstance(exp, (int, float)):
+        raise ValueError("Access token thiếu thông tin định danh hoặc thời hạn.")
+
+    if int(time.time()) >= int(exp):
+        raise ValueError("Access token đã hết hạn.")
+
+    return payload

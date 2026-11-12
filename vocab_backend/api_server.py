@@ -2,9 +2,9 @@
 
 Provides REST endpoints for:
 - Chatbot vocabulary lookup with the required prefix 'Từ bạn tìm kiếm: <word>'
-- CEFR level filtering (strictly A1 and A2)
-- Fast autocomplete search across A1–A2 vocabulary items
-- Word discovery & random cards
+- User-bound session tracker isolation (khóa phiên gắn với người dùng xác thực)
+- CEFR level filtering & dynamic vocabulary discovery
+- Fast autocomplete search across vocabulary items
 - Serving the built modern frontend SPA
 """
 
@@ -15,11 +15,12 @@ import os
 import random
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +35,9 @@ if str(PROJECT_ROOT) not in sys.path:
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
+from src.data.conversation_repository import ConversationRepository
+from src.data.user_repository import User
+from vocab_backend.dependencies import get_current_user, verify_actor_user_id_match
 from vocab_backend.vocab_parser import ensure_required_search_prefix, parse_vocabulary_text
 
 logger = logging.getLogger("vocab_api")
@@ -66,19 +70,71 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global caches
+# Global caches & user-scoped session state
 _RECORDS_CACHE: Optional[List[Any]] = None
 _WORD_INDEX: Dict[str, Any] = {}
 _CHAT_ENGINE = None
 _USER_TRACKERS: Dict[str, Any] = {}
+_SESSION_LOCKS: Dict[str, threading.Lock] = {}
+_TRACKER_LOCK = threading.RLock()
+_CONV_REPO = ConversationRepository()
+
+
+def build_user_session_key(user_id: int, conversation_id: Optional[str] = None) -> str:
+    """Tạo khóa phiên cô lập gắn chặt với user_id xác thực và conversation_id."""
+    conv_part = (conversation_id or "default_session").strip() or "default_session"
+    return f"user:{int(user_id)}:session:{conv_part}"
+
+
+def get_session_lock(session_key: str) -> threading.Lock:
+    """Lấy hoặc tạo khóa đồng bộ (thread lock) riêng cho từng khóa phiên người dùng."""
+    with _TRACKER_LOCK:
+        if session_key not in _SESSION_LOCKS:
+            _SESSION_LOCKS[session_key] = threading.Lock()
+        return _SESSION_LOCKS[session_key]
+
+
+def clear_session_tracker(session_key: str) -> bool:
+    """Xóa tracker và lock của một khóa phiên cụ thể."""
+    with _TRACKER_LOCK:
+        existed = session_key in _USER_TRACKERS
+        _USER_TRACKERS.pop(session_key, None)
+        _SESSION_LOCKS.pop(session_key, None)
+        return existed
+
+
+def clear_user_trackers(user_id: Optional[int] = None) -> int:
+    """Dọn dẹp toàn bộ tracker thuộc một user_id hoặc toàn hệ thống."""
+    with _TRACKER_LOCK:
+        if user_id is None:
+            count = len(_USER_TRACKERS)
+            _USER_TRACKERS.clear()
+            _SESSION_LOCKS.clear()
+            return count
+
+        prefix = f"user:{int(user_id)}:"
+        keys_to_remove = [k for k in _USER_TRACKERS if k.startswith(prefix)]
+        for k in keys_to_remove:
+            _USER_TRACKERS.pop(k, None)
+            _SESSION_LOCKS.pop(k, None)
+        return len(keys_to_remove)
 
 
 def reload_records():
-    """Invalidate memory cache and reload all records from disk."""
+    """Invalidate memory cache, reload records from disk, and refresh active trackers."""
     global _RECORDS_CACHE, _WORD_INDEX
     _RECORDS_CACHE = None
     _WORD_INDEX.clear()
-    return get_records()
+    recs = get_records()
+    with _TRACKER_LOCK:
+        for trk in _USER_TRACKERS.values():
+            try:
+                trk.load_known_words(recs)
+                if not recs:
+                    trk.clear()
+            except Exception as exc:
+                logger.warning("Không thể đồng bộ lại tracker khi reload records: %s", exc)
+    return recs
 
 
 def get_records():
@@ -128,12 +184,21 @@ def get_chat_engine():
     return _CHAT_ENGINE
 
 
-def get_or_create_tracker(session_id: str):
+def get_or_create_tracker(session_id: str, user_id: Optional[int] = None):
+    """Lấy hoặc khởi tạo TopicTracker gắn với khóa phiên người dùng (thread-safe)."""
     from src.chat.topic_tracker import TopicTracker
-    if session_id not in _USER_TRACKERS:
-        records = get_records()
-        _USER_TRACKERS[session_id] = TopicTracker(records=records)
-    return _USER_TRACKERS[session_id]
+
+    if user_id is not None:
+        prefix = f"user:{int(user_id)}:"
+        session_key = session_id if str(session_id).startswith(prefix) else build_user_session_key(user_id, session_id)
+    else:
+        session_key = str(session_id)
+
+    with _TRACKER_LOCK:
+        if session_key not in _USER_TRACKERS:
+            records = get_records()
+            _USER_TRACKERS[session_key] = TopicTracker(records=records)
+        return _USER_TRACKERS[session_key]
 
 
 @app.on_event("startup")
@@ -150,7 +215,7 @@ class ChatRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Question or vocabulary word")
     level: str = Field("Tất cả", description="Filter CEFR level: 'Tất cả', 'A1', 'A2'")
     conversation_id: Optional[str] = "default_session"
-    user_id: Optional[str] = "default_user"
+    user_id: Optional[Any] = None
 
 
 # ---------------------------------------------------------
@@ -168,15 +233,33 @@ def health_check():
 
 
 @app.post("/api/chat")
-async def chat_endpoint(payload: ChatRequest):
-    """Process user vocabulary query.
+async def chat_endpoint(
+    payload: ChatRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Process user vocabulary query under authenticated user-bound session key.
     Guarantees that the response begins with:
     'Từ bạn tìm kiếm: <word>'
     """
+    actor_user_id = verify_actor_user_id_match(
+        current_user,
+        payload.user_id,
+        allow_default_placeholder=True,
+    )
+
+    conv_id = (payload.conversation_id or "default_session").strip() or "default_session"
+    if conv_id != "default_session" and _CONV_REPO.is_owned_by_another_user(actor_user_id, conv_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Không có quyền truy cập phiên hội thoại của tài khoản khác.",
+        )
+
     clean_query = payload.query.strip()
-    session_id = payload.conversation_id or "default_session"
-    tracker = get_or_create_tracker(session_id)
+    session_key = build_user_session_key(actor_user_id, conv_id)
+    tracker = get_or_create_tracker(session_key)
+    session_lock = get_session_lock(session_key)
     engine = get_chat_engine()
+    word_index = get_word_index()
 
     # Determine effective query with CEFR preference if specified
     effective_query = clean_query
@@ -187,48 +270,49 @@ async def chat_endpoint(payload: ChatRequest):
     meta_info: Dict[str, Any] = {}
     active_word = ""
 
-    # Check direct word dictionary match first for zero-latency response
-    clean_lower = clean_query.lower()
-    extracted_word = tracker.extract_target_word(clean_query)
-    word_candidate = extracted_word if extracted_word else clean_lower
-    if not extracted_word:
-        for prefix in ["từ ", "nghĩa của từ ", "nghĩa của ", "từ vựng ", "tra từ "]:
-            if word_candidate.startswith(prefix):
-                word_candidate = word_candidate[len(prefix):].strip()
-                break
-        word_candidate = re.sub(r"\s*(?:nghĩa là gì|là gì|có nghĩa là gì|means?|meaning)\s*\??$", "", word_candidate, flags=re.IGNORECASE).strip()
+    with session_lock:
+        # Check direct word dictionary match first for zero-latency response
+        clean_lower = clean_query.lower()
+        extracted_word = tracker.extract_target_word(clean_query)
+        word_candidate = extracted_word if extracted_word else clean_lower
+        if not extracted_word:
+            for prefix in ["từ ", "nghĩa của từ ", "nghĩa của ", "từ vựng ", "tra từ "]:
+                if word_candidate.startswith(prefix):
+                    word_candidate = word_candidate[len(prefix):].strip()
+                    break
+            word_candidate = re.sub(r"\s*(?:nghĩa là gì|là gì|có nghĩa là gì|means?|meaning)\s*\??$", "", word_candidate, flags=re.IGNORECASE).strip()
 
-    direct_rec = _WORD_INDEX.get(word_candidate)
-    
-    if engine is not None:
-        try:
-            resp = engine.ask(effective_query, tracker=tracker)
-            answer_text = resp.answer
-            resp_intent = getattr(resp, "intent", "DEFINE_VOCAB")
-            resp_word = getattr(resp, "word", "") or getattr(resp, "active_word", "") or tracker.active_word
-            meta_info = {
-                "mode": resp.mode,
-                "intent": resp_intent,
-                "latency_ms": getattr(resp, "latency_ms", 0.0),
-                "rrf_score": getattr(resp, "rrf_score", 0.0),
-                "active_word": resp_word,
-                "word": resp_word,
-            }
-            active_word = resp_word or (word_candidate if word_candidate in _WORD_INDEX else "")
-        except Exception as e:
-            logger.error("ChatEngine query failed: %s", e)
-            if direct_rec:
-                answer_text = direct_rec.answer
-                active_word = direct_rec.word
-            else:
-                answer_text = "Xin lỗi, chatbot đang khởi động lại mô hình. Vui lòng thử lại sau giây lát."
-    elif direct_rec:
-        answer_text = direct_rec.answer
-        active_word = direct_rec.word
-        meta_info = {"mode": "DIRECT_MATCH", "intent": "DEFINE_VOCAB", "latency_ms": 1.2}
-    else:
-        answer_text = "Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
-        active_word = ""
+        direct_rec = word_index.get(word_candidate)
+
+        if engine is not None:
+            try:
+                resp = engine.ask(effective_query, tracker=tracker)
+                answer_text = resp.answer
+                resp_intent = getattr(resp, "intent", "DEFINE_VOCAB")
+                resp_word = getattr(resp, "word", "") or getattr(resp, "active_word", "") or tracker.active_word
+                meta_info = {
+                    "mode": resp.mode,
+                    "intent": resp_intent,
+                    "latency_ms": getattr(resp, "latency_ms", 0.0),
+                    "rrf_score": getattr(resp, "rrf_score", 0.0),
+                    "active_word": resp_word,
+                    "word": resp_word,
+                }
+                active_word = resp_word or (word_candidate if word_candidate in word_index else "")
+            except Exception as e:
+                logger.error("ChatEngine query failed: %s", e)
+                if direct_rec:
+                    answer_text = direct_rec.answer
+                    active_word = direct_rec.word
+                else:
+                    answer_text = "Xin lỗi, chatbot đang khởi động lại mô hình. Vui lòng thử lại sau giây lát."
+        elif direct_rec:
+            answer_text = direct_rec.answer
+            active_word = direct_rec.word
+            meta_info = {"mode": "DIRECT_MATCH", "intent": "DEFINE_VOCAB", "latency_ms": 1.2}
+        else:
+            answer_text = "Xin lỗi, câu hỏi này nằm ngoài phạm vi dữ liệu tra cứu từ vựng tiếng Anh mà chatbot hiện đang hỗ trợ."
+            active_word = ""
 
     is_out_of_scope = (
         meta_info.get("mode") == "NO_MATCH"
@@ -244,7 +328,7 @@ async def chat_endpoint(payload: ChatRequest):
         meta_info["word"] = ""
     else:
         # If active_word wasn't resolved, use candidate if it's an English word
-        if not active_word and word_candidate in _WORD_INDEX:
+        if not active_word and word_candidate in word_index:
             active_word = word_candidate
 
         # Ensure the mandatory prefix is prepended: 'Từ bạn tìm kiếm: <word>' or 'Từ tiếng Anh phù hợp: <word>'
@@ -255,7 +339,7 @@ async def chat_endpoint(payload: ChatRequest):
         rec_level = getattr(direct_rec, "level", "A1") if direct_rec else "A1"
         structured_card = parse_vocabulary_text(
             final_text,
-            default_word=active_word or (word_candidate if word_candidate in _WORD_INDEX else ""),
+            default_word=active_word or (word_candidate if word_candidate in word_index else ""),
             default_level=rec_level,
         )
         if structured_card and structured_card.get("word") and not active_word:
@@ -271,7 +355,7 @@ async def chat_endpoint(payload: ChatRequest):
     }
 
 
-@app.get("/api/words/search")
+@app.get("/api/words/search", dependencies=[Depends(get_current_user)])
 def search_words(
     q: str = Query("", min_length=1),
     level: Optional[str] = Query(None),
@@ -289,7 +373,7 @@ def search_words(
         w = getattr(rec, "word", "").strip()
         w_lower = w.lower()
         rec_lvl = getattr(rec, "level", "A1").upper()
-        
+
         if level_filter and rec_lvl != level_filter:
             continue
 
@@ -335,11 +419,11 @@ def search_words(
     return {"query": q, "results": results}
 
 
-@app.get("/api/words/detail/{word}")
+@app.get("/api/words/detail/{word}", dependencies=[Depends(get_current_user)])
 def get_word_detail(word: str):
     """Get full structured details for a specific vocabulary word."""
     clean_word = word.strip().lower()
-    rec = _WORD_INDEX.get(clean_word)
+    rec = get_word_index().get(clean_word)
     if not rec:
         raise HTTPException(status_code=404, detail="Word not found in knowledge base.")
 
@@ -358,7 +442,7 @@ def get_word_detail(word: str):
     }
 
 
-@app.get("/api/words/levels")
+@app.get("/api/words/levels", dependencies=[Depends(get_current_user)])
 def get_available_levels():
     """Get dynamic list of CEFR levels present in qa_records.jsonl without hardcoding."""
     records = get_records()
@@ -382,7 +466,7 @@ def get_available_levels():
     return {"levels": available, "counts": counts}
 
 
-@app.get("/api/words/discover")
+@app.get("/api/words/discover", dependencies=[Depends(get_current_user)])
 def discover_words(
     level: Optional[str] = Query("A1"),
     count: int = Query(6, ge=1, le=20),
@@ -419,7 +503,10 @@ if FRONTEND_DIST.exists():
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        file_path = FRONTEND_DIST / full_path
-        if file_path.exists() and file_path.is_file():
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API endpoint not found.")
+        dist_root = FRONTEND_DIST.resolve()
+        file_path = (FRONTEND_DIST / full_path).resolve()
+        if str(file_path).startswith(str(dist_root)) and file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
         return FileResponse(FRONTEND_DIST / "index.html")

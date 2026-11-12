@@ -4,6 +4,8 @@
  * Plays 24kHz 16-bit PCM WAV audio synthesized locally on the machine.
  */
 
+import { getAuthHeaders, notifyUnauthorized } from './api';
+
 const API_BASE = '/api';
 
 class LocalTTSService {
@@ -67,15 +69,20 @@ class LocalTTSService {
       if (!audioUrl) {
         const response = await fetch(`${API_BASE}/tts/synthesize`, {
           method: 'POST',
-          headers: {
+          headers: getAuthHeaders({
             'Content-Type': 'application/json',
-          },
+          }),
           body: JSON.stringify({
             text: cleanText,
             voice: voice || 'af_heart',
             speed: speed || 1.0,
           }),
         });
+
+        if (response.status === 401) {
+          notifyUnauthorized();
+          throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        }
 
         if (!response.ok) {
           let errorMessage = 'Không thể phát âm: Mô hình TTS cục bộ chưa sẵn sàng.';

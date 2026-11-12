@@ -12,6 +12,7 @@ Covers:
 """
 
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from src.chat.topic_tracker import TopicTracker
 from src.core.models import QARecord
 from src.data.loader import QALoader
 from src.nlp.phobert_intent import PhoBERTIntentClassifier
+from vocab_backend.dependencies import auth_service
 from vocab_backend.vocab_parser import ensure_required_search_prefix, parse_vocabulary_text
 
 
@@ -36,6 +38,30 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
         cls.records = cls.loader.get_or_create_records()
         cls.engine = ChatEngine(records=cls.records)
         cls.classifier = PhoBERTIntentClassifier()
+
+        from fastapi.testclient import TestClient
+        from vocab_backend.api_server import app
+        cls.client = TestClient(app)
+        uname = f"vie_test_{int(time.time() * 1000)}"
+        reg = cls.client.post(
+            "/api/auth/register",
+            json={
+                "username": uname,
+                "password": "ViePassword123!",
+                "confirm_password": "ViePassword123!",
+            },
+        )
+        cls.test_user_id = reg.json()["user"]["id"]
+        login = cls.client.post(
+            "/api/auth/login",
+            json={"username": uname, "password": "ViePassword123!"},
+        )
+        cls.auth_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "test_user_id", None):
+            auth_service.user_repo.delete_user(cls.test_user_id)
 
     def test_01_intent_classification(self):
         """Test PhoBERT intent classifier recognizes TRANSLATE_VIE_TO_ENG."""
@@ -132,11 +158,10 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
 
     def test_08_api_chat_translation_endpoint(self):
         """Test POST /api/chat with Vietnamese query returns TRANSLATE_VIE_TO_ENG and correct prefix."""
-        from fastapi.testclient import TestClient
-        from vocab_backend.api_server import app
+        unauth = self.client.post("/api/chat", json={"query": "gia đình"})
+        self.assertEqual(unauth.status_code, 401)
 
-        client = TestClient(app)
-        res = client.post("/api/chat", json={"query": "gia đình"})
+        res = self.client.post("/api/chat", headers=self.auth_headers, json={"query": "gia đình"})
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data.get("word"), "family")
@@ -146,23 +171,37 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
         self.assertEqual(data.get("structured_card", {}).get("word"), "family")
 
     def test_09_api_chat_stream_vietnamese_and_guest(self):
-        """Test POST /api/chat/stream handles Vietnamese words and guest users without Internal Server Error."""
-        from fastapi.testclient import TestClient
-        from vocab_backend.api_server import app
+        """Test POST /api/chat/stream requires token and handles Vietnamese queries & placeholder user_id safely."""
+        unauth = self.client.post("/api/chat/stream", json={"query": "gia đình"})
+        self.assertEqual(unauth.status_code, 401)
 
-        client = TestClient(app)
-
-        # 1. Test guest user with Vietnamese query (string user_id)
-        res_guest = client.post("/api/chat/stream", json={"query": "gia đình", "user_id": "default_user"})
+        # 1. Test authenticated user passing legacy default_user placeholder
+        res_guest = self.client.post(
+            "/api/chat/stream",
+            headers=self.auth_headers,
+            json={"query": "gia đình", "user_id": "default_user"},
+        )
         self.assertEqual(res_guest.status_code, 200)
         self.assertIn("family", res_guest.text)
         self.assertIn("data: [DONE]", res_guest.text)
 
-        # 2. Test authenticated integer user with translation query
-        res_auth = client.post("/api/chat/stream", json={"query": "trường học tiếng anh là gì?", "user_id": 1})
+        # 2. Test authenticated integer user with matching user_id
+        res_auth = self.client.post(
+            "/api/chat/stream",
+            headers=self.auth_headers,
+            json={"query": "trường học tiếng anh là gì?", "user_id": self.test_user_id},
+        )
         self.assertEqual(res_auth.status_code, 200)
         self.assertIn("school", res_auth.text)
         self.assertIn("data: [DONE]", res_auth.text)
+
+        # 3. Spoofing another user_id must be rejected with 403
+        res_spoof = self.client.post(
+            "/api/chat/stream",
+            headers=self.auth_headers,
+            json={"query": "gia đình", "user_id": self.test_user_id + 999},
+        )
+        self.assertEqual(res_spoof.status_code, 403)
 
     def test_10_truong_hoc_la_gi_variations(self):
         """Test 'X là gì?' and related phrasing maps to English word if X is in vocabulary."""
@@ -194,8 +233,7 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
         self.assertEqual(tracker.active_word, "school")
 
         # Test API response prefix
-        client = TestClient(app)
-        res = client.post("/api/chat", json={"query": "school là gì?"})
+        res = self.client.post("/api/chat", headers=self.auth_headers, json={"query": "school là gì?"})
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data.get("word"), "school")
@@ -219,11 +257,7 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
 
     def test_13_api_chat_stream_truong_hoc_la_gi(self):
         """Test POST /api/chat/stream for 'trường học là gì?' streams matching English word and card."""
-        from fastapi.testclient import TestClient
-        from vocab_backend.api_server import app
-
-        client = TestClient(app)
-        res = client.post("/api/chat/stream", json={"query": "trường học là gì?"})
+        res = self.client.post("/api/chat/stream", headers=self.auth_headers, json={"query": "trường học là gì?"})
         self.assertEqual(res.status_code, 200)
         text = res.text
         self.assertIn("Từ tiếng Anh phù hợp: school", text)
@@ -244,12 +278,8 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
 
     def test_15_qua_tao_api_and_card(self):
         """Test POST /api/chat and POST /api/chat/stream returns 'apple' in structured_card."""
-        from fastapi.testclient import TestClient
-        from vocab_backend.api_server import app
-
-        client = TestClient(app)
         # 1. Test POST /api/chat
-        res = client.post("/api/chat", json={"query": "quả táo"})
+        res = self.client.post("/api/chat", headers=self.auth_headers, json={"query": "quả táo"})
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data.get("word"), "apple")
@@ -257,7 +287,7 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
         self.assertTrue(data.get("reply", "").startswith("Từ tiếng Anh phù hợp: apple"))
 
         # 2. Test POST /api/chat/stream
-        res_stream = client.post("/api/chat/stream", json={"query": "quả táo"})
+        res_stream = self.client.post("/api/chat/stream", headers=self.auth_headers, json={"query": "quả táo"})
         self.assertEqual(res_stream.status_code, 200)
         text = res_stream.text
         self.assertIn("Từ tiếng Anh phù hợp: apple", text)
@@ -286,12 +316,12 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
 
     def test_17_can_phong_api_and_card(self):
         """Test API endpoints for 'căn phòng trong tiếng Anh có nghĩa là gì ?'."""
-        from fastapi.testclient import TestClient
-        from vocab_backend.api_server import app
-
-        client = TestClient(app)
         # 1. Test POST /api/chat
-        res = client.post("/api/chat", json={"query": "căn phòng trong tiếng Anh có nghĩa là gì ?"})
+        res = self.client.post(
+            "/api/chat",
+            headers=self.auth_headers,
+            json={"query": "căn phòng trong tiếng Anh có nghĩa là gì ?"},
+        )
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data.get("word"), "apartment")
@@ -299,7 +329,11 @@ class TestVietnameseToEnglishTranslation(unittest.TestCase):
         self.assertTrue(data.get("reply", "").startswith("Từ tiếng Anh phù hợp: apartment"))
 
         # 2. Test POST /api/chat/stream
-        res_stream = client.post("/api/chat/stream", json={"query": "căn phòng trong tiếng Anh có nghĩa là gì ?"})
+        res_stream = self.client.post(
+            "/api/chat/stream",
+            headers=self.auth_headers,
+            json={"query": "căn phòng trong tiếng Anh có nghĩa là gì ?"},
+        )
         self.assertEqual(res_stream.status_code, 200)
         text = res_stream.text
         self.assertIn("Từ tiếng Anh phù hợp: apartment", text)

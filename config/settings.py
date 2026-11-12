@@ -78,6 +78,10 @@ class Settings:
     # Cấu hình Model PhoBERT-base-v2 (Query Understanding & Intent Matching)
     PHOBERT_MODEL_NAME: str = field(default_factory=lambda: os.getenv("PHOBERT_MODEL_NAME", "vinai/phobert-base-v2"))
 
+    # Cấu hình Xác thực Access Token (HMAC-SHA256 Offline)
+    AUTH_TOKEN_SECRET: str = field(default_factory=lambda: os.getenv("AUTH_TOKEN_SECRET", ""))
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = field(default_factory=lambda: int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480")))
+
     # Cấu hình Ollama Cục bộ (Localhost)
     OLLAMA_BASE_URL: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
     OLLAMA_MODEL: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))

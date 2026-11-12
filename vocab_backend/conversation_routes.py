@@ -1,17 +1,18 @@
 """Conversation and Chat History routes for Vocab Web Application.
-Reuses src.data.conversation_repository.ConversationRepository without modifying existing files.
+Enforces Bearer Access Token authentication and strict user_id ownership isolation.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.data.conversation_repository import ConversationRepository
+from src.data.user_repository import User
+from vocab_backend.dependencies import get_current_user, verify_actor_user_id_match
 from vocab_backend.vocab_parser import parse_vocabulary_text
 
 logger = logging.getLogger("vocab_api.conversations")
@@ -20,12 +21,12 @@ conv_repo = ConversationRepository()
 
 
 class CreateConversationRequest(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None
     title: Optional[str] = "Cuộc trò chuyện mới"
 
 
 class RenameConversationRequest(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None
     title: str = Field(..., min_length=1)
 
 
@@ -49,12 +50,14 @@ def get_conversation_time_group(iso_timestamp: Optional[str]) -> str:
 
 @conv_router.get("")
 def list_conversations(
-    user_id: int = Query(...),
+    user_id: Optional[int] = Query(None),
     search: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
 ):
-    """List conversations for user, organized by pinned and time groups."""
-    raw_convs = conv_repo.list_conversations(user_id=user_id, limit=limit)
+    """List conversations for authenticated user, organized by pinned and time groups."""
+    actor_user_id = verify_actor_user_id_match(current_user, user_id)
+    raw_convs = conv_repo.list_conversations(user_id=actor_user_id, limit=limit)
     valid_convs = [c for c in raw_convs if c.message_count > 0]
 
     # Search filter
@@ -85,13 +88,20 @@ def list_conversations(
 
 
 @conv_router.post("")
-def create_conversation(payload: CreateConversationRequest):
-    """Create a new conversation session."""
+def create_conversation(
+    payload: CreateConversationRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Create a new conversation session for authenticated user."""
+    actor_user_id = verify_actor_user_id_match(current_user, payload.user_id)
     try:
-        conv = conv_repo.create_conversation(user_id=payload.user_id, title=payload.title or "Cuộc trò chuyện mới")
+        conv = conv_repo.create_conversation(
+            user_id=actor_user_id,
+            title=payload.title or "Cuộc trò chuyện mới",
+        )
         return {"status": "created", "conversation": conv.to_dict()}
     except Exception as e:
-        logger.warning("Could not create conversation for user_id=%s: %s", payload.user_id, e)
+        logger.warning("Could not create conversation for user_id=%s: %s", actor_user_id, e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Không thể tạo cuộc trò chuyện: {e}",
@@ -99,13 +109,18 @@ def create_conversation(payload: CreateConversationRequest):
 
 
 @conv_router.get("/{conv_id}/messages")
-def get_conversation_messages(conv_id: str, user_id: int = Query(...)):
-    """Get all messages for a specific conversation."""
-    conv = conv_repo.get_conversation(user_id=user_id, conversation_id=conv_id)
+def get_conversation_messages(
+    conv_id: str,
+    user_id: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Get all messages for a specific conversation owned by authenticated user."""
+    actor_user_id = verify_actor_user_id_match(current_user, user_id)
+    conv = conv_repo.get_conversation(user_id=actor_user_id, conversation_id=conv_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Không tìm thấy cuộc trò chuyện.")
 
-    db_msgs = conv_repo.get_messages(user_id=user_id, conversation_id=conv_id)
+    db_msgs = conv_repo.get_messages(user_id=actor_user_id, conversation_id=conv_id)
     messages = []
     for m in db_msgs:
         meta_dict = m.get_meta()
@@ -130,32 +145,66 @@ def get_conversation_messages(conv_id: str, user_id: int = Query(...)):
 
 
 @conv_router.patch("/{conv_id}/title")
-def rename_conversation(conv_id: str, payload: RenameConversationRequest):
-    """Rename a conversation."""
-    updated = conv_repo.update_title(user_id=payload.user_id, conversation_id=conv_id, new_title=payload.title)
+def rename_conversation(
+    conv_id: str,
+    payload: RenameConversationRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Rename a conversation owned by authenticated user."""
+    actor_user_id = verify_actor_user_id_match(current_user, payload.user_id)
+    updated = conv_repo.update_title(user_id=actor_user_id, conversation_id=conv_id, new_title=payload.title)
     if not updated:
         raise HTTPException(status_code=404, detail="Không thể đổi tên cuộc trò chuyện.")
     return {"status": "updated", "conversation_id": conv_id, "title": payload.title}
 
 
 @conv_router.patch("/{conv_id}/pin")
-def toggle_pin_conversation(conv_id: str, user_id: int = Query(...)):
-    """Toggle pinned status for a conversation."""
-    new_state = conv_repo.toggle_pin_conversation(user_id=user_id, conversation_id=conv_id)
-    return {"status": "updated", "conversation_id": conv_id, "is_pinned": new_state}
+def toggle_pin_conversation(
+    conv_id: str,
+    user_id: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Toggle pinned status for a conversation owned by authenticated user."""
+    actor_user_id = verify_actor_user_id_match(current_user, user_id)
+    conv = conv_repo.get_conversation(user_id=actor_user_id, conversation_id=conv_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc trò chuyện.")
+    toggled = conv_repo.toggle_pin_conversation(user_id=actor_user_id, conversation_id=conv_id)
+    if not toggled:
+        raise HTTPException(status_code=404, detail="Không thể cập nhật trạng thái ghim.")
+    return {"status": "updated", "conversation_id": conv_id, "is_pinned": not conv.is_pinned}
 
 
 @conv_router.delete("/{conv_id}")
-def delete_conversation(conv_id: str, user_id: int = Query(...)):
-    """Delete a conversation."""
-    deleted = conv_repo.delete_conversation(user_id=user_id, conversation_id=conv_id)
+def delete_conversation(
+    conv_id: str,
+    user_id: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a conversation owned by authenticated user."""
+    actor_user_id = verify_actor_user_id_match(current_user, user_id)
+    deleted = conv_repo.delete_conversation(user_id=actor_user_id, conversation_id=conv_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Không thể xóa cuộc trò chuyện.")
+    try:
+        from vocab_backend.api_server import build_user_session_key, clear_session_tracker
+        clear_session_tracker(build_user_session_key(actor_user_id, conv_id))
+    except Exception:
+        pass
     return {"status": "deleted", "conversation_id": conv_id}
 
 
 @conv_router.delete("")
-def clear_all_history(user_id: int = Query(...)):
-    """Clear all chat history for user."""
-    count = conv_repo.clear_user_history(user_id=user_id)
+def clear_all_history(
+    user_id: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Clear all chat history for authenticated user."""
+    actor_user_id = verify_actor_user_id_match(current_user, user_id)
+    count = conv_repo.clear_user_history(user_id=actor_user_id)
+    try:
+        from vocab_backend.api_server import clear_user_trackers
+        clear_user_trackers(actor_user_id)
+    except Exception:
+        pass
     return {"status": "cleared", "deleted_count": count}

@@ -1,9 +1,50 @@
 /**
  * API client service for communicating with the backend FastAPI server.
- * Includes Auth, Conversations, Streaming SSE, Discovery, Search, and Admin endpoints.
+ * Manages in-memory Bearer Access Token and handles 401 session expiration cleanly.
  */
 
 const API_BASE = '/api';
+
+let authToken = null;
+let unauthorizedHandler = null;
+
+export function setAuthToken(token) {
+  authToken = token || null;
+}
+
+export function getAuthToken() {
+  return authToken;
+}
+
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = typeof handler === 'function' ? handler : null;
+}
+
+export function notifyUnauthorized() {
+  if (authToken) {
+    authToken = null;
+    if (unauthorizedHandler) {
+      unauthorizedHandler();
+    }
+  }
+}
+
+export function getAuthHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  return headers;
+}
+
+async function authFetch(url, options = {}) {
+  const headers = getAuthHeaders(options.headers || {});
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    notifyUnauthorized();
+  }
+  return res;
+}
 
 // -------------------------------------------------------------
 // Authentication & User Profile
@@ -23,6 +64,9 @@ export async function loginUser(username, password) {
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.detail || 'Đăng nhập không thành công.');
+  }
+  if (data.access_token) {
+    setAuthToken(data.access_token);
   }
   return data;
 }
@@ -45,14 +89,28 @@ export async function registerUser(username, password, confirmPassword, displayN
   return data;
 }
 
-export async function verifySession(userId) {
-  const res = await fetch(`${API_BASE}/auth/me?user_id=${userId}`);
+export async function logoutUser() {
+  if (!authToken) return;
+  try {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+  } finally {
+    setAuthToken(null);
+  }
+}
+
+export async function verifySession(userId = null) {
+  if (!authToken) return null;
+  const suffix = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/auth/me${suffix}`);
   if (!res.ok) return null;
   return res.json();
 }
 
 export async function changePassword(userId, currentPassword, newPassword, confirmPassword) {
-  const res = await fetch(`${API_BASE}/auth/change-password`, {
+  const res = await authFetch(`${API_BASE}/auth/change-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -64,6 +122,9 @@ export async function changePassword(userId, currentPassword, newPassword, confi
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || 'Không thể đổi mật khẩu.');
+  if (data.access_token) {
+    setAuthToken(data.access_token);
+  }
   return data;
 }
 
@@ -71,15 +132,16 @@ export async function changePassword(userId, currentPassword, newPassword, confi
 // Conversations & Chat History
 // -------------------------------------------------------------
 export async function getConversations(userId, search = '') {
-  const params = new URLSearchParams({ user_id: String(userId) });
+  const params = new URLSearchParams();
+  if (userId) params.set('user_id', String(userId));
   if (search) params.set('search', search);
-  const res = await fetch(`${API_BASE}/conversations?${params.toString()}`);
+  const res = await authFetch(`${API_BASE}/conversations?${params.toString()}`);
   if (!res.ok) return { pinned: [], grouped: { 'Hôm nay': [], '7 ngày gần đây': [], 'Trước đó': [] }, total: 0 };
   return res.json();
 }
 
 export async function createConversation(userId, title = 'Cuộc trò chuyện mới') {
-  const res = await fetch(`${API_BASE}/conversations`, {
+  const res = await authFetch(`${API_BASE}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, title }),
@@ -89,13 +151,14 @@ export async function createConversation(userId, title = 'Cuộc trò chuyện m
 }
 
 export async function getConversationMessages(convId, userId) {
-  const res = await fetch(`${API_BASE}/conversations/${convId}/messages?user_id=${userId}`);
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/conversations/${convId}/messages${params}`);
   if (!res.ok) throw new Error('Không thể tải tin nhắn.');
   return res.json();
 }
 
 export async function renameConversation(convId, userId, title) {
-  const res = await fetch(`${API_BASE}/conversations/${convId}/title`, {
+  const res = await authFetch(`${API_BASE}/conversations/${convId}/title`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, title }),
@@ -105,7 +168,8 @@ export async function renameConversation(convId, userId, title) {
 }
 
 export async function togglePinConversation(convId, userId) {
-  const res = await fetch(`${API_BASE}/conversations/${convId}/pin?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/conversations/${convId}/pin${params}`, {
     method: 'PATCH',
   });
   if (!res.ok) throw new Error('Không thể ghim cuộc trò chuyện.');
@@ -113,7 +177,8 @@ export async function togglePinConversation(convId, userId) {
 }
 
 export async function deleteConversation(convId, userId) {
-  const res = await fetch(`${API_BASE}/conversations/${convId}?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/conversations/${convId}${params}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('Không thể xóa cuộc trò chuyện.');
@@ -121,7 +186,8 @@ export async function deleteConversation(convId, userId) {
 }
 
 export async function clearAllConversations(userId) {
-  const res = await fetch(`${API_BASE}/conversations?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/conversations${params}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('Không thể xóa toàn bộ lịch sử.');
@@ -142,7 +208,7 @@ export async function streamChatMessage({
   onError,
 }) {
   try {
-    const res = await fetch(`${API_BASE}/chat/stream`, {
+    const res = await authFetch(`${API_BASE}/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -154,7 +220,7 @@ export async function streamChatMessage({
     });
 
     if (!res.ok) {
-      throw new Error(`Streaming failed with status: ${res.statusText}`);
+      throw new Error(`Streaming failed with status: ${res.status} ${res.statusText}`);
     }
 
     const reader = res.body.getReader();
@@ -196,15 +262,15 @@ export async function streamChatMessage({
 }
 
 // Fallback regular chat endpoint
-export async function sendChatMessage(query, level = 'Tất cả', conversationId = null, userId = 1) {
-  const res = await fetch(`${API_BASE}/chat`, {
+export async function sendChatMessage(query, level = 'Tất cả', conversationId = null, userId = null) {
+  const res = await authFetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       query,
       level,
       conversation_id: conversationId,
-      user_id: String(userId),
+      user_id: userId,
     }),
   });
   if (!res.ok) throw new Error(`API error: ${res.statusText}`);
@@ -214,19 +280,19 @@ export async function sendChatMessage(query, level = 'Tất cả', conversationI
 export async function searchWords(q, level = null, limit = 10) {
   const params = new URLSearchParams({ q, limit: String(limit) });
   if (level && level !== 'Tất cả') params.set('level', level);
-  const res = await fetch(`${API_BASE}/words/search?${params.toString()}`);
+  const res = await authFetch(`${API_BASE}/words/search?${params.toString()}`);
   if (!res.ok) return { results: [] };
   return res.json();
 }
 
 export async function getAvailableLevels() {
-  const res = await fetch(`${API_BASE}/words/levels`);
+  const res = await authFetch(`${API_BASE}/words/levels`);
   if (!res.ok) return { levels: ['A1', 'A2'], counts: {} };
   return res.json();
 }
 
 export async function getDiscoveryWords(level = 'A1', count = 8) {
-  const res = await fetch(`${API_BASE}/words/discover?level=${encodeURIComponent(level)}&count=${count}`);
+  const res = await authFetch(`${API_BASE}/words/discover?level=${encodeURIComponent(level)}&count=${count}`);
   if (!res.ok) return { words: [] };
   return res.json();
 }
@@ -235,13 +301,15 @@ export async function getDiscoveryWords(level = 'A1', count = 8) {
 // Admin Portal & Knowledge Base Management
 // -------------------------------------------------------------
 export async function getAdminMetrics(userId) {
-  const res = await fetch(`${API_BASE}/admin/metrics?user_id=${userId}`);
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/metrics${params}`);
   if (!res.ok) throw new Error('Failed to get storage metrics');
   return res.json();
 }
 
 export async function getAdminSources(userId) {
-  const res = await fetch(`${API_BASE}/admin/sources?user_id=${userId}`);
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/sources${params}`);
   if (!res.ok) throw new Error('Failed to get active sources');
   const data = await res.json();
   return Array.isArray(data) ? data : (data.sources || []);
@@ -249,13 +317,13 @@ export async function getAdminSources(userId) {
 
 export async function uploadAdminFiles(userId, mode, files) {
   const formData = new FormData();
-  formData.append('user_id', String(userId));
+  if (userId) formData.append('user_id', String(userId));
   formData.append('mode', mode);
   for (const file of files) {
     formData.append('files', file);
   }
 
-  const res = await fetch(`${API_BASE}/admin/upload`, {
+  const res = await authFetch(`${API_BASE}/admin/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -265,7 +333,8 @@ export async function uploadAdminFiles(userId, mode, files) {
 }
 
 export async function clearAdminKnowledgeBase(userId) {
-  const res = await fetch(`${API_BASE}/admin/clear-kb?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/clear-kb${params}`, {
     method: 'POST',
   });
   const data = await res.json();
@@ -273,10 +342,9 @@ export async function clearAdminKnowledgeBase(userId) {
   return data;
 }
 
-
-
 export async function deleteAdminSource(userId, sourceId) {
-  const res = await fetch(`${API_BASE}/admin/sources/${sourceId}?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/sources/${sourceId}${params}`, {
     method: 'DELETE',
   });
   const data = await res.json();
@@ -285,19 +353,23 @@ export async function deleteAdminSource(userId, sourceId) {
 }
 
 export async function getAdminTelemetry(userId) {
-  const res = await fetch(`${API_BASE}/admin/telemetry?user_id=${userId}`);
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/telemetry${params}`);
   if (!res.ok) throw new Error('Failed to get telemetry');
   return res.json();
 }
 
 export async function getAdminOllama(userId) {
-  const res = await fetch(`${API_BASE}/admin/ollama?user_id=${userId}`);
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/ollama${params}`);
   if (!res.ok) throw new Error('Failed to get Ollama status');
   return res.json();
 }
 
 export async function getAdminAuditLogs(userId, limit = 50) {
-  const res = await fetch(`${API_BASE}/admin/audit-logs?user_id=${userId}&limit=${limit}`);
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (userId) params.set('user_id', String(userId));
+  const res = await authFetch(`${API_BASE}/admin/audit-logs?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to get audit logs');
   const data = await res.json();
   return Array.isArray(data) ? data : (data.logs || []);
@@ -307,26 +379,29 @@ export async function getAdminAuditLogs(userId, limit = 50) {
 // Admin: User & Account Management (Migrated from app.py & admin_dashboard.py)
 // -------------------------------------------------------------
 export async function getAdminUserStats(userId) {
-  const res = await fetch(`${API_BASE}/admin/users/stats?user_id=${userId}`);
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/users/stats${params}`);
   if (!res.ok) throw new Error('Failed to get user stats');
   return res.json();
 }
 
 export async function getAdminUsers(userId, { search = '', role = '', isActive = null, limit = 100, offset = 0 } = {}) {
-  const params = new URLSearchParams({ user_id: String(userId), limit: String(limit), offset: String(offset) });
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (userId) params.set('user_id', String(userId));
   if (search) params.append('search', search);
   if (role && role !== 'all') params.append('role', role);
   if (isActive !== null && isActive !== undefined && isActive !== 'all') {
     params.append('is_active', String(isActive));
   }
-  const res = await fetch(`${API_BASE}/admin/users?${params.toString()}`);
+  const res = await authFetch(`${API_BASE}/admin/users?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to get user list');
   const data = await res.json();
   return data.users || [];
 }
 
 export async function updateAdminUserStatus(userId, targetId, isActive) {
-  const res = await fetch(`${API_BASE}/admin/users/${targetId}/status?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/users/${targetId}/status${params}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ is_active: Boolean(isActive) }),
@@ -337,7 +412,8 @@ export async function updateAdminUserStatus(userId, targetId, isActive) {
 }
 
 export async function updateAdminUserRole(userId, targetId, role) {
-  const res = await fetch(`${API_BASE}/admin/users/${targetId}/role?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/users/${targetId}/role${params}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ role }),
@@ -348,7 +424,8 @@ export async function updateAdminUserRole(userId, targetId, role) {
 }
 
 export async function resetAdminUserPassword(userId, targetId, newPassword) {
-  const res = await fetch(`${API_BASE}/admin/users/${targetId}/reset-password?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/users/${targetId}/reset-password${params}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ new_password: newPassword }),
@@ -359,7 +436,8 @@ export async function resetAdminUserPassword(userId, targetId, newPassword) {
 }
 
 export async function deleteAdminUser(userId, targetId) {
-  const res = await fetch(`${API_BASE}/admin/users/${targetId}?user_id=${userId}`, {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await authFetch(`${API_BASE}/admin/users/${targetId}${params}`, {
     method: 'DELETE',
   });
   const data = await res.json();

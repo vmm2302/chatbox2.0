@@ -12,23 +12,26 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 import requests
 
 from config.settings import settings
 from src.auth.security import hash_password
-from src.auth.service import AuthService
-from src.data.audit_repository import AuditRepository
 from src.data.batch_ingestion import BatchIngestionManager, BatchStatus, FileStatus
+from src.data.user_repository import User
 from src.resource.manager import get_resource_manager
+from vocab_backend.dependencies import (
+    audit_repo,
+    auth_service,
+    require_admin,
+    verify_actor_user_id_match,
+)
 
 logger = logging.getLogger("vocab_api.admin")
 admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-auth_service = AuthService()
 batch_manager = BatchIngestionManager()
-audit_repo = AuditRepository()
 
 
 # -------------------------------------------------------------
@@ -46,39 +49,32 @@ class ResetUserPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6)
 
 
-def require_admin(user_id: int):
-    """Ensure user exists and has admin role."""
-    user = auth_service.user_repo.get_by_id(user_id)
-    if not user or user.role != "admin" or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Yêu cầu quyền Quản trị viên (Admin) để thực hiện thao tác này.",
-        )
-    return user
-
-
 # =============================================================
 # 1. USER & ACCOUNT MANAGEMENT (Migrated from app.py & admin_dashboard.py)
 # =============================================================
 @admin_router.get("/users/stats")
-def get_user_stats(user_id: int = Query(...)):
+def get_user_stats(
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Summary metrics of user accounts: total, active users, active admins."""
-    require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     stats_data = auth_service.user_repo.count_users()
     return stats_data
 
 
 @admin_router.get("/users")
 def get_users_list(
-    user_id: int = Query(...),
+    user_id: Optional[int] = Query(None),
     search: Optional[str] = Query(None),
     role: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
     limit: int = Query(100),
     offset: int = Query(0),
+    admin_user: User = Depends(require_admin),
 ):
     """Search and filter user accounts with role, active status, and pagination."""
-    require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     clean_role = role.strip().lower() if role and role != "all" else None
     users = auth_service.user_repo.list_users(
         search=search,
@@ -94,9 +90,14 @@ def get_users_list(
 
 
 @admin_router.patch("/users/{target_id}/status")
-def update_user_status(target_id: int, payload: UpdateUserStatusRequest, user_id: int = Query(...)):
+def update_user_status(
+    target_id: int,
+    payload: UpdateUserStatusRequest,
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Lock or unlock user account."""
-    admin_user = require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     if target_id == admin_user.id and not payload.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -117,6 +118,14 @@ def update_user_status(target_id: int, payload: UpdateUserStatusRequest, user_id
     if not success:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Cập nhật trạng thái thất bại.")
 
+    if not payload.is_active:
+        auth_service.revoke_user_sessions(target_id)
+        try:
+            from vocab_backend.api_server import clear_user_trackers
+            clear_user_trackers(target_id)
+        except Exception:
+            pass
+
     audit_repo.log(
         actor_username=admin_user.username,
         actor_id=admin_user.id,
@@ -130,9 +139,14 @@ def update_user_status(target_id: int, payload: UpdateUserStatusRequest, user_id
 
 
 @admin_router.patch("/users/{target_id}/role")
-def update_user_role(target_id: int, payload: UpdateUserRoleRequest, user_id: int = Query(...)):
+def update_user_role(
+    target_id: int,
+    payload: UpdateUserRoleRequest,
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Change user role (user <-> admin). Protects against demoting the sole active admin."""
-    admin_user = require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     clean_role = payload.role.strip().lower()
 
     if target_id == admin_user.id and clean_role != "admin":
@@ -151,6 +165,9 @@ def update_user_role(target_id: int, payload: UpdateUserRoleRequest, user_id: in
     if not success:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Cập nhật vai trò thất bại.")
 
+    if target_user.role != clean_role:
+        auth_service.revoke_user_sessions(target_id)
+
     audit_repo.log(
         actor_username=admin_user.username,
         actor_id=admin_user.id,
@@ -164,9 +181,14 @@ def update_user_role(target_id: int, payload: UpdateUserRoleRequest, user_id: in
 
 
 @admin_router.post("/users/{target_id}/reset-password")
-def reset_user_password(target_id: int, payload: ResetUserPasswordRequest, user_id: int = Query(...)):
+def reset_user_password(
+    target_id: int,
+    payload: ResetUserPasswordRequest,
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Admin resets a learner or admin password."""
-    admin_user = require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     target_user = auth_service.user_repo.get_by_id(target_id)
     if not target_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy người dùng.")
@@ -175,6 +197,8 @@ def reset_user_password(target_id: int, payload: ResetUserPasswordRequest, user_
     success = auth_service.user_repo.update_password(target_id, new_hash)
     if not success:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Đặt lại mật khẩu thất bại.")
+
+    auth_service.revoke_user_sessions(target_id)
 
     audit_repo.log(
         actor_username=admin_user.username,
@@ -189,9 +213,13 @@ def reset_user_password(target_id: int, payload: ResetUserPasswordRequest, user_
 
 
 @admin_router.delete("/users/{target_id}")
-def delete_user_account(target_id: int, user_id: int = Query(...)):
+def delete_user_account(
+    target_id: int,
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Delete a user account and associated records. Protects against self-deletion and admin-deletion."""
-    admin_user = require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     if target_id == admin_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -208,9 +236,16 @@ def delete_user_account(target_id: int, user_id: int = Query(...)):
             detail="Không thể xóa tài khoản Quản trị viên (Admin).",
         )
 
+    auth_service.revoke_user_sessions(target_id)
     success = auth_service.user_repo.delete_user(target_id)
     if not success:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Xóa người dùng thất bại.")
+
+    try:
+        from vocab_backend.api_server import clear_user_trackers
+        clear_user_trackers(target_id)
+    except Exception:
+        pass
 
     audit_repo.log(
         actor_username=admin_user.username,
@@ -228,9 +263,12 @@ def delete_user_account(target_id: int, user_id: int = Query(...)):
 # 2. KNOWLEDGE BASE & STORAGE METRICS (4 Independent Layers)
 # =============================================================
 @admin_router.get("/metrics")
-def get_storage_metrics(user_id: int = Query(...)):
+def get_storage_metrics(
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Inspect the 4 independent storage layers (JSONL disk, RAM records, ChromaDB, BM25)."""
-    require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     from vocab_backend.api_server import get_chat_engine
 
     engine = get_chat_engine()
@@ -290,9 +328,12 @@ def get_storage_metrics(user_id: int = Query(...)):
 
 
 @admin_router.get("/sources")
-def get_active_sources(user_id: int = Query(...)):
+def get_active_sources(
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """List knowledge sources currently ingested into the system."""
-    require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     results = []
 
     # Check raw data dir for loaded files
@@ -325,12 +366,13 @@ def get_active_sources(user_id: int = Query(...)):
 
 @admin_router.post("/upload")
 async def upload_knowledge_files(
-    user_id: int = Form(...),
+    user_id: Optional[int] = Form(None),
     mode: str = Form("merge"),
     files: List[UploadFile] = File(...),
+    admin_user: User = Depends(require_admin),
 ):
     """Multi-format batch ingestion for knowledge base (PDF, Word, Excel, CSV, SQLite)."""
-    admin_user = require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     from vocab_backend.api_server import get_chat_engine
 
     if not files:
@@ -395,6 +437,7 @@ async def upload_knowledge_files(
 
         # 2. Quản lý lưu trữ tệp trên đĩa:
         # Nếu tệp đã có trên đĩa raw với cùng mã băm (SHA-256), tái sử dụng tệp vật lý đó, không tạo bản sao trùng
+        existing_file = existing_raw_by_hash.get(uf_hash)
         if existing_file:
             target_path = existing_file
         else:
@@ -533,9 +576,12 @@ async def upload_knowledge_files(
 
 
 @admin_router.post("/clear-kb")
-def clear_knowledge_base(user_id: int = Query(...)):
+def clear_knowledge_base(
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Reset knowledge base (Danger Zone operation)."""
-    admin_user = require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     from vocab_backend.api_server import get_chat_engine
 
     engine = get_chat_engine()
@@ -560,9 +606,13 @@ def clear_knowledge_base(user_id: int = Query(...)):
 
 
 @admin_router.delete("/sources/{source_id}")
-def delete_knowledge_source(source_id: str, user_id: int = Query(...)):
+def delete_knowledge_source(
+    source_id: str,
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Delete a specific knowledge source from ChromaDB, JSONL, and manifest."""
-    admin_user = require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     from vocab_backend.api_server import get_chat_engine
 
     engine = get_chat_engine()
@@ -594,9 +644,12 @@ def delete_knowledge_source(source_id: str, user_id: int = Query(...)):
 # 3. TELEMETRY, OLLAMA STATUS & AUDIT LOGS
 # =============================================================
 @admin_router.get("/telemetry")
-def get_system_telemetry(user_id: int = Query(...)):
+def get_system_telemetry(
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Get system telemetry (VRAM GPU, RAM, CPU threads, ResourceState)."""
-    require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     rm = get_resource_manager()
 
     vram = rm.telemetry.get_vram_info()
@@ -621,9 +674,12 @@ def get_system_telemetry(user_id: int = Query(...)):
 
 
 @admin_router.get("/ollama")
-def get_ollama_status(user_id: int = Query(...)):
+def get_ollama_status(
+    user_id: Optional[int] = Query(None),
+    admin_user: User = Depends(require_admin),
+):
     """Check Ollama service status, installed models, and running models."""
-    require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     clean_url = (settings.OLLAMA_BASE_URL or "http://localhost:11434").rstrip("/")
     status_data = {
         "online": False,
@@ -658,8 +714,12 @@ def get_ollama_status(user_id: int = Query(...)):
 
 
 @admin_router.get("/audit-logs")
-def get_audit_logs(user_id: int = Query(...), limit: int = Query(50)):
+def get_audit_logs(
+    user_id: Optional[int] = Query(None),
+    limit: int = Query(50),
+    admin_user: User = Depends(require_admin),
+):
     """Get recent audit logs for security and compliance review."""
-    require_admin(user_id)
+    verify_actor_user_id_match(admin_user, user_id)
     logs = [l.to_dict() for l in audit_repo.list_logs(limit=limit)]
     return {"logs": logs}

@@ -1,6 +1,8 @@
 """Module phân tích ý định người dùng (Query Understanding) sử dụng PhoBERT-base-v2.
 
 Triển khai phương pháp: Prototype-based Intent Classification using PhoBERT Representations.
+Tiền xử lý tách từ tiếng Việt (Word Segmentation) chuẩn hóa dấu gạch dưới (ví dụ: 'gia_đình', 'trình_độ')
+trước khi đưa vào PhoBERT Tokenizer cho cả tập Intent Prototypes và câu truy vấn đầu vào.
 So khớp độ tương đồng ngữ nghĩa (Cosine Similarity) giữa biểu diễn vector ngữ cảnh của PhoBERT
 với tập hợp các Intent Prototypes chuẩn hóa tiếng Việt, không tự ý train classifier head giả lập.
 """
@@ -13,6 +15,13 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from transformers import AutoModel, AutoTokenizer
 
+try:
+    from pyvi import ViTokenizer
+    _HAS_PYVI = True
+except ImportError:
+    ViTokenizer = None
+    _HAS_PYVI = False
+
 from config.settings import settings
 from src.chat.topic_tracker import TopicTracker
 from src.core.models import IntentResult, IntentType
@@ -23,6 +32,98 @@ logger = logging.getLogger(__name__)
 # Khóa chế độ offline cho HuggingFace
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+# Tập từ ghép tiếng Việt dự phòng (dùng cho chế độ offline nếu pyvi không khả dụng)
+_FALLBACK_COMPOUND_WORDS = frozenset({
+    # Cụm 3 tiếng trở lên
+    "có nghĩa là", "tiếng anh là", "bạn có thể", "như thế nào", "người đầu tiên",
+    # Cụm 2 tiếng phổ biến trong từ điển & câu hỏi
+    "từ vựng", "ý nghĩa", "nghĩa là", "giải thích", "tra cứu", "trình độ", "cấp độ",
+    "ngữ cảnh", "danh sách", "liệt kê", "câu hỏi", "phát âm", "ví dụ", "cách dùng",
+    "tiếng anh", "tiếng việt", "danh từ", "động từ", "tính từ", "trạng từ", "giới từ",
+    "liên từ", "đại từ", "mạo từ", "sử dụng", "viết thế", "thế nào", "gia đình",
+    "trường học", "hạnh phúc", "từ bỏ", "bắt đầu", "căn phòng", "quả táo", "vay mượn",
+    "thời tiết", "hà nội", "hôm nay", "thủ đô", "nước pháp", "phương trình",
+    "toán học", "bậc hai", "đầu tiên", "mặt trăng", "mã hóa", "học sinh", "sinh viên",
+    "lịch sử", "địa lý", "chính trị", "tổng thống", "tiền ảo", "chứng khoán",
+    "thế còn", "vậy còn", "câu ví", "tương đối", "kỳ lân", "nói đến", "biểu diễn",
+})
+
+
+def _segment_with_fallback(text: str) -> str:
+    """Tách từ tiếng Việt dự phòng bằng thuật toán Longest-Matching thuần Python."""
+    tokens = re.findall(r"\S+", text)
+    if not tokens:
+        return ""
+
+    result: List[str] = []
+    i = 0
+    n = len(tokens)
+    while i < n:
+        matched = False
+        # Thử ghép cụm 3 âm tiết rồi 2 âm tiết (bảo toàn dấu câu cuối cụm)
+        for span in (3, 2):
+            if i + span > n:
+                continue
+            chunk = tokens[i : i + span]
+            last_clean = re.sub(r"([?.!,;:]+)$", "", chunk[-1])
+            punct_suffix = chunk[-1][len(last_clean):]
+            candidate_words = chunk[:-1] + [last_clean]
+            if any(re.search(r"[?.!,;:]", w) for w in candidate_words):
+                continue
+            candidate_phrase = " ".join(candidate_words).lower()
+            if candidate_phrase in _FALLBACK_COMPOUND_WORDS:
+                joined = "_".join(candidate_words) + (f" {punct_suffix}" if punct_suffix else "")
+                result.append(joined)
+                i += span
+                matched = True
+                break
+        if not matched:
+            result.append(tokens[i])
+            i += 1
+    return " ".join(result)
+
+
+def segment_vietnamese_text(text: str, use_pyvi: Optional[bool] = None) -> str:
+    """Tách từ tiếng Việt thành dạng nối dấu gạch dưới ('từ_ghép') cho PhoBERT.
+
+    - Ưu tiên dùng `pyvi.ViTokenizer.tokenize` (chạy 100% offline).
+    - Tự động chuyển sang bộ tách từ Longest-Matching thuần Python nếu thiếu `pyvi`.
+    - Bảo toàn từ ghép tiếng Anh có dấu gạch nối (như `hard-working`) và chuẩn hóa chữ thường
+      nhất quán giữa các câu mẫu Intent Prototypes và câu truy vấn của người dùng.
+    """
+    if not text or not isinstance(text, str):
+        return ""
+
+    clean = re.sub(r"\s+", " ", text).strip()
+    if not clean:
+        return ""
+
+    # Bảo vệ từ tiếng Anh có dấu gạch nối (vd: hard-working, e-mail) khỏi bị tách thành 'hard - working'
+    hyphen_tokens: Dict[str, str] = {}
+
+    def _protect_hyphen(match: re.Match) -> str:
+        placeholder = f"__ENHYPHEN{len(hyphen_tokens)}__"
+        hyphen_tokens[placeholder] = match.group(0)
+        return placeholder
+
+    protected = re.sub(r"\b[a-zA-Z]+(?:-[a-zA-Z]+)+\b", _protect_hyphen, clean)
+
+    should_use_pyvi = _HAS_PYVI if use_pyvi is None else (bool(use_pyvi) and _HAS_PYVI)
+    if should_use_pyvi and ViTokenizer is not None:
+        try:
+            segmented = ViTokenizer.tokenize(protected)
+        except Exception as exc:
+            logger.warning("ViTokenizer.tokenize thất bại (%s), dùng fallback thuần Python.", exc)
+            segmented = _segment_with_fallback(protected)
+    else:
+        segmented = _segment_with_fallback(protected)
+
+    for placeholder, orig in hyphen_tokens.items():
+        segmented = segmented.replace(placeholder, orig)
+
+    return re.sub(r"\s+", " ", segmented).strip().lower()
+
 
 # Danh mục các Intent và Prototype Examples mẫu tiếng Việt
 INTENT_PROTOTYPES: Dict[IntentType, List[str]] = {
@@ -81,15 +182,23 @@ INTENT_PROTOTYPES: Dict[IntentType, List[str]] = {
 class PhoBERTIntentClassifier:
     """Lớp phân loại ý định dựa trên biểu diễn vector ngữ nghĩa của PhoBERT-base-v2."""
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: Optional[str] = None, use_word_segmentation: bool = True):
         self.model_name = model_name or settings.PHOBERT_MODEL_NAME
+        self.use_word_segmentation = use_word_segmentation
         self.tokenizer = None
         self.model = None
+        self.segmented_prototypes: Dict[IntentType, List[str]] = {}
         self.prototype_embeddings: Dict[IntentType, torch.Tensor] = {}
         self._is_ready = False
 
+    def _prepare_text(self, text: str) -> str:
+        """Tiền xử lý tách từ tiếng Việt và chuẩn hóa trước khi đưa vào PhoBERT."""
+        if self.use_word_segmentation:
+            return segment_vietnamese_text(text)
+        return text.strip().lower()
+
     def initialize(self) -> None:
-        """Nạp mô hình PhoBERT offline và tính sẵn vector cho các intent prototypes."""
+        """Nạp mô hình PhoBERT offline, tách từ các Intent Prototypes và tính sẵn vector đại diện."""
         if self._is_ready:
             return
 
@@ -107,13 +216,22 @@ class PhoBERTIntentClassifier:
             raise RuntimeError(err_msg) from exc
         self.model.eval()
 
-        logger.info("Bắt đầu tính toán biểu diễn vector cho các Intent Prototypes...")
+        seg_backend = "pyvi (ViTokenizer)" if _HAS_PYVI else "fallback thuần Python"
+        logger.info(
+            "Bắt đầu tách từ (%s) và tính toán vector cho các Intent Prototypes...",
+            seg_backend if self.use_word_segmentation else "tắt tách từ",
+        )
+        self.segmented_prototypes = {}
         with torch.no_grad():
             for intent, examples in INTENT_PROTOTYPES.items():
+                segmented_examples: List[str] = []
                 vectors = []
                 for ex in examples:
-                    v = self._encode_sentence(ex)
+                    prepared_ex = self._prepare_text(ex)
+                    segmented_examples.append(prepared_ex)
+                    v = self._encode_sentence(prepared_ex)
                     vectors.append(v)
+                self.segmented_prototypes[intent] = segmented_examples
                 # Tính vector trung bình (centroid) đại diện cho Intent và chuẩn hóa đơn vị
                 stacked = torch.stack(vectors)
                 centroid = torch.mean(stacked, dim=0)
@@ -143,7 +261,6 @@ class PhoBERTIntentClassifier:
             # Chuẩn hóa L2
             normalized = mean_pooled / torch.norm(mean_pooled, dim=-1, keepdim=True)
             return normalized.squeeze(0)
-
 
     def classify_intent(
         self,
@@ -178,13 +295,13 @@ class PhoBERTIntentClassifier:
         target_word = active_tracker.extract_target_word(clean_query)
         target_level = active_tracker.extract_target_level(clean_query)
 
-
         # 2. Quy tắc phát hiện câu hỏi nối tiếp (Follow-up heuristics)
         follow_up_cues = ["còn", "thế còn", "vậy còn", "dạng từ", "dạng danh từ", "dạng tính từ", "ví dụ nữa"]
         is_follow_up_cue = any(clean_query.lower().startswith(cue) or f" {cue} " in clean_query.lower() for cue in follow_up_cues)
 
-        # 3. Tính toán vector câu hỏi qua PhoBERT (chuẩn hóa chữ thường để đồng nhất biểu diễn)
-        query_vector = self._encode_sentence(clean_query.lower())
+        # 3. Tách từ tiếng Việt & chuẩn hóa trước khi đưa vào PhoBERT
+        prepared_query = self._prepare_text(clean_query)
+        query_vector = self._encode_sentence(prepared_query)
 
         # 4. So sánh cosine similarity với tất cả các Intent Prototype Centroids
         best_intent: IntentType = "OUT_OF_SCOPE"
@@ -271,4 +388,3 @@ def extract_vietnamese_query_phrase(query: str) -> str:
     """Trích xuất từ hoặc cụm từ tiếng Việt cốt lõi cần tra cứu dịch sang tiếng Anh."""
     from src.chat.topic_tracker import TopicTracker
     return TopicTracker.extract_vietnamese_phrase(query)
-

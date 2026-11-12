@@ -11,6 +11,7 @@ Covers:
 """
 
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from fastapi.testclient import TestClient
 from config.settings import settings
 from src.tts.engine import KokoroTTSEngine, get_tts_engine
 from vocab_backend.api_server import app
+from vocab_backend.dependencies import auth_service
 
 
 class TestKokoroTTSEngine(unittest.TestCase):
@@ -107,10 +109,31 @@ class TestKokoroTTSRoutes(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(app)
+        uname = f"tts_test_{int(time.time() * 1000)}"
+        reg = cls.client.post(
+            "/api/auth/register",
+            json={
+                "username": uname,
+                "password": "TtsPassword123!",
+                "confirm_password": "TtsPassword123!",
+            },
+        )
+        cls.test_user_id = reg.json()["user"]["id"]
+        login = cls.client.post(
+            "/api/auth/login",
+            json={"username": uname, "password": "TtsPassword123!"},
+        )
+        cls.auth_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "test_user_id", None):
+            auth_service.user_repo.delete_user(cls.test_user_id)
 
     def test_01_api_tts_status(self):
-        """Test GET /api/tts/status endpoint."""
-        res = self.client.get("/api/tts/status")
+        """Test GET /api/tts/status requires Bearer token and returns availability."""
+        self.assertEqual(self.client.get("/api/tts/status").status_code, 401)
+        res = self.client.get("/api/tts/status", headers=self.auth_headers)
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertTrue(data.get("available"))
@@ -118,7 +141,8 @@ class TestKokoroTTSRoutes(unittest.TestCase):
 
     def test_02_api_tts_synthesize_success(self):
         """Test POST /api/tts/synthesize endpoint returns audio/wav."""
-        res = self.client.post("/api/tts/synthesize", json={"text": "hello"})
+        self.assertEqual(self.client.post("/api/tts/synthesize", json={"text": "hello"}).status_code, 401)
+        res = self.client.post("/api/tts/synthesize", headers=self.auth_headers, json={"text": "hello"})
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.headers.get("content-type"), "audio/wav")
         body = res.content
@@ -128,7 +152,7 @@ class TestKokoroTTSRoutes(unittest.TestCase):
 
     def test_03_api_tts_synthesize_empty_text(self):
         """Test POST /api/tts/synthesize rejects empty or whitespace-only text."""
-        res = self.client.post("/api/tts/synthesize", json={"text": "   "})
+        res = self.client.post("/api/tts/synthesize", headers=self.auth_headers, json={"text": "   "})
         self.assertEqual(res.status_code, 400)
         self.assertIn("Vui lòng cung cấp từ vựng", res.json().get("detail", ""))
 
@@ -136,6 +160,7 @@ class TestKokoroTTSRoutes(unittest.TestCase):
         """Test POST /api/tts/synthesize accepts custom speed parameter."""
         res = self.client.post(
             "/api/tts/synthesize",
+            headers=self.auth_headers,
             json={"text": "good morning", "speed": 1.1, "voice": "af_heart"},
         )
         self.assertEqual(res.status_code, 200)

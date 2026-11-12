@@ -7,10 +7,11 @@ Cung cấp các endpoint:
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from src.tts.engine import get_tts_engine
+from vocab_backend.dependencies import get_current_user
 
 logger = logging.getLogger("vocab_api.tts")
 tts_router = APIRouter(prefix="/api/tts", tags=["tts"])
@@ -22,7 +23,7 @@ class SynthesizeRequest(BaseModel):
     speed: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="Tốc độ phát âm (0.5 - 2.0)")
 
 
-@tts_router.post("/synthesize")
+@tts_router.post("/synthesize", dependencies=[Depends(get_current_user)])
 def synthesize_speech(payload: SynthesizeRequest):
     """Endpoint tạo âm thanh phát âm từ vựng tiếng Anh bằng mô hình Kokoro-ONNX cục bộ.
 
@@ -73,7 +74,7 @@ def synthesize_speech(payload: SynthesizeRequest):
         )
 
 
-@tts_router.get("/status")
+@tts_router.get("/status", dependencies=[Depends(get_current_user)])
 def tts_status():
     """Endpoint kiểm tra trạng thái hoạt động của mô hình TTS cục bộ."""
     tts_engine = get_tts_engine()

@@ -6,7 +6,12 @@ import AdminPanel from './components/AdminPanel';
 import AuthPage from './components/AuthPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import ThemeToggle from './components/ThemeToggle';
-import { verifySession } from './services/api';
+import {
+  verifySession,
+  logoutUser,
+  setAuthToken,
+  setUnauthorizedHandler,
+} from './services/api';
 import { getInitialTheme, applyTheme, subscribeSystemTheme, THEME_STORAGE_KEY } from './utils/theme';
 
 export default function App() {
@@ -32,7 +37,8 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const clearClientSession = () => {
+    setAuthToken(null);
     setCurrentUser(null);
     setIsAdminPage(false);
     try {
@@ -46,13 +52,23 @@ export default function App() {
     clearAdminQueryParam();
   };
 
+  const handleLogout = () => {
+    logoutUser().catch(() => {});
+    clearClientSession();
+  };
+
   // Khi giao diện được khởi chạy hoặc tải lại: xóa sạch phiên lưu cũ để luôn luôn đăng xuất
   useEffect(() => {
+    setAuthToken(null);
+    setUnauthorizedHandler(() => {
+      clearClientSession();
+    });
     try {
       localStorage.removeItem('vocab_chat_user');
       sessionStorage.removeItem('vocab_chat_user');
     } catch (e) {}
     clearAdminQueryParam();
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   // Auto-apply theme and listen to OS system changes (prefers-color-scheme)
@@ -102,15 +118,18 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser?.id) {
-      verifySession(currentUser.id).then((res) => {
+      verifySession().then((res) => {
         if (!res) {
-          handleLogout();
+          clearClientSession();
         }
       }).catch(() => {});
     }
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
-  const handleLoginSuccess = (user) => {
+  const handleLoginSuccess = (user, accessToken = null) => {
+    if (accessToken) {
+      setAuthToken(accessToken);
+    }
     setCurrentUser(user);
     // Không lưu vĩnh viễn vào localStorage để khi chạy lại giao diện luôn luôn bắt đầu ở trang đăng nhập
     try {
