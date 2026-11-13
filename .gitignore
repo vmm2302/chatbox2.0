@@ -78,3 +78,12 @@ adapter_model.*
 adapter_config.json
 trainer_state.json
 
+# 11. Fine-tuning scripts, tests, guides & dependencies
+requirements-finetune.txt
+docs/*FINE_TUNE*
+docs/*fine_tune*
+scripts/*qwen*
+scripts/*ollama*
+tests/test_*qwen*
+
+

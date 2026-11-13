@@ -6,6 +6,9 @@
 export const THEME_STORAGE_KEY = 'vocab_theme_mode';
 
 export function getInitialTheme() {
+  if (typeof localStorage === 'undefined') {
+    return 'system';
+  }
   try {
     const saved = localStorage.getItem(THEME_STORAGE_KEY);
     if (saved === 'light' || saved === 'dark' || saved === 'system') {

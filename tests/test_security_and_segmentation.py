@@ -223,6 +223,80 @@ class TestUserBoundSessionKeyAPIServer(unittest.TestCase):
         )
         self.assertEqual(res_spoof.status_code, 403)
 
+    def test_api_chat_stream_session_isolation_between_users(self):
+        """User A tra từ 'about' qua SSE /api/chat/stream không được rò rỉ active_word sang User B."""
+        clear_user_trackers(self.user_a_id)
+        clear_user_trackers(self.user_b_id)
+
+        conv_a_res = self.client.post(
+            "/api/conversations",
+            headers=self.headers_a,
+            json={"title": "SSE Isolation A"},
+        )
+        conv_b_res = self.client.post(
+            "/api/conversations",
+            headers=self.headers_b,
+            json={"title": "SSE Isolation B"},
+        )
+        self.assertEqual(conv_a_res.status_code, 200)
+        self.assertEqual(conv_b_res.status_code, 200)
+        conv_a_id = conv_a_res.json()["conversation"]["id"]
+        conv_b_id = conv_b_res.json()["conversation"]["id"]
+
+        try:
+            stream_a = self.client.post(
+                "/api/chat/stream",
+                headers=self.headers_a,
+                json={"query": "about nghĩa là gì?", "conversation_id": conv_a_id},
+            )
+            self.assertEqual(stream_a.status_code, 200)
+            self.assertIn("Từ bạn tìm kiếm: about", stream_a.text)
+
+            # User B không được phép đọc/ghi vào conversation_id của User A
+            cross_b = self.client.post(
+                "/api/chat/stream",
+                headers=self.headers_b,
+                json={"query": "từ này nghĩa là gì?", "conversation_id": conv_a_id},
+            )
+            self.assertEqual(cross_b.status_code, 403)
+
+            # User B hỏi mơ hồ trong phiên riêng của B -> phải CLARIFICATION, không lấy 'about' của A
+            stream_b = self.client.post(
+                "/api/chat/stream",
+                headers=self.headers_b,
+                json={"query": "từ này nghĩa là gì?", "conversation_id": conv_b_id},
+            )
+            self.assertEqual(stream_b.status_code, 200)
+            self.assertIn('"mode": "CLARIFICATION"', stream_b.text)
+            self.assertNotIn("Từ bạn tìm kiếm: about", stream_b.text)
+        finally:
+            self.client.delete(f"/api/conversations/{conv_a_id}", headers=self.headers_a)
+            self.client.delete(f"/api/conversations/{conv_b_id}", headers=self.headers_b)
+
+    def test_api_role_downgrade_and_forged_claim_rejected(self):
+        """Kiểm tra phân quyền lại trực tiếp từ DB và chặn token có claim role lỗi thời/giả mạo."""
+        # User A mặc định là 'user' -> bị chặn 403 ở endpoint admin
+        self.assertEqual(self.client.get("/api/admin/metrics", headers=self.headers_a).status_code, 403)
+
+        # Nâng quyền tạm thời User A lên admin trong DB và đăng nhập lấy token admin
+        backend_auth_service.user_repo.set_role(self.user_a_id, "admin")
+        try:
+            login_adm = self.client.post(
+                "/api/auth/login",
+                json={"username": self.user_a_name, "password": "Password123!"},
+            )
+            self.assertEqual(login_adm.status_code, 200)
+            adm_token = login_adm.json()["access_token"]
+            adm_headers = {"Authorization": f"Bearer {adm_token}"}
+            self.assertEqual(self.client.get("/api/admin/metrics", headers=adm_headers).status_code, 200)
+
+            # Hạ quyền User A xuống 'user' trong DB (không thu hồi session thủ công) -> require_admin vẫn chặn 403
+            backend_auth_service.user_repo.set_role(self.user_a_id, "user")
+            res_demoted = self.client.get("/api/admin/metrics", headers=adm_headers)
+            self.assertEqual(res_demoted.status_code, 403)
+        finally:
+            backend_auth_service.user_repo.set_role(self.user_a_id, "user")
+
 
 class TestRunVocabWebNoProcessKill(unittest.TestCase):
     """Kiểm tra run_vocab_web.py không dừng tiến trình, chỉ yêu cầu đổi cổng."""
@@ -292,6 +366,15 @@ class TestPhoBERTWordSegmentation(unittest.TestCase):
         self.assertIn("trường_học", seg)
         self.assertIn("có_nghĩa_là", seg)
 
+    def test_segment_vietnamese_text_pyvi_active(self):
+        """Bộ tách từ pyvi.ViTokenizer phải hoạt động thực sự trên các từ ghép ngoài danh sách fallback."""
+        import src.nlp.phobert_intent as phobert_mod
+        self.assertTrue(phobert_mod._HAS_PYVI, "Thư viện pyvi bắt buộc phải được cài đặt trong môi trường kiểm thử.")
+        seg = segment_vietnamese_text("Giáo dục và ngôn ngữ khoa học", use_pyvi=True)
+        self.assertIn("giáo_dục", seg)
+        self.assertIn("ngôn_ngữ", seg)
+        self.assertIn("khoa_học", seg)
+
     def test_classifier_segments_prototypes_before_encoding(self):
         """PhoBERTIntentClassifier phải tách từ toàn bộ INTENT_PROTOTYPES và câu truy vấn."""
         clf = PhoBERTIntentClassifier()
@@ -308,6 +391,8 @@ class TestPhoBERTWordSegmentation(unittest.TestCase):
 
         res_def = clf.classify_intent("giải thích cho tôi từ abandon có nghĩa là gì")
         self.assertEqual(res_def.intent, "DEFINE_VOCAB")
+        res_single_en = clf.classify_intent("amazing")
+        self.assertEqual(res_single_en.intent, "DEFINE_VOCAB")
         res_oos = clf.classify_intent("thời tiết tại hà nội hôm nay thế nào?")
         self.assertEqual(res_oos.intent, "OUT_OF_SCOPE")
 

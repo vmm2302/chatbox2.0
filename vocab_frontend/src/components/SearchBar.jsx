@@ -7,7 +7,6 @@ export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nháº
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const wrapperRef = useRef(null);
 
@@ -15,25 +14,26 @@ export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nháº
   useEffect(() => {
     const clean = query.trim();
     if (clean.length < 1) {
-      setSuggestions([]);
-      setIsOpen(false);
       return;
     }
 
+    let cancelled = false;
     const timer = setTimeout(async () => {
-      setIsLoading(true);
       try {
         const res = await searchWords(clean, selectedLevel === 'Táº¥t cáº£' ? null : selectedLevel, 8);
-        setSuggestions(res.results || []);
-        setIsOpen((res.results || []).length > 0);
+        if (!cancelled) {
+          setSuggestions(res.results || []);
+          setIsOpen((res.results || []).length > 0);
+        }
       } catch (err) {
         console.error('Search error:', err);
-      } finally {
-        setIsLoading(false);
       }
     }, 180);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query, selectedLevel]);
 
   // Click outside listener
@@ -87,7 +87,14 @@ export default function SearchBar({ onSearch, selectedLevel, placeholder = "Nháº
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setQuery(val);
+              if (!val.trim()) {
+                setSuggestions([]);
+                setIsOpen(false);
+              }
+            }}
             onFocus={() => query.trim() && suggestions.length > 0 && setIsOpen(true)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}

@@ -7,8 +7,6 @@ import {
   PanelLeftOpen,
   Loader2,
   Sparkles,
-  MessageSquare,
-  Plus,
   ArrowRight,
 } from 'lucide-react';
 import VocabCard from './VocabCard';
@@ -406,11 +404,18 @@ export default function ChatView({
                 ) : (
                   /* Bot Message or VocabCard with Outer Border */
                   <div className="flex items-start space-x-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-600 border border-emerald-400/40 text-white flex items-center justify-center font-black text-base shrink-0 shadow-md shadow-emerald-500/20">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-600 border border-emerald-400/40 text-white flex items-center justify-center font-black text-base shrink-0 shadow-md shadow-emerald-500/20 mt-0.5">
                       📚
                     </div>
 
-                    <div className="flex-1 max-w-3xl space-y-3">
+                    <div className="flex-1 max-w-3xl space-y-1.5">
+                      <div className="flex items-center space-x-2 mb-1 ml-1">
+                        <span className="text-xs font-bold text-slate-700 dark:text-zinc-300">Trợ lý Từ vựng AI</span>
+                        {msg.isStreaming && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        )}
+                      </div>
+
                       {msg.cardData ? (
                         /* Rich Interactive Vocabulary Card */
                         <VocabCard
@@ -426,12 +431,16 @@ export default function ChatView({
                               : 'border-slate-200 dark:border-white/15 bg-white dark:bg-[#222222] text-slate-800 dark:text-[#ececec]'
                           }`}
                         >
-                          {msg.content || (
-                            <span className="text-slate-400 dark:text-zinc-500 italic">
-                              Đang phân tích và truy xuất từ vựng...
-                            </span>
+                          {cleanBotDisplayContent(msg.content) || (
+                            <div className="space-y-2 py-0.5">
+                              <span className="flex items-center space-x-2 text-slate-400 dark:text-zinc-500 text-xs sm:text-sm font-medium italic">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                                <span>Đang phân tích và truy xuất từ vựng...</span>
+                              </span>
+                              <div className="h-2 bg-slate-200/70 dark:bg-white/10 rounded-full w-3/5 animate-pulse" />
+                            </div>
                           )}
-                          {msg.isStreaming && (
+                          {msg.isStreaming && cleanBotDisplayContent(msg.content) && (
                             <span className="inline-block w-2 h-4 ml-1 bg-emerald-500 animate-pulse align-middle" />
                           )}
                         </div>
@@ -513,6 +522,16 @@ export default function ChatView({
       </div>
     </div>
   );
+}
+
+/**
+ * Filter out redundant search prefix from raw bot text during streaming or fallback
+ */
+function cleanBotDisplayContent(text) {
+  if (!text) return '';
+  return text
+    .replace(/^(?:\*\*)?từ (?:bạn tìm kiếm|tiếng anh phù hợp):\s*[^\n]+\n*/i, '')
+    .trimStart();
 }
 
 /**

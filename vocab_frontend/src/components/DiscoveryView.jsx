@@ -30,9 +30,7 @@ export default function DiscoveryView({ onSelectWord }) {
         if (isMounted && data && Array.isArray(data.levels) && data.levels.length > 0) {
           setAvailableLevels(data.levels);
           setLevelCounts(data.counts || {});
-          if (!data.levels.includes(level)) {
-            setLevel(data.levels[0]);
-          }
+          setLevel((prev) => (data.levels.includes(prev) ? prev : data.levels[0]));
         }
       } catch (err) {
         console.error('Failed to load available levels:', err);
@@ -57,9 +55,26 @@ export default function DiscoveryView({ onSelectWord }) {
   };
 
   useEffect(() => {
-    if (level) {
-      fetchDiscovery(level);
-    }
+    if (!level) return;
+    let isMounted = true;
+    const loadLevelWords = async () => {
+      try {
+        const res = await getDiscoveryWords(level, 8);
+        if (isMounted) {
+          setWords(res.words || []);
+        }
+      } catch (err) {
+        console.error('Discovery error:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+    loadLevelWords();
+    return () => {
+      isMounted = false;
+    };
   }, [level]);
 
   const handlePlayAudio = (e, word) => {

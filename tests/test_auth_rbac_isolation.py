@@ -265,14 +265,14 @@ class TestRBACPermissions(BaseAuthTestCase):
         """Bảo vệ Admin cuối cùng: Không cho phép vô hiệu hóa, giáng quyền hoặc xóa Admin duy nhất."""
         self.assertEqual(self.user_repo.count_active_admins(), 1)
 
-        # 1. Thử vô hiệu hóa
+        # 1. Thử vô hiệu hóa tài khoản Quản trị viên
         ok_dis, msg_dis = self.auth_service.admin_toggle_active(
             actor=self.admin,
             target_user_id=self.admin.id,
             is_active=False,
         )
         self.assertFalse(ok_dis)
-        self.assertIn("quản trị viên cuối cùng", msg_dis.lower())
+        self.assertIn("không thể vô hiệu hóa tài khoản quản trị viên", msg_dis.lower())
 
         # 2. Thử giáng quyền
         ok_role, msg_role = self.auth_service.admin_change_role(

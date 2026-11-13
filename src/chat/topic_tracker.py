@@ -214,7 +214,20 @@ class TopicTracker:
             if self.is_known_vietnamese_meaning(cand_clean) or self.is_known_vietnamese_meaning(cand):
                 return None
             if bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", cand)):
-                return None
+                # Nếu trong cụm vẫn có từ tiếng Anh được chỉ định rõ (vd: "giải thích cho tôi từ abandon"),
+                # không return None sớm mà để các bước trích xuất bên dưới xử lý
+                has_explicit_en = bool(
+                    re.search(r"[\"'\u201c\u2018][a-zA-Z\s\-]{2,}[\"'\u201d\u2019]", cand)
+                    or re.search(r"(?:^|\s)(?:từ|chữ|từ vựng)\s+([a-zA-Z][a-zA-Z0-9_\-]{1,})\b", cand)
+                )
+                if not has_explicit_en and self.vocab_words:
+                    cand_tokens = re.findall(r"\b[a-zA-Z][a-zA-Z0-9_\-]{2,}\b", cand)
+                    has_explicit_en = any(
+                        t in self.vocab_words and t not in VIETNAMESE_STOPWORDS
+                        for t in cand_tokens
+                    )
+                if not has_explicit_en:
+                    return None
 
         has_vietnamese_accent = bool(re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", clean_lower))
 

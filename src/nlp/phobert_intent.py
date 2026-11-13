@@ -345,6 +345,11 @@ class PhoBERTIntentClassifier:
                 # Đánh dấu đây là truy vấn dịch Việt -> Anh
                 best_intent = "TRANSLATE_VIE_TO_ENG"
 
+        # Nếu có từ tiếng Anh mục tiêu và không có cue dịch Việt->Anh tường minh:
+        # tránh nhận nhầm từ tiếng Anh đơn lẻ (vd: "amazing") thành TRANSLATE_VIE_TO_ENG
+        if target_word and not has_translate_cue and best_intent == "TRANSLATE_VIE_TO_ENG":
+            best_intent = "DEFINE_VOCAB"
+
         # Nếu có từ tiếng Anh mục tiêu và hỏi giải nghĩa từ ("nghĩa là gì", "có nghĩa là gì", "nghĩa của", "what does ... mean")
         q_lower = clean_query.lower()
         def_cues = ["nghĩa là gì", "có nghĩa là gì", "nghĩa của", "nghĩa từ", "nghĩa sao", "là gì", "mean in vietnamese", "what does", "meaning of", "mean?"]

@@ -20,9 +20,10 @@ export default function Header({ activeTab, setActiveTab, themeMode, onThemeChan
               📚
             </div>
             <div className="min-w-0">
-              <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
-                <span className="text-base sm:text-lg lg:text-xl font-black tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
-                  Chatbot cho từ vựng tiếng Anh
+              <div className="flex items-center space-x-1.5 sm:space-x-2 min-w-0">
+                <span className="text-sm sm:text-lg lg:text-xl font-black tracking-tight text-slate-900 dark:text-white truncate">
+                  <span className="sm:hidden">VocabChat</span>
+                  <span className="hidden sm:inline">Chatbot cho từ vựng tiếng Anh</span>
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium hidden xl:block truncate">
@@ -35,26 +36,28 @@ export default function Header({ activeTab, setActiveTab, themeMode, onThemeChan
           <nav className="flex items-center space-x-1 p-1 sm:p-1.5 rounded-2xl bg-slate-100/90 dark:bg-[#212121] border border-slate-200/60 dark:border-white/10 shrink-0">
             <button
               onClick={() => setActiveTab('chat')}
-              className={`flex items-center space-x-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer whitespace-nowrap ${
+              className={`flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer whitespace-nowrap ${
                 activeTab === 'chat'
                   ? 'bg-white dark:bg-[#2f2f2f] text-emerald-700 dark:text-white shadow-sm font-extrabold dark:border dark:border-white/10'
                   : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/[0.06]'
               }`}
             >
               <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500 shrink-0" />
-              <span>Tra cứu & Chat</span>
+              <span className="sm:hidden">Chat</span>
+              <span className="hidden sm:inline">Tra cứu & Chat</span>
             </button>
 
             <button
               onClick={() => setActiveTab('discover')}
-              className={`flex items-center space-x-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer whitespace-nowrap ${
+              className={`flex items-center space-x-1 sm:space-x-1.5 px-2 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer whitespace-nowrap ${
                 activeTab === 'discover'
                   ? 'bg-white dark:bg-[#2f2f2f] text-cyan-700 dark:text-white shadow-sm font-extrabold dark:border dark:border-white/10'
                   : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/[0.06]'
               }`}
             >
               <BookOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-500 shrink-0" />
-              <span>Khám phá từ vựng</span>
+              <span className="sm:hidden">Khám phá</span>
+              <span className="hidden sm:inline">Khám phá từ vựng</span>
             </button>
           </nav>
 

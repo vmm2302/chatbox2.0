@@ -61,10 +61,17 @@ app.include_router(streaming_router)
 app.include_router(admin_router)
 app.include_router(tts_router)
 
-# Enable CORS for local Vite dev server
+# Enable CORS for local Vite dev server and configurable origins (no wildcard with credentials)
+_default_cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+_env_cors = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip() and o.strip() != "*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8000", "*"],
+    allow_origins=_env_cors or _default_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,6 +83,7 @@ _WORD_INDEX: Dict[str, Any] = {}
 _CHAT_ENGINE = None
 _USER_TRACKERS: Dict[str, Any] = {}
 _SESSION_LOCKS: Dict[str, threading.Lock] = {}
+_MAX_SESSION_TRACKERS = 500
 _TRACKER_LOCK = threading.RLock()
 _CONV_REPO = ConversationRepository()
 
@@ -196,6 +204,10 @@ def get_or_create_tracker(session_id: str, user_id: Optional[int] = None):
 
     with _TRACKER_LOCK:
         if session_key not in _USER_TRACKERS:
+            if len(_USER_TRACKERS) >= _MAX_SESSION_TRACKERS:
+                oldest_key = next(iter(_USER_TRACKERS))
+                _USER_TRACKERS.pop(oldest_key, None)
+                _SESSION_LOCKS.pop(oldest_key, None)
             records = get_records()
             _USER_TRACKERS[session_key] = TopicTracker(records=records)
         return _USER_TRACKERS[session_key]
@@ -335,17 +347,20 @@ async def chat_endpoint(
         current_intent = meta_info.get("intent")
         final_text = ensure_required_search_prefix(answer_text, active_word, intent=current_intent)
 
-        # Parse rich card data
-        rec_level = getattr(direct_rec, "level", "A1") if direct_rec else "A1"
-        structured_card = parse_vocabulary_text(
-            final_text,
-            default_word=active_word or (word_candidate if word_candidate in word_index else ""),
-            default_level=rec_level,
-        )
-        if structured_card and structured_card.get("word") and not active_word:
-            active_word = structured_card["word"]
-            meta_info["word"] = active_word
-            meta_info["active_word"] = active_word
+        # Parse rich card data (skip structured card for level list responses without a headword)
+        if current_intent == "GET_LEVEL_LIST" and not active_word:
+            structured_card = None
+        else:
+            rec_level = getattr(direct_rec, "level", "A1") if direct_rec else "A1"
+            structured_card = parse_vocabulary_text(
+                final_text,
+                default_word=active_word or (word_candidate if word_candidate in word_index else ""),
+                default_level=rec_level,
+            )
+            if structured_card and structured_card.get("word") and not active_word:
+                active_word = structured_card["word"]
+                meta_info["word"] = active_word
+                meta_info["active_word"] = active_word
 
     return {
         "reply": final_text,

@@ -176,14 +176,17 @@ def stream_chat_endpoint(
             final_intent = getattr(response_meta, "intent", None)
             final_answer = ensure_required_search_prefix(raw_answer, active_word, intent=final_intent)
 
-            # Parse structured card
-            structured_card = parse_vocabulary_text(
-                final_answer,
-                default_word=active_word or (word_candidate if word_candidate in word_index else ""),
-                default_level=payload.level if payload.level in {"A1", "A2"} else "A1",
-            )
-            if structured_card and structured_card.get("word") and not active_word:
-                active_word = structured_card["word"]
+            # Parse structured card (skip structured card for level list responses without a headword)
+            if final_intent == "GET_LEVEL_LIST" and not active_word:
+                structured_card = None
+            else:
+                structured_card = parse_vocabulary_text(
+                    final_answer,
+                    default_word=active_word or (word_candidate if word_candidate in word_index else ""),
+                    default_level=payload.level if payload.level in {"A1", "A2"} else "A1",
+                )
+                if structured_card and structured_card.get("word") and not active_word:
+                    active_word = structured_card["word"]
 
             # Resolve source and sheet from response_meta or candidates
             resolved_source = getattr(response_meta, "source", None)

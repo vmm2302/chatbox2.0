@@ -66,7 +66,26 @@ export default function SidebarHistory({
   };
 
   useEffect(() => {
-    loadConversations();
+    if (!currentUser) return;
+    let cancelled = false;
+    const fetchConversations = async () => {
+      try {
+        const data = await getConversations(currentUser.id, search);
+        if (!cancelled) {
+          setConversationsData(data);
+        }
+      } catch (err) {
+        console.error('Failed to load conversations:', err);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+    fetchConversations();
+    return () => {
+      cancelled = true;
+    };
   }, [currentUser, currentConvId, search]);
 
   const handleTogglePin = async (e, convId) => {

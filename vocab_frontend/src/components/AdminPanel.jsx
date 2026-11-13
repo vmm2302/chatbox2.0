@@ -23,7 +23,6 @@ import {
   Shield,
   KeyRound,
   Search,
-  Filter,
   X,
 } from 'lucide-react';
 import {
@@ -154,8 +153,46 @@ export default function AdminPanel({ currentUser }) {
   };
 
   useEffect(() => {
-    loadData();
-  }, [adminUserId, userRoleFilter, userStatusFilter]);
+    let cancelled = false;
+    const fetchAdminData = async () => {
+      try {
+        const [uStats, uList, m, s, t, o, a] = await Promise.all([
+          getAdminUserStats(adminUserId).catch(() => null),
+          getAdminUsers(adminUserId, {
+            search: userSearch,
+            role: userRoleFilter,
+            isActive: userStatusFilter === 'all' ? null : userStatusFilter === 'active',
+          }).catch(() => []),
+          getAdminMetrics(adminUserId).catch(() => null),
+          getAdminSources(adminUserId).catch(() => []),
+          getAdminTelemetry(adminUserId).catch(() => null),
+          getAdminOllama(adminUserId).catch(() => null),
+          getAdminAuditLogs(adminUserId, 50).catch(() => []),
+        ]);
+
+        if (cancelled) return;
+        if (uStats) setUserStats(uStats);
+        if (Array.isArray(uList)) setUsersList(uList);
+        if (m) setMetrics(m);
+        if (Array.isArray(s)) setSources(s);
+        else if (s && Array.isArray(s.sources)) setSources(s.sources);
+        if (t) setTelemetry(t);
+        if (o) setOllama(o);
+        if (Array.isArray(a)) setAuditLogs(a);
+        else if (a && Array.isArray(a.logs)) setAuditLogs(a.logs);
+      } catch (err) {
+        console.error('Failed to load admin data:', err);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    fetchAdminData();
+    return () => {
+      cancelled = true;
+    };
+  }, [adminUserId, userRoleFilter, userStatusFilter, userSearch]);
 
   // Handle user search on enter or debounce
   const handleSearchUsers = async (e) => {

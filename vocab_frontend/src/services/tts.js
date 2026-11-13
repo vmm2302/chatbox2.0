@@ -91,7 +91,7 @@ class LocalTTSService {
             if (errData.detail) {
               errorMessage = typeof errData.detail === 'string' ? errData.detail : JSON.stringify(errData.detail);
             }
-          } catch (_) {
+          } catch {
             errorMessage = `Dịch vụ phát âm trả về mã lỗi ${response.status}.`;
           }
           throw new Error(errorMessage);

@@ -30,10 +30,10 @@ export default function App() {
         url.searchParams.delete('page');
         window.history.replaceState({ page: 'chat' }, '', url.pathname + (url.search ? url.search : ''));
       }
-    } catch (e) {
+    } catch {
       try {
         window.history.replaceState({ page: 'chat' }, '', window.location.pathname);
-      } catch (err) {}
+      } catch {}
     }
   };
 
@@ -66,7 +66,7 @@ export default function App() {
     try {
       localStorage.removeItem('vocab_chat_user');
       sessionStorage.removeItem('vocab_chat_user');
-    } catch (e) {}
+    } catch {}
     clearAdminQueryParam();
     return () => setUnauthorizedHandler(null);
   }, []);
@@ -88,7 +88,7 @@ export default function App() {
     setThemeMode(newMode);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, newMode);
-    } catch (e) {}
+    } catch {}
     applyTheme(newMode);
   };
 
@@ -98,7 +98,7 @@ export default function App() {
       try {
         const params = new URLSearchParams(window.location.search);
         setIsAdminPage(params.get('page') === 'admin');
-      } catch (e) {}
+      } catch {}
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -108,7 +108,7 @@ export default function App() {
     setIsAdminPage(true);
     try {
       window.history.pushState({ page: 'admin' }, '', window.location.pathname + '?page=admin');
-    } catch (e) {}
+    } catch {}
   };
 
   const handleNavigateToHome = () => {
@@ -135,7 +135,7 @@ export default function App() {
     try {
       localStorage.removeItem('vocab_chat_user');
       sessionStorage.removeItem('vocab_chat_user');
-    } catch (e) {}
+    } catch {}
     // If the logged-in user is not an admin, ensure they never land on ?page=admin
     if (user?.role !== 'admin') {
       setIsAdminPage(false);

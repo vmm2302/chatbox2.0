@@ -63,9 +63,16 @@ cd chatbox2.0
 > - **Tuyệt đối KHÔNG chạy lệnh `python -m pip install --upgrade pip`:** Trên hệ điều hành Windows, cơ chế khóa tệp (file locking) sẽ chặn tiến trình ghi đè, khiến thư mục pip bị đổi tên thành `~ip` và gây ra lỗi mất module pip (`No module named pip`).
 > - Cài đặt trực tiếp danh sách thư viện từ file `requirements.txt`.
 
-Cài đặt toàn bộ danh sách thư viện backend:
+Cài đặt môi trường ảo Python `.venv` (khuyên dùng) và toàn bộ thư viện backend:
 
-```bash
+```powershell
+# Tạo & kích hoạt môi trường ảo trên Windows PowerShell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# Hoặc trên macOS / Linux:
+# python3 -m venv .venv && source .venv/bin/activate
+
 pip install -r requirements.txt
 ```
 *(Hoặc `python -m pip install -r requirements.txt`)*
@@ -92,7 +99,7 @@ cd ..
 ```
 
 Lệnh trên sẽ:
-1. Cài đặt các thư viện giao diện: React 18, Vite, Tailwind CSS, Lucide Icons, Canvas Confetti.
+1. Cài đặt các thư viện giao diện: React 19, Vite 8, Tailwind CSS v4, Lucide Icons, Canvas Confetti.
 2. Biên dịch mã nguồn Frontend thành gói tĩnh siêu nhẹ đặt tại `vocab_frontend/dist`.
 3. Backend FastAPI sẽ tự động phục vụ trực tiếp thư mục `dist` này.
 
@@ -176,10 +183,10 @@ python run_vocab_web.py
 
 *(Hoặc trên Windows PowerShell: `.\run_vocab_web.ps1`)*
 
-**Tính năng tự động thông minh của script:**
-- Tự động kiểm tra và giải phóng cổng `8000` nếu có tiến trình cũ chiếm dụng.
+**Tính năng an toàn & tự động của script:**
+- Kiểm tra tình trạng cổng mạng trước khi khởi động (mặc định `8000`). **Không dừng hay tắt bất kỳ tiến trình nào đang chạy**; nếu cổng bận, hệ thống thông báo và yêu cầu người dùng nhập cổng khác (hoặc truyền `--port 8001`).
 - Khởi động backend FastAPI và nạp các mô hình AI trong nền.
-- Cơ chế Smart Readiness: Tự động mở trình duyệt web tại địa chỉ **`http://localhost:8000`** ngay khi hệ thống và mô hình đã sẵn sàng 100%.
+- Cơ chế Smart Readiness: Tự động mở trình duyệt web tại địa chỉ **`http://localhost:<port>`** ngay khi hệ thống và mô hình đã sẵn sàng 100%.
 
 ---
 
@@ -201,19 +208,30 @@ npm run dev
 
 ## 4. THIẾT LẬP MÔI TRƯỜNG KIỂM THỬ & CHẠY BỘ TEST (TEST ENVIRONMENT & VERIFICATION)
 
-Hệ thống cung cấp bộ kiểm thử phân tầng toàn diện (Unit Test, Integration Test, Rubric Evaluation Test và Frontend Build Verification) nhằm đảm bảo hệ thống vận hành 100% chính xác, ổn định và độc lập trên máy tính mới.
+Hệ thống cung cấp bộ kiểm thử phân tầng toàn diện (Unit Test, Security & RBAC Test, Dynamic Rubric Evaluation Test, Pronunciation Evaluation Test và Frontend Verification) nhằm đảm bảo hệ thống vận hành 100% chính xác, ổn định và độc lập trên máy tính mới.
 
 ---
 
-### 4.1. Thiết lập biến môi trường kiểm thử (Test Environment Variables)
+### 4.1. Chuẩn bị Môi trường ảo & Biến môi trường kiểm thử (Test Environment Setup)
 
-Trước khi chạy các bài kiểm thử, cần cấu hình các biến môi trường để ép buộc toàn bộ hệ thống hoạt động ở chế độ **100% Cục bộ (Offline-only)** và ngăn chặn tự động tải lại trọng số mô hình:
+Đảm bảo đã kích hoạt `.venv` và cài đủ thư viện trong `requirements.txt` (bao gồm `pyvi` cho bộ tách từ PhoBERT, `kokoro-onnx` & `soundfile` cho kiểm thử phát âm, và Node.js v18+ cho Frontend):
+
+```powershell
+# Windows PowerShell: kích hoạt .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Trước khi chạy các bài kiểm thử, cấu hình các biến môi trường để ép buộc toàn bộ hệ thống hoạt động ở chế độ **100% Cục bộ (Offline-only)** và tùy chọn cố định seed hoặc DB kiểm thử:
 
 **Trên Windows (PowerShell):**
 ```powershell
 $env:TESTING="1"
 $env:HF_HUB_OFFLINE="1"
 $env:TRANSFORMERS_OFFLINE="1"
+# Tùy chọn: tái lập bộ mẫu ngẫu nhiên cho test_chatbot_rubric.py
+# $env:RUBRIC_TEST_SEED="42"
+# Tùy chọn: khóa bí mật ký Access Token trong môi trường test
+# $env:AUTH_TOKEN_SECRET="test-secret-key"
 ```
 
 **Trên Linux / macOS (Bash / Zsh):**
@@ -221,10 +239,11 @@ $env:TRANSFORMERS_OFFLINE="1"
 export TESTING=1
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
+# export RUBRIC_TEST_SEED=42
 ```
 
 > [!NOTE]
-> Để thực hiện các bài test có kiểm tra mô hình sinh ngôn ngữ tự nhiên (RAG Generation), hãy đảm bảo dịch vụ Ollama đang chạy ngầm (`ollama serve`).
+> Để thực hiện đầy đủ các ca test có bước sinh ngôn ngữ tự nhiên (`RAG_GENERATION`), hãy đảm bảo dịch vụ Ollama đang chạy ngầm (`ollama serve` với model `qwen2.5:7b`). Nếu Ollama tắt, các ca phụ thuộc `RAG_GENERATION` trong `test_chatbot_rubric.py` sẽ tự động được ghi nhận là `BLOCKED` / `skipped` (không đánh dấu PASS giả).
 
 ---
 
@@ -248,18 +267,21 @@ Bạn có thể chạy kiểm thử theo từng phân hệ nghiệp vụ cụ th
 
 | Phân hệ kiểm thử | Lệnh thực thi Terminal | Mục tiêu kiểm định | Kết quả mong đợi |
 | :--- | :--- | :--- | :---: |
-| **1. Quản trị & Xác thực (Auth & Admin)** | `python tests/test_vocab_auth_admin.py` | Kiểm tra luồng Đăng nhập, Đăng ký, Phân quyền Admin/User, Nạp nhiều file, Xóa nguồn tài liệu an toàn. | `ALL ADMIN & MULTI-FILE UPLOAD TESTS PASSED!` |
-| **2. Đánh giá 15 Ca Hội thoại Chuẩn Rubric** | `python -m unittest tests/test_chatbot_rubric.py` | Đánh giá 15 ca hội thoại theo tiêu chí Rubric (In-scope, Paraphrase, Multi-turn Context, Out-of-scope, Ambiguous) và đánh giá động ngẫu nhiên trên dữ liệu thực tế. | `Ran 16 tests ... OK` (Tự động xuất báo cáo tại `docs/CHATBOT_TEST_REPORT.md`) |
-| **3. Động cơ Phát âm TTS Cục bộ (Kokoro-ONNX)** | `python -m unittest tests/test_kokoro_tts.py` | Kiểm tra khả năng nạp mô hình ONNX, bộ đệm LRU Cache âm thanh, chuẩn hóa dấu câu và sinh tệp WAV 24kHz. | `Ran 7 tests ... OK` |
-| **4. Đánh giá Chất lượng Phát âm Âm học (Pronunciation Evaluation)** | `python -m unittest tests/test_pronunciation_evaluation.py` | Đo lường các chỉ số chất lượng âm học: tần số lấy mẫu 24.000 Hz, kênh Mono 16-bit, năng lượng RMS chống câm/vỡ tiếng, tương quan thời lượng - âm tiết và hệ số Real-Time Factor (RTF < 1.0). | `Ran 5 tests ... OK` |
-| **5. Luồng Tích hợp E2E Đa cấp độ (A1, A2, B1, B2)** | `python -m unittest tests/test_multi_level_e2e_flow.py` | Kiểm định trọn vẹn luồng tra cứu nhiều cấp độ từ vựng từ API Gateway đến ChatEngine. | `Ran 3 tests ... OK` |
-| **6. Toàn bộ Test Suite Dự án** | `python -m unittest discover -s tests -p "test_*.py"` | Tự động quét và thực thi toàn bộ hơn 30+ tệp kiểm thử tự động của toàn bộ dự án. | `OK (skipped=...)` |
+| **1. Access Token, Phân quyền, Khóa phiên, Port & Tách từ `pyvi`** | `python -m unittest tests/test_security_and_segmentation.py -v` | Kiểm chứng chữ ký/thu hồi Access Token, chống IDOR & giả mạo role, khóa phiên gắn user trên `/api/chat` & `/api/chat/stream`, cơ chế đổi cổng không kill tiến trình ở `run_vocab_web.py`, tách từ `pyvi` trong `phobert_intent.py`. | `OK` |
+| **2. Vòng đời Tài khoản, RBAC & Cách ly SQLite** | `python -m unittest tests/test_auth_rbac_isolation.py -v` | Kiểm tra đăng ký, đăng nhập, bảo vệ Admin, cách ly dữ liệu hội thoại giữa các tài khoản trên DB tạm cô lập. | `OK` |
+| **3. Quản trị & Tích hợp Auth/Admin API** | `python tests/test_vocab_auth_admin.py` | Kiểm tra luồng Đăng nhập, Đăng ký, Phân quyền Admin/User, Nạp nhiều file, Xóa nguồn tài liệu an toàn. | `ALL ADMIN & MULTI-FILE UPLOAD TESTS PASSED!` |
+| **4. Đánh giá Động Chuẩn Rubric (Không ghi cứng)** | `python -m unittest tests/test_chatbot_rubric.py -v` | Lấy mẫu động trực tiếp từ KB thực tế cho 5 nhóm Rubric + kiểm tra từ ngoài KB không hallucinate; đối chiếu ground-truth nghĩa/IPA/ví dụ/cấp độ và tự động xuất báo cáo `docs/CHATBOT_TEST_REPORT.md`. | `OK` (hoặc `skipped` cho ca RAG nếu Ollama tắt) |
+| **5. Động cơ Phát âm TTS Cục bộ (Kokoro-ONNX)** | `python -m unittest tests/test_kokoro_tts.py -v` | Kiểm tra khả năng nạp mô hình ONNX, bộ đệm LRU Cache âm thanh, chuẩn hóa dấu câu và sinh tệp WAV 24kHz. | `Ran 9 tests ... OK` |
+| **6. Đánh giá Chất lượng Phát âm Âm học (Pronunciation Evaluation)** | `python -m unittest tests/test_pronunciation_evaluation.py -v` | Đo lường 24.000 Hz Mono 16-bit, năng lượng RMS chống câm/vỡ tiếng, tương quan thời lượng–âm tiết, ngữ âm phức tạp, RTF, tỷ lệ tốc độ đọc chậm, mẫu từ KB thực tế và API `/api/tts/synthesize`. | `Ran 8 tests ... OK` |
+| **7. Tra cứu & Dịch Việt → Anh** | `python -m unittest tests/test_vietnamese_to_english.py -v` | Kiểm tra nhận diện ý định dịch Việt → Anh, từ ngoài phạm vi và luồng SSE streaming. | `OK` |
+| **8. Luồng Tích hợp E2E Đa cấp độ** | `python tests/test_multi_level_e2e_flow.py` | Kiểm định trọn vẹn luồng nạp đa cấp độ và khám phá từ vựng động. | `ALL MULTI-LEVEL E2E INTEGRATION FLOW TESTS PASSED 100%!` |
+| **9. Toàn bộ Test Suite Dự án** | `python -m unittest discover -s tests -p "test_*.py"` | Tự động quét và thực thi toàn bộ các tệp kiểm thử `unittest` của dự án. | `OK` |
 
 ---
 
 ### 4.4. Kiểm thử và Nghiệm thu Giao diện Frontend React (Vite UI Verification)
 
-Để kiểm tra tính toàn vẹn cú pháp JSX, styling Tailwind CSS và đảm bảo mã nguồn React đã sẵn sàng cho môi trường sản xuất (Production-ready):
+Để kiểm tra tính toàn vẹn cú pháp JSX, linter, đóng gói sản xuất và unit test dịch vụ Frontend:
 
 ```bash
 cd vocab_frontend
@@ -270,16 +292,16 @@ npm run lint
 # 2. Kiểm thử quy trình đóng gói & biên dịch (Vite Bundler):
 npm run build
 
-# 3. Chạy lệnh nghiệm thu tự động (Test script):
+# 3. Chạy trọn bộ nghiệm thu tự động (Build + Lint + Node unit tests):
 npm test
 
 cd ..
 ```
 
 **Tiêu chí nghiệm thu Frontend ĐẠT (PASS):**
-- Lệnh `npm run build` hoàn thành với **0 lỗi** (`✓ built in ...ms`).
-- Tạo đầy đủ các gói bundle tối ưu tại `vocab_frontend/dist/` (`index.html`, `assets/*.css`, `assets/*.js`).
-- Backend FastAPI tự động nhận diện và phục vụ trực tiếp thư mục `dist` này khi khởi chạy `run_vocab_web.py`.
+- Lệnh `npm run lint` đạt **0 warnings, 0 errors**.
+- Lệnh `npm run build` hoàn thành với **0 lỗi**, tạo gói bundle tối ưu tại `vocab_frontend/dist/` (`index.html`, `assets/*.css`, `assets/*.js`).
+- Các unit test dịch vụ (`node --test tests/*.test.mjs`) đạt **6/6 PASS** (vòng đời Access Token trong RAM, SSE parser, CEFR & Theme helpers).
 - Chi tiết bảng kiểm thử chức năng người dùng được lưu trữ tại: `docs/BIEN_BAN_NGHIEM_THU_REACT.md`.
 
 ## 5. XỬ LÝ SỰ CỐ THƯỜNG GẶP (TROUBLESHOOTING)
@@ -302,12 +324,13 @@ cd ..
 - **Nguyên nhân:** Chưa cài Node.js hoặc chưa thêm Node.js vào biến môi trường PATH.
 - **Cách khắc phục:** Tải và cài đặt Node.js LTS từ [nodejs.org](https://nodejs.org/), sau đó **tắt và mở lại cửa sổ Terminal** để hệ thống nhận PATH mới.
 
-### 4. Lỗi cổng 8000 bị chiếm dụng (`Port 8000 is already in use`)
-- Script `run_vocab_web.py` đã tích hợp sẵn tính năng tự động tìm và tắt tiến trình cũ chiếm cổng.
-- Nếu muốn giải phóng thủ công trên Windows PowerShell:
-  ```powershell
-  Get-Process -Id (Get-NetTCPConnection -LocalPort 8000).OwningProcess | Stop-Process -Force
+### 4. Lỗi cổng 8000 đang được sử dụng (`Cổng 8000 đang được tiến trình khác sử dụng`)
+- Script `run_vocab_web.py` **không dừng hoặc tắt bất kỳ tiến trình nào đang chạy**, mà chỉ thông báo và yêu cầu bạn nhập một cổng khác (từ `1024` đến `65535`).
+- Bạn cũng có thể truyền trực tiếp cổng khác ngay khi khởi chạy:
+  ```bash
+  python run_vocab_web.py --port 8001
   ```
+  *(Hoặc trên PowerShell: `.\run_vocab_web.ps1 --port 8001`)*
 
 ### 5. Máy tính cấu hình yếu / Không có card GPU rời
 - Hệ thống được cấu hình tự động nhận diện phần cứng: nếu không có GPU NVIDIA, hệ thống sẽ tự động fallback về chạy trên CPU an toàn.

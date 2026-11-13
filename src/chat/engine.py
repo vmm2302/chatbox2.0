@@ -116,6 +116,26 @@ class ChatEngine:
             logger.info("ChatEngine: Đã làm sạch toàn bộ tri thức và ngữ cảnh hội thoại.")
 
 
+    def _build_level_list_response(self, target_level: str, limit: int = 15) -> Optional[str]:
+        """Tổng hợp danh sách từ vựng thực tế theo cấp độ CEFR từ cơ sở tri thức."""
+        clean_level = (target_level or "").strip().upper()
+        if not clean_level:
+            return None
+        matched = [
+            r for r in self.records
+            if (getattr(r, "level", "") or "").strip().upper() == clean_level
+            and getattr(r, "word", "")
+            and r.word.strip().lower() != "list"
+        ]
+        if not matched:
+            return None
+
+        shown = matched[:limit]
+        lines = [f"Danh sách từ vựng tiếng Anh trình độ {clean_level} (hiển thị {len(shown)}/{len(matched)} từ):"]
+        for idx, rec in enumerate(shown, start=1):
+            lines.append(f"{idx}. {rec.word.strip()}")
+        return "\n".join(lines)
+
     def _create_and_log_response(
         self,
         clean_query: str,
@@ -293,6 +313,21 @@ class ChatEngine:
                     intent="OUT_OF_SCOPE",
                     answer=settings.OUT_OF_SCOPE_RESPONSE,
                     mode="NO_MATCH",
+                    start_time=start_time,
+                    active_word=None,
+                    tracker=active_tracker,
+                )
+
+        # Tổng hợp danh sách từ vựng trực tiếp từ KB khi hỏi theo cấp độ CEFR
+        if intent_res.intent == "GET_LEVEL_LIST" and not target_word and intent_res.target_level:
+            level_ans = self._build_level_list_response(intent_res.target_level)
+            if level_ans:
+                return self._create_and_log_response(
+                    clean_query=clean_query,
+                    resolved_query=resolved_query,
+                    intent="GET_LEVEL_LIST",
+                    answer=level_ans,
+                    mode="DIRECT_MATCH",
                     start_time=start_time,
                     active_word=None,
                     tracker=active_tracker,
@@ -606,6 +641,22 @@ class ChatEngine:
                     intent="OUT_OF_SCOPE",
                     answer=settings.OUT_OF_SCOPE_RESPONSE,
                     mode="NO_MATCH",
+                    start_time=start_time,
+                    active_word=None,
+                    tracker=active_tracker,
+                )
+                yield resp.answer, resp
+                return
+
+        if intent_res.intent == "GET_LEVEL_LIST" and not target_word and intent_res.target_level:
+            level_ans = self._build_level_list_response(intent_res.target_level)
+            if level_ans:
+                resp = self._create_and_log_response(
+                    clean_query=clean_query,
+                    resolved_query=resolved_query,
+                    intent="GET_LEVEL_LIST",
+                    answer=level_ans,
+                    mode="DIRECT_MATCH",
                     start_time=start_time,
                     active_word=None,
                     tracker=active_tracker,
