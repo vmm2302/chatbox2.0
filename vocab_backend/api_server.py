@@ -516,6 +516,28 @@ FRONTEND_DIST = PROJECT_ROOT / "vocab_frontend" / "dist"
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="static_assets")
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon_ico():
+        ico_path = FRONTEND_DIST / "favicon.ico"
+        if ico_path.exists():
+            return FileResponse(
+                ico_path,
+                media_type="image/x-icon",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
+        return Response(status_code=404)
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def favicon_svg():
+        svg_path = FRONTEND_DIST / "favicon.svg"
+        if svg_path.exists():
+            return FileResponse(
+                svg_path,
+                media_type="image/svg+xml",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
+        return Response(status_code=404)
+
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         if full_path == "api" or full_path.startswith("api/"):

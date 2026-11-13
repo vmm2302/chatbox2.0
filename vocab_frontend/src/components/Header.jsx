@@ -16,8 +16,11 @@ export default function Header({ activeTab, setActiveTab, themeMode, onThemeChan
             className="flex items-center space-x-2.5 sm:space-x-3 cursor-pointer shrink-0"
             onClick={() => setActiveTab('chat')}
           >
-            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center shadow-md shadow-emerald-500/20 text-white font-black text-lg sm:text-xl shrink-0">
-              📚
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-600 to-cyan-600 flex items-center justify-center shadow-md shadow-emerald-500/25 border border-white/20 text-white shrink-0 group">
+              <div className="relative flex items-center justify-center">
+                <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:scale-105 transition-transform" />
+                <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-300 absolute -top-1 -right-1 animate-pulse" />
+              </div>
             </div>
             <div className="min-w-0">
               <div className="flex items-center space-x-1.5 sm:space-x-2 min-w-0">

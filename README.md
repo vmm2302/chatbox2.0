@@ -168,9 +168,9 @@ python run_vocab_web.py
    python -m unittest tests/test_clear_knowledge_base.py
    ```
 
-4. **Chạy bộ kiểm thử chuẩn hóa không cần thư viện ngoài:**
+4. **Chạy bộ kiểm thử động Rubric và tự động xuất báo cáo:**
    ```bash
-   python -m unittest tests/test_all_unittest.py
+   python -m unittest tests/test_chatbot_rubric.py
    ```
 
 ---

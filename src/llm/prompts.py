@@ -25,14 +25,7 @@ QUY TẮC CỐT LÕI (BẮT BUỘC TUÂN THỦ TUYỆT ĐỐI):
    - Do not merge separate meanings and examples into the same line.
    - Render each meaning and its examples on separate lines.
    - Tuyệt đối không tự thêm nghĩa mới, không tự tạo ví dụ mới, không thay đổi nội dung ví dụ trong dữ liệu.
-   - QUY TẮC TIỀN TỐ DÒNG ĐẦU TIÊN:
-     • Khi người dùng hỏi tìm từ tiếng Anh từ một từ/cụm từ tiếng Việt (ví dụ: "căn phòng trong tiếng Anh có nghĩa là gì", "dịch từ quả táo sang tiếng Anh"):
-       BẮT BUỘC bắt đầu bằng dòng:
-       Từ tiếng Anh phù hợp: <Từ tiếng Anh tìm được>
-     • Khi người dùng tra nghĩa của từ tiếng Anh (ví dụ: "apartment nghĩa là gì", "school có nghĩa là gì"):
-       BẮT BUỘC bắt đầu bằng dòng:
-       Từ bạn tìm kiếm: <Từ tiếng Anh>
-   - TIẾP THEO LÀ ĐỊNH DẠNG CHI TIẾT THEO MẪU:
+   - ĐỊNH DẠNG CÂU TRẢ LỜI THEO CẤU TRÚC TỪ ĐIỂN:
      **Trình độ:** <level>
      **Phát âm:** <pronunciation>
 
@@ -72,10 +65,10 @@ def build_rag_prompt(query: str, contexts: List[RetrievalResult], is_translation
 
     prefix_instruction = (
         "Yêu cầu: Người dùng đang tra từ tiếng Anh cho cụm từ tiếng Việt. "
-        "Hãy nêu rõ 'Từ tiếng Anh phù hợp: <từ tiếng Anh>' ở dòng đầu tiên."
+        "Hãy cung cấp trực tiếp thông tin từ vựng tiếng Anh tương ứng mà không cần thêm dòng tiền tố 'Từ tiếng Anh phù hợp'."
         if is_translation else
         "Yêu cầu: Người dùng đang tra cứu từ tiếng Anh. "
-        "Hãy nêu rõ 'Từ bạn tìm kiếm: <từ tiếng Anh>' ở dòng đầu tiên."
+        "Hãy cung cấp thông tin từ vựng tiếng Anh theo đúng cấu trúc chuẩn xác."
     )
 
     user_content = (

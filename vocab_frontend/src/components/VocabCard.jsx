@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, ArrowUpRight, Database, Sparkles, ShieldCheck } from 'lucide-react';
+import { Volume2, ArrowUpRight, BookOpen, Sparkles, ShieldCheck } from 'lucide-react';
 import { tts } from '../services/tts';
 import { getLevelConfig } from '../utils/cefr';
 
@@ -251,7 +251,7 @@ export default function VocabCard({ cardData, meta }) {
       {/* PROVENANCE DISCLOSURE & SECURITY GUARANTEE */}
       <div className="mt-5 pt-4 border-t border-slate-200/60 dark:border-white/10 flex flex-wrap items-center justify-between gap-2.5 text-xs text-slate-500 dark:text-zinc-400">
         <div className="inline-flex items-center space-x-1.5 bg-white/80 dark:bg-white/[0.05] px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-white/10 shadow-2xs">
-          <Database className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <BookOpen className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span className="font-semibold text-slate-700 dark:text-zinc-300">Nguồn dữ liệu:</span>
           {isUrl ? (
             <a
