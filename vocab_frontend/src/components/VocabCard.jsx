@@ -73,42 +73,6 @@ export default function VocabCard({ cardData, meta }) {
           <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide ${lvlConf.bgLight} ${lvlConf.text} border ${lvlConf.border} dark:bg-white/[0.08] dark:border-white/15 shadow-2xs`}>
             {lvlConf.badge}
           </span>
-
-          {/* Translation Mode Badge if translating Viet -> Eng */}
-          {intent === 'TRANSLATE_VIE_TO_ENG' && (
-            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/50 shadow-2xs">
-              <span>🇻🇳 ➔ 🇬🇧 Bản dịch tiếng Anh</span>
-            </span>
-          )}
-
-          {metadata?.mode === 'DIRECT_MATCH' && (
-            <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/50 shadow-2xs">
-              <Sparkles className="w-3 h-3 text-emerald-500" />
-              <span>Chuẩn từ điển</span>
-            </span>
-          )}
-        </div>
-
-        {/* Audio buttons - Normal audio only */}
-        <div className="flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={() => handlePlayAudio(word)}
-            title={isWordPlaying ? "Dừng phát âm" : "Nghe phát âm chuẩn giọng Mỹ (Kokoro TTS)"}
-            className={`flex items-center space-x-2 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-extrabold text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-md shadow-emerald-500/25 active:scale-95 transition-all cursor-pointer ${
-              isWordPlaying ? 'ring-2 ring-emerald-400 animate-pulse' : ''
-            }`}
-          >
-            <Volume2 className={`w-4 h-4 ${isWordPlaying ? 'animate-bounce' : ''}`} />
-            <span>{isWordPlaying ? 'Dừng phát' : 'Phát âm (US)'}</span>
-            {isWordPlaying && (
-              <span className="flex items-center space-x-0.5 ml-1">
-                <span className="w-1 h-3 bg-white rounded-full animate-pulse" />
-                <span className="w-1 h-4 bg-white rounded-full animate-pulse delay-75" />
-                <span className="w-1 h-2 bg-white rounded-full animate-pulse delay-150" />
-              </span>
-            )}
-          </button>
         </div>
       </div>
 
@@ -267,11 +231,6 @@ export default function VocabCard({ cardData, meta }) {
           ) : (
             <span className="font-medium text-slate-600 dark:text-zinc-400 truncate max-w-[200px] sm:max-w-xs">{sourceName}</span>
           )}
-        </div>
-
-        <div className="inline-flex items-center space-x-1.5 text-[11px] text-slate-400 dark:text-zinc-500 bg-white/50 dark:bg-white/[0.03] px-2 py-0.5 rounded-lg border border-slate-200/40 dark:border-white/5">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-          <span>Xử lý cục bộ 100%</span>
         </div>
       </div>
 
