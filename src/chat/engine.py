@@ -10,6 +10,7 @@ Liên kết chặt chẽ toàn bộ các tầng xử lý:
 """
 
 import logging
+import re
 import time
 from typing import Generator, List, Optional, Tuple
 
@@ -368,17 +369,21 @@ class ChatEngine:
             matching_candidate = None
 
             if candidates and vie_phrase:
+                norm_vie = " " + " ".join(re.findall(r"\w+", vie_phrase.lower())) + " "
                 # 1. Ưu tiên bản ghi có câu hỏi chứa đúng cụm từ (ví dụ: "Căn phòng, buồng" tiếng Anh là gì?)
                 for c in candidates:
                     q_lower = c.record.question.lower()
-                    if f'"{vie_phrase}"' in q_lower or f'“{vie_phrase}”' in q_lower or vie_phrase in q_lower:
+                    norm_q = " " + " ".join(re.findall(r"\w+", q_lower)) + " "
+                    if f'"{vie_phrase}"' in q_lower or f'“{vie_phrase}”' in q_lower or vie_phrase in q_lower or norm_vie in norm_q:
                         matching_candidate = c
                         break
 
                 # 2. Ưu tiên bản ghi có phần định nghĩa trong answer chứa vie_phrase
                 if not matching_candidate:
                     for c in candidates:
-                        if vie_phrase in c.record.answer.lower():
+                        ans_lower = c.record.answer.lower()
+                        norm_ans = " " + " ".join(re.findall(r"\w+", ans_lower)) + " "
+                        if vie_phrase in ans_lower or norm_vie in norm_ans:
                             matching_candidate = c
                             break
 

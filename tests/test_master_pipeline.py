@@ -137,6 +137,19 @@ class TestMasterPipelineEndToEnd(unittest.TestCase):
                     normalized_question="abandon nghia la gi"
                 )
             )
+        if not any(r.word.lower() == "confident" for r in cls.records):
+            additional_records.append(
+                QARecord(
+                    record_id="ENG_VOCAB_CONFIDENT",
+                    word="confident",
+                    sheet="danhsachtutienganhA1-B2",
+                    source="Cambridge Dictionary",
+                    level="B1",
+                    question="confident nghĩa là gì?",
+                    answer="Trình độ: B1\nPhát âm: /ˈkɒn.fɪ.dənt/\nTính từ: Tự tin.",
+                    normalized_question="confident nghia la gi"
+                )
+            )
         if additional_records:
             cls.records = list(cls.records) + additional_records
         cls.engine = ChatEngine(records=cls.records)

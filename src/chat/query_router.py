@@ -160,16 +160,25 @@ class QueryRouter:
 
         # Chỉ coi là OUT_OF_SCOPE nếu:
         # 1. Không có active_word trong tracker từ lượt trước
-        # 2. Không chứa từ tiếng Anh nào có trong từ điển
+        # 2. Không chứa từ tiếng Anh nào có trong từ điển (hoặc không trích xuất được từ mục tiêu)
         has_active_topic = bool(tracker and tracker.active_word)
-        known_words: Set[str] = tracker.known_words if tracker else set()
+        target_word = tracker.extract_target_word(clean_q) if tracker else None
+        vocab_words: Set[str] = getattr(tracker, "vocab_words", set()) if tracker else set()
 
         # Kiểm tra xem có từ tiếng Anh nào xuất hiện trong câu hỏi không
         tokens = [re.sub(r"^[^\w]+|[^\w]+$", "", t.lower()) for t in clean_q.split()]
         tokens = [t for t in tokens if t]
-        has_known_word = any(t in known_words for t in tokens)
+        has_known_word = bool(target_word) or any(t in vocab_words for t in tokens)
 
-        if not has_active_topic and not has_known_word:
+        is_follow_up_or_referential = bool(
+            tracker and (tracker.is_referential_query(clean_q) or tracker.is_follow_up_cues(clean_q))
+        )
+        active_word_in_query = bool(
+            tracker and tracker.active_word and
+            re.search(r"\b" + re.escape(tracker.active_word.lower()) + r"\b", clean_q.lower())
+        )
+
+        if not has_known_word and not is_follow_up_or_referential and not active_word_in_query:
             if any(pat in vn_norm for pat in self.out_of_scope_patterns):
                 return RoutingDecision(
                     route_type="OUT_OF_SCOPE",

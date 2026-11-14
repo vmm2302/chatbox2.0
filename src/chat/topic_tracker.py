@@ -205,7 +205,7 @@ class TopicTracker:
 
         # Nếu câu hỏi là dạng "X là gì?", "X có nghĩa là gì?", "X trong tiếng Anh có nghĩa là gì?"
         m_vie = re.match(
-            r"^(?:từ\s+|từ vựng\s+|nghĩa của từ\s+|nghĩa từ\s+|nghĩa của\s+)?(.+?)\s*(?:trong\s+tiếng\s+anh)?\s*(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*(?:trong\s+tiếng\s+anh)?\s*\??$",
+            r"^(?:từ\s+|từ vựng\s+|nghĩa của từ\s+|nghĩa từ\s+|nghĩa của\s+)?(.+?)\s*(?:trong\s+tiếng\s+(?:anh|việt))?\s*(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*(?:trong\s+tiếng\s+(?:anh|việt))?\s*\??$",
             clean_lower,
         )
         if m_vie:
@@ -241,7 +241,7 @@ class TopicTracker:
         # 2. Kiểm tra các mẫu câu định nghĩa phổ biến (kể cả từ chưa có trong kho dữ liệu)
         # Hỗ trợ tùy chọn khoảng trắng và dấu hỏi: \s*\?*
         def_patterns = [
-            r"^(?:từ\s+|từ vựng\s+)?([a-zA-Z\s\-]{2,})\s+(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*\??$",
+            r"^(?:từ\s+|từ vựng\s+)?([a-zA-Z\s\-]{2,})\s*(?:trong\s+tiếng\s+(?:anh|việt))?\s*(?:có\s+nghĩa\s+là\s+gì|nghĩa\s+là\s+gì|là\s+gì|nghĩa\s+sao)\s*(?:trong\s+tiếng\s+(?:anh|việt))?\s*\??$",
             r"^(?:nghĩa của từ|nghĩa từ|nghĩa của)\s+(?:từ\s+|chữ\s+)?([a-zA-Z\s\-]{2,})\s*\??$",
             r"^(?:tra từ|giải thích từ)\s+([a-zA-Z\s\-]{2,})\s*\??$",
             r"^(?:what\s+does\s+)([a-zA-Z\s\-]{2,})\s+mean(?:\s+in\s+vietnamese)?\s*\??$",

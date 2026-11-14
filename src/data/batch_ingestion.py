@@ -454,7 +454,7 @@ class BatchIngestionManager:
                     duplicate_src_name = clean_source_name(duplicate_src.get("file_name") or duplicate_src.get("source_name") or "")
                     dup_origin = "đã nạp trước đó"
 
-            if duplicate_src_name and dup_origin == "trong cùng đợt nạp":
+            if duplicate_src_name:
                 f_res.status = FileStatus.SKIPPED
                 f_res.reason = f"Duplicate file: Trùng nội dung với tệp '{duplicate_src_name}' ({dup_origin})."
                 f_res.action = "Bỏ qua tệp để tránh nhân bản dữ liệu."

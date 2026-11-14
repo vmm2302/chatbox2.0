@@ -8,8 +8,11 @@ from src.core.exceptions import DataLoadError
 from src.core.models import QARecord
 from src.data.loaders.base import BaseFileLoader, FileValidationResult, compute_file_hash
 from src.data.loaders.csv_loader import CSVLoader
+from src.data.loaders.docx_loader import DocxLoader
 from src.data.loaders.excel_loader import ExcelLoader
+from src.data.loaders.json_loader import JSONLoader
 from src.data.loaders.pdf_loader import PDFLoader
+from src.data.loaders.text_loader import TextLoader
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,9 @@ class FileLoaderRouter:
         excel = ExcelLoader()
         csv = CSVLoader()
         pdf = PDFLoader()
+        text = TextLoader()
+        json_loader = JSONLoader()
+        docx = DocxLoader()
 
         for ext in excel.SUPPORTED_EXTENSIONS:
             self.loaders[ext.lower()] = excel
@@ -32,6 +38,12 @@ class FileLoaderRouter:
             self.loaders[ext.lower()] = csv
         for ext in pdf.SUPPORTED_EXTENSIONS:
             self.loaders[ext.lower()] = pdf
+        for ext in text.SUPPORTED_EXTENSIONS:
+            self.loaders[ext.lower()] = text
+        for ext in json_loader.SUPPORTED_EXTENSIONS:
+            self.loaders[ext.lower()] = json_loader
+        for ext in docx.SUPPORTED_EXTENSIONS:
+            self.loaders[ext.lower()] = docx
 
     @property
     def supported_extensions(self) -> List[str]:
