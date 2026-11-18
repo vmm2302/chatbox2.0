@@ -462,7 +462,11 @@ class ChatEngine:
                 llm_answer = self.llm_client.chat(messages)
             except Exception as final_err:
                 logger.error("Lỗi khi gọi Qwen2.5:7B: %s", final_err)
-                llm_answer = f"{settings.OLLAMA_OFFLINE_RESPONSE}\n(Chi tiết: {final_err})"
+                if best_candidate and best_candidate.record and best_candidate.record.answer:
+                    logger.info("Fallback an toàn: Trích xuất nội dung từ bản ghi QARecord gốc cho '%s'", query_word)
+                    llm_answer = best_candidate.record.answer
+                else:
+                    llm_answer = f"{settings.OLLAMA_OFFLINE_RESPONSE}\n(Chi tiết: {final_err})"
 
         # Nếu LLM xác nhận không đủ ngữ cảnh và đưa ra câu từ chối ngoài phạm vi
         if settings.OUT_OF_SCOPE_RESPONSE in llm_answer or "nằm ngoài phạm vi" in llm_answer:
